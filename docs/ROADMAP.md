@@ -1,0 +1,77 @@
+# 09 — Roadmap
+
+Phased milestones from an empty repo to fault-tolerant-era readiness. Phases are outcome-defined,
+not date-defined; rough durations assume a small, focused team. The work-package breakdown that
+executes these phases is in [10-agentic-build-plan.md](./10-agentic-build-plan.md).
+
+## Phase 0 — Bootstrap & spec (0–2 months)
+**Outcome:** the repo, the workspace skeleton, and a frozen v0 spec.
+- Cargo workspace with all crate stubs ([03-architecture.md](./03-architecture.md)).
+- Language spec and type-system doc frozen at v0 (this suite).
+- CI green on an empty pipeline; `gala --version` runs.
+- Decision log started for the open questions below.
+
+## Phase 1 — Frontend that type-checks (2–6 months)
+**Outcome:** `gala check` fully type-, effect-, and linearity-checks real programs, with
+teaching-grade errors.
+- Lexer, parser (with recovery), AST/HIR, name resolution.
+- Type + effect inference; const-generic `Qubits<N>` solving.
+- **Linearity checker** (no-cloning) with the flagship diagnostics.
+- **Uncomputation analysis + synthesis** (`E0530` refusal path included).
+- Diagnostics + `gala explain`.
+- Conformance suites for types/effects/linearity/uncompute.
+
+## Phase 2 — Minimum lovable core: it runs (6–11 months)
+**Outcome:** `gala run` executes hybrid programs on the built-in simulator with zero config.
+- GIR + lowering from typed HIR.
+- Simulator backend via `roqoqo`/QuEST (state-vector).
+- Basic `gala-opt` (fusion, cancellation).
+- `gala.core`, `gala.gates`, part of `gala.algorithms`.
+- REPL with state-vector/Bloch visualization; `gala fmt`.
+- Public "hello Bell pair" with a no-cloning-bug demo.
+
+## Phase 3 — Hybrid & differentiable (11–17 months)
+**Outcome:** the beachhead — train a variational model end to end.
+- Native `grad`: parameter-shift + classical autodiff + composition (`gala-diff`).
+- `gala.ml` (encoders, ansätze, QAOA/VQE, optimizers).
+- Noisy simulator; `gala.noise`.
+- Quantum-aware property testing (`unitary`, `reversible`, `uncomputes`, `grad_matches`).
+- LSP v1 (diagnostics, hover, inline circuits) + VS Code extension.
+
+## Phase 4 — Hardware & scale (17–26 months)
+**Outcome:** the same program runs on real hardware, cross-vendor.
+- QIR emission (`gala-qir` via `inkwell`); base + adaptive profiles.
+- Vendor reach via `qoqo_qir` (IBM/IonQ/Quantinuum/Braket); backend capability checking.
+- Target-lowering pass (routing, native gate decomposition, scheduling).
+- Tensor-network simulator; classical codegen release path (LLVM).
+- Package manager + registry v1; reproducible builds.
+
+## Phase 5 — Ecosystem & fault-tolerant readiness (26+ months)
+**Outcome:** a real community and readiness for logical-qubit programs.
+- Rich control-flow / mid-circuit-measurement patterns tuned for logical qubits.
+- Python bridge for incremental adoption in existing ML pipelines.
+- Expanded algorithm & ML libraries; notebook kernel.
+- Governance foundation, RFC process at scale, education program & courseware.
+- Formal soundness writeup for the core (progress/preservation, linearity, uncomputation).
+
+## Milestone acceptance gates
+- **M1 (end P1):** the linearity + uncomputation conformance suites pass; a curated set of
+  "impossible" programs are all rejected with teaching diagnostics.
+- **M2 (end P2):** `gala run` simulates Bell, QFT, and Grover correctly with zero setup.
+- **M3 (end P3):** a variational classifier trains to target accuracy on the simulator via native
+  `grad`; property tests green.
+- **M4 (end P4):** an identical program runs on ≥2 hardware vendors via QIR with only a backend
+  change.
+- **M5 (end P5):** external contributors land RFCs; a course teaches Gala end to end.
+
+## Language RFCs / open questions (decide before freezing surfaces)
+1. In-place gate sugar as default vs explicit threading (spec §7.4).
+2. `Measured<T>` auto-coercion vs explicit `.value()`/`.sample()`.
+3. Surface for controlled/adjoint application (`control(f)(...)` vs `ctrl { }`).
+4. Affine vs strictly linear qubits (implicit `drop` with synthesized uncompute?).
+5. How far to push dependent typing on `Qubits<N>`.
+6. Effect polymorphism surface and inference limits.
+7. Whether noise/error budgets enter the type system.
+
+Each RFC lands with conformance cases ([08-testing-qa.md](./08-testing-qa.md)) and a decision-log
+entry.

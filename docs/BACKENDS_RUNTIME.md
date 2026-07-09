@@ -1,0 +1,90 @@
+# 05 — Backends & Runtime
+
+Gala targets three artifact classes from one GIR: **QIR** for real hardware, **simulators** for
+zero-setup development, and **native classical code** for the orchestration layer. A thin
+**runtime** coordinates the hybrid loop at execution time.
+
+## 1. Backend-polymorphism model
+
+A program never names a specific device in source. Instead it receives a **backend capability**:
+
+```gala
+fn main() {
+    let backend = backend.simulator()            // or backend.noisy(model)
+                                                 // or backend.hardware("ionq.aria")
+    let result = run(classify, on: backend, shots: 1000)
+}
+```
+
+The backend is a value with a capability type describing what it supports (qubit count, native
+gates, mid-circuit measurement, connectivity). The compiler checks program requirements against
+the backend capability and lowers accordingly. Swapping simulator → hardware is a one-line change.
+
+## 2. QIR emission (`gala-qir`)
+
+- **Why QIR:** QIR is an LLVM-based, vendor-neutral intermediate representation for quantum
+  programs — a common interface between languages and hardware. Emitting it means Gala runs on any
+  QIR-consuming backend without per-vendor codegen.
+- **How:** `gala-qir` uses `inkwell` (safe LLVM bindings) to build the QIR module from optimized
+  GIR. Since QIR *is* LLVM IR, classical control flow, loops, and mid-circuit measurement lower
+  naturally alongside quantum intrinsics.
+- **Profiles:** QIR defines capability profiles. Gala selects:
+  - **Base profile** for straight-line circuits with terminal measurement.
+  - **Adaptive profile** when the program uses mid-circuit measurement and
+    measurement-conditioned control flow (now supported on leading hardware).
+  The chosen profile is validated against the backend capability; a mismatch is a compile error
+  with a clear message.
+- **Vendor reach:** via `qoqo_qir` and vendor SDKs, QIR lowers out to IBM, IonQ, Quantinuum,
+  Braket, and others. New vendors are added at this layer without touching the frontend.
+
+## 3. Simulators (`gala-sim`)
+
+Shipped in-box so a laptop is a complete dev environment (`gala run` needs zero configuration).
+
+| Simulator | Backing | Use |
+|-----------|---------|-----|
+| State-vector | `roqoqo` + `roqoqo-quest` (QuEST) | Exact correctness; small–mid qubit counts; GPU/distributed capable |
+| Noisy | QuEST noise models via roqoqo-quest | Realism; error-aware development |
+| Tensor-network (later) | pluggable | Larger circuits with limited entanglement |
+
+The simulator consumes GIR directly (fast dev loop) and can also consume emitted QIR (to validate
+the exact artifact that will run on hardware). Deterministic under a fixed RNG seed.
+
+## 4. Classical codegen (`gala-codegen-classical`)
+
+The classical orchestration layer (loops, optimizers, data handling) compiles to native code:
+`cranelift` for fast debug builds, LLVM (via `inkwell`) for optimized releases. This is what makes
+Gala a *complete* language rather than a circuit DSL — the training loop, data pipeline, and glue
+are first-class compiled code, not a host-language afterthought.
+
+## 5. The hybrid runtime (`gala-runtime`)
+
+Coordinates execution of hybrid programs:
+
+- **Kernel dispatch:** sends quantum kernels to the selected backend; marshals classical data in
+  and `Measured<T>` results out.
+- **Mid-circuit measurement & feedback:** supports measurement-conditioned control flow on
+  adaptive-profile targets; on base-profile targets, rejects such programs at compile time.
+- **Shot management & aggregation:** runs `shots` repetitions, builds the empirical distribution
+  behind `Measured<T>`.
+- **Batching:** parameter-shift gradient evaluations are batched into as few device submissions as
+  possible (major cost saver on real hardware).
+- **Caching:** identical circuit submissions can be memoized in a dev session.
+
+## 6. Noise & error awareness (`gala.noise`, capability types)
+
+Noise models are first-class, typed objects (`gala.noise`), so a program can be developed and
+tested against realistic noise before touching hardware. Backend capability types carry error
+characteristics; an optional future extension tracks error budgets in the type system (open
+question — see [09-roadmap.md](./09-roadmap.md)).
+
+## 7. Adding a new backend (contained task)
+
+Because backends see only GIR (or QIR), adding one is a bounded work package:
+1. Implement the capability descriptor (qubits, gates, connectivity, mid-circuit support).
+2. Provide a submit/execute adapter (usually via QIR + vendor SDK, or a new simulator).
+3. Register it with `gala-runtime`'s backend registry.
+4. Add conformance tests ([08-testing-qa.md](./08-testing-qa.md)).
+
+No frontend or type-system changes required — this is the payoff of the "GIR is the contract"
+boundary.
