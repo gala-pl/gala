@@ -1,0 +1,4 @@
+[toolchain]
+channel = "stable-2026-04-14"
+targets = ["aarch64-apple-darwin"]
+profile = "default"
