@@ -1,0 +1,49 @@
+name: RFC (Language Change Proposal)
+description: Propose a change to Gala's syntax, types, effects, diagnostics, or observable semantics.
+labels: ["RFC"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Per [CONTRIBUTING.md §4](../../CONTRIBUTING.md#4-language-change-process-rfcs),
+        any change to observable language behaviour requires an RFC.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is the motivation? What gap or issue does this address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Detailed description of the change — syntax, types, semantics.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What other approaches were considered and why were they rejected?
+    validations:
+      required: false
+
+  - type: textarea
+    id: migration
+    attributes:
+      label: Migration
+      description: Migration path for existing code, if any.
+    validations:
+      required: false
+
+  - type: textarea
+    id: conformance
+    attributes:
+      label: Conformance cases
+      description: Examples of passing and failing programs this change would introduce.
+    validations:
+      required: true
