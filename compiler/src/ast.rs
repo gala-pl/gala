@@ -16,14 +16,25 @@ pub enum Expr {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp {
-    Add, Sub, Mul, Div, Mod,
-    Eq, Ne, Lt, Le, Gt, Ge,
-    And, Or,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnOp {
-    Neg, Not,
+    Neg,
+    Not,
 }
 
 #[derive(Debug, Clone, PartialEq)]

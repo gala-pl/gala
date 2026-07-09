@@ -8,16 +8,11 @@ pub struct String {
 
 impl String {
     pub fn new(s: &str) -> Self {
-        Self {
-            ptr: s.as_ptr(),
-            len: s.len(),
-        }
+        Self { ptr: s.as_ptr(), len: s.len() }
     }
 
     pub fn as_str(&self) -> &str {
-        unsafe {
-            core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len))
-        }
+        unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) }
     }
 
     pub fn len(&self) -> usize {

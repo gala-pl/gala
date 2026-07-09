@@ -19,12 +19,31 @@ pub enum Token {
     False,
 
     // Symbols
-    Plus, Minus, Star, Slash, Percent,
-    Eq, EqEq, Bang, BangEq,
-    Lt, Le, Gt, Ge,
-    And, AndAnd, Or, OrOr,
-    LParen, RParen, LBrace, RBrace,
-    Comma, Semicolon, Colon, Arrow,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Eq,
+    EqEq,
+    Bang,
+    BangEq,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    AndAnd,
+    Or,
+    OrOr,
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    Comma,
+    Semicolon,
+    Colon,
+    Arrow,
     // ... is a "rest" / spread operator? Not needed yet.
 
     // Special
@@ -84,10 +103,7 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(input: &str) -> Self {
-        Self {
-            chars: input.chars().collect(),
-            pos: 0,
-        }
+        Self { chars: input.chars().collect(), pos: 0 }
     }
 
     fn peek(&self) -> Option<char> {

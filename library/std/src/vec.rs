@@ -10,11 +10,7 @@ pub struct Vec<T> {
 
 impl<T> Vec<T> {
     pub fn new() -> Self {
-        Self {
-            ptr: ptr::null_mut(),
-            len: 0,
-            cap: 0,
-        }
+        Self { ptr: ptr::null_mut(), len: 0, cap: 0 }
     }
 
     pub fn len(&self) -> usize {
