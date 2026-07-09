@@ -38,7 +38,7 @@ and green CI before merge.
 8. LOG        Any deviation from spec is recorded in the decision log; specs updated if needed.
 ```
 
-**Guardrails for agents (also in [11-contributing.md](./11-contributing.md)):**
+**Guardrails for agents (also in [CONTRIBUTING.md](./CONTRIBUTING.md)):**
 - Never weaken a test to make CI pass; fix the code or escalate.
 - Never mark a WP done with failing tests, partial implementation, or `todo!()` in shipped paths.
 - If blocked or the spec is ambiguous, stop and open a question rather than guessing.
@@ -72,7 +72,7 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
 ### M0 — Bootstrap
 
 **WP-000 — Workspace skeleton**
-- Goal: Cargo workspace with all crate stubs from [03-architecture.md](./03-architecture.md); each
+- Goal: Cargo workspace with all crate stubs from [ARCHITECTURE.md](./ARCHITECTURE.md); each
   crate compiles empty.
 - Deps: none.
 - Deliverables: workspace `Cargo.toml`, crate dirs, `rust-toolchain.toml`, `Cargo.lock`.
@@ -91,7 +91,7 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
   snapshot tests via `insta`.
 
 **WP-003 — CI + repo hygiene**
-- Goal: CI pipeline per [08-testing-qa.md](./08-testing-qa.md) §4; `fmt`/`clippy` gates; PR
+- Goal: CI pipeline per [TESTING_QA.md](./TESTING_QA.md) §4; `fmt`/`clippy` gates; PR
   template with the DoD checklist; branch protection.
 - Deps: WP-000.
 - DoD: CI green on an empty pipeline; a deliberately failing test blocks merge.
@@ -99,7 +99,7 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
 ### M1 — Frontend that type-checks
 
 **WP-010 — Lexer**
-- Goal: `gala-lexer` with `logos`; all tokens in [01-language-spec.md](./01-language-spec.md) §2,
+- Goal: `gala-lexer` with `logos`; all tokens in [LANGUAGE_SPEC.md](./LANGUAGE_SPEC.md) §2,
   incl. nested block comments, complex literals, Unicode idents.
 - Deps: WP-001.
 - DoD: property test (roundtrip of token spans); conformance lexer cases.
@@ -123,7 +123,7 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
 
 **WP-014 — Linearity checker (no-cloning)** `[spec-sensitive]`
 - Goal: ownership/liveness pass enforcing linear discipline
-  ([02-type-system.md](./02-type-system.md) §1) with the flagship teaching diagnostics.
+  ([TYPE_SYSTEM.md](./TYPE_SYSTEM.md) §1) with the flagship teaching diagnostics.
 - Deps: WP-013.
 - DoD: conformance `linearity/` passes: use-after-consume, duplication, implicit-drop, aliasing
   each produce the specified `E04xx` with the documented `help:` text.
@@ -246,7 +246,7 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
 - DoD: hardware smoke test on ≥1 vendor; capability mismatch is a compile error (`E06xx`).
 
 **WP-042 — Backend-polymorphism + capability checking**
-- Goal: backend-as-capability model ([05-backends-runtime.md](./05-backends-runtime.md) §1);
+- Goal: backend-as-capability model ([BACKENDS_RUNTIME.md](./BACKENDS_RUNTIME.md) §1);
   `run(f, on: backend)`.
 - Deps: WP-041.
 - DoD: same program simulates and runs on hardware with only the backend line changed (M4 gate).
@@ -304,7 +304,7 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
   the core subset.
 - Deps: WP-013..016.
 - DoD: document + mechanized checks where feasible; cross-linked from
-  [02-type-system.md](./02-type-system.md) §7.
+  [TYPE_SYSTEM.md](./TYPE_SYSTEM.md) §7.
 
 **WP-055 — Governance + RFC process at scale**
 - Goal: public RFC repo/flow, decision log, contributor ladder.
@@ -373,5 +373,5 @@ and guardrails apply to all.
 Track WPs on a board (or the repo's issue tracker) with columns Backlog → Claimed → In-progress →
 In-review → Done, one issue per WP labeled by milestone. The dependency edges in §3/§5 are the
 "blocked-by" links. A WP is **Done** only when merged with green CI and Reviewer approval — see the
-Definition of Done in [08-testing-qa.md](./08-testing-qa.md) §6 and
-[11-contributing.md](./11-contributing.md).
+Definition of Done in [TESTING_QA.md](./TESTING_QA.md) §6 and
+[CONTRIBUTING.md](./CONTRIBUTING.md).

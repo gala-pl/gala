@@ -54,7 +54,7 @@ tests/conformance/
 
 Each case is `source + expectation` (a type, a diagnostic code, a GIR/QIR snapshot, or a runtime
 result). The suite is the practical source of truth for "what Gala does" outside the formal core
-([02-type-system.md](./02-type-system.md) §7), and every language RFC must add cases here.
+([TYPE_SYSTEM.md](./TYPE_SYSTEM.md) §7), and every language RFC must add cases here.
 
 ## 4. CI pipeline
 
@@ -76,7 +76,7 @@ On every PR:
 
 ## 6. Definition of done (per work package)
 
-A work package (see [10-agentic-build-plan.md](./10-agentic-build-plan.md)) is complete only when:
+A work package (see [AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md)) is complete only when:
 its code builds warning-free, unit + relevant property tests pass, conformance cases are added or
 updated, public items are documented, and diagnostics (if any) have `explain` entries. No
-exceptions — this is enforced in [11-contributing.md](./11-contributing.md).
+exceptions — this is enforced in [CONTRIBUTING.md](./CONTRIBUTING.md).

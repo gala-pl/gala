@@ -2,7 +2,7 @@
 
 This is the surface-language reference: lexical structure, grammar, type notation, effects, and
 worked examples. Semantics of the type system are detailed in
-[02-type-system.md](./02-type-system.md).
+[TYPE_SYSTEM.md](./TYPE_SYSTEM.md).
 
 ## 1. Design of the surface syntax
 
@@ -76,7 +76,7 @@ arg          := (ident ":")? expr                     // optional named args
 | `fn(...) -> T eff` | Function type carrying an effect | Yes |
 
 Linear types (`Qubit`, `Qubits<N>`, and any struct containing them) may not be duplicated,
-implicitly dropped, or used after being consumed. See [02-type-system.md](./02-type-system.md).
+implicitly dropped, or used after being consumed. See [TYPE_SYSTEM.md](./TYPE_SYSTEM.md).
 
 ## 5. Effects
 
@@ -183,7 +183,7 @@ import mypkg.foo as f
 ```
 
 A package is a directory with a `gala.toml` manifest. Module paths mirror directory structure.
-See [06-toolchain-dx.md](./06-toolchain-dx.md).
+See [TOOLCHAIN_DX.md](./TOOLCHAIN_DX.md).
 
 ## 9. Open syntactic questions
 
@@ -193,4 +193,4 @@ See [06-toolchain-dx.md](./06-toolchain-dx.md).
   explicit `.value()` / `.sample()`.
 - Exact surface for controlled/adjoint application (`control(f)(...)` vs a `ctrl { ... }` block).
 
-These are tracked in [09-roadmap.md](./09-roadmap.md) under "language RFCs."
+These are tracked in [ROADMAP.md](./ROADMAP.md) under "language RFCs."

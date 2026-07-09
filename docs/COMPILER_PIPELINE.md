@@ -1,7 +1,7 @@
 # 04 — Compiler Pipeline
 
 This doc walks the compilation from source to artifact, pass by pass, and defines the `salsa`
-query graph. Crate names refer to [03-architecture.md](./03-architecture.md).
+query graph. Crate names refer to [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 1. Pipeline overview
 
@@ -59,7 +59,7 @@ Union-find (`ena`) backs unification. Produces a fully-typed HIR and type diagno
 
 ### 2.5 Linearity checking (`gala-types` / dedicated sub-pass)
 A liveness/ownership analysis over typed HIR verifying the linear discipline (§1 of
-[02-type-system.md](./02-type-system.md)): every qubit used exactly once, no use-after-consume, no
+[TYPE_SYSTEM.md](./TYPE_SYSTEM.md)): every qubit used exactly once, no use-after-consume, no
 aliasing, no implicit drop. Emits the teaching-grade `E04xx`/`E05xx` diagnostics.
 
 ### 2.6 Uncomputation synthesis (`gala-uncompute`)
@@ -89,7 +89,7 @@ GIR → GIR rewrites:
 ### 2.10 Backends
 - **`gala-qir`:** GIR → QIR (LLVM IR) via `inkwell`. Chooses a QIR *profile* (base vs adaptive)
   based on whether the program uses mid-circuit measurement / conditioned control flow. See
-  [05-backends-runtime.md](./05-backends-runtime.md).
+  [BACKENDS_RUNTIME.md](./BACKENDS_RUNTIME.md).
 - **`gala-sim`:** GIR executed on `roqoqo`/QuEST (state-vector or noisy).
 - **`gala-codegen-classical`:** the classical orchestration layer to native code via `cranelift`
   (fast debug) or LLVM (release).

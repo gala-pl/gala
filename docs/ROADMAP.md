@@ -2,11 +2,11 @@
 
 Phased milestones from an empty repo to fault-tolerant-era readiness. Phases are outcome-defined,
 not date-defined; rough durations assume a small, focused team. The work-package breakdown that
-executes these phases is in [10-agentic-build-plan.md](./10-agentic-build-plan.md).
+executes these phases is in [AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md).
 
 ## Phase 0 — Bootstrap & spec (0–2 months)
 **Outcome:** the repo, the workspace skeleton, and a frozen v0 spec.
-- Cargo workspace with all crate stubs ([03-architecture.md](./03-architecture.md)).
+- Cargo workspace with all crate stubs ([ARCHITECTURE.md](./ARCHITECTURE.md)).
 - Language spec and type-system doc frozen at v0 (this suite).
 - CI green on an empty pipeline; `gala --version` runs.
 - Decision log started for the open questions below.
@@ -73,5 +73,5 @@ teaching-grade errors.
 6. Effect polymorphism surface and inference limits.
 7. Whether noise/error budgets enter the type system.
 
-Each RFC lands with conformance cases ([08-testing-qa.md](./08-testing-qa.md)) and a decision-log
+Each RFC lands with conformance cases ([TESTING_QA.md](./TESTING_QA.md)) and a decision-log
 entry.

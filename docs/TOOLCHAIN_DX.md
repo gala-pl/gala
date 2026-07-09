@@ -84,7 +84,7 @@ myproject/
 `gala test` runs example-based tests **and** quantum-aware property tests that check invariants
 (unitarity, reversibility round-trips, uncomputation correctness) automatically. This "tests that
 understand quantum mechanics" capability is a signature DX feature. See
-[08-testing-qa.md](./08-testing-qa.md).
+[TESTING_QA.md](./TESTING_QA.md).
 
 ## 9. Editor & ecosystem integrations (phased)
 

@@ -76,7 +76,7 @@ Coordinates execution of hybrid programs:
 Noise models are first-class, typed objects (`gala.noise`), so a program can be developed and
 tested against realistic noise before touching hardware. Backend capability types carry error
 characteristics; an optional future extension tracks error budgets in the type system (open
-question — see [09-roadmap.md](./09-roadmap.md)).
+question — see [ROADMAP.md](./ROADMAP.md)).
 
 ## 7. Adding a new backend (contained task)
 
@@ -84,7 +84,7 @@ Because backends see only GIR (or QIR), adding one is a bounded work package:
 1. Implement the capability descriptor (qubits, gates, connectivity, mid-circuit support).
 2. Provide a submit/execute adapter (usually via QIR + vendor SDK, or a new simulator).
 3. Register it with `gala-runtime`'s backend registry.
-4. Add conformance tests ([08-testing-qa.md](./08-testing-qa.md)).
+4. Add conformance tests ([TESTING_QA.md](./TESTING_QA.md)).
 
 No frontend or type-system changes required — this is the payoff of the "GIR is the contract"
 boundary.
