@@ -1,0 +1,82 @@
+# 08 — Testing, QA & Conformance
+
+Testing is a language feature here, not just an internal practice: Gala ships **quantum-aware
+property testing**, and the compiler itself is validated by a **conformance suite** that also
+serves as the executable definition of the language beyond the formal core.
+
+## 1. Levels of testing
+
+| Level | What | Tooling |
+|-------|------|---------|
+| Unit | Per-crate logic (lexer, parser, checker passes) | Rust `#[test]`, `insta` snapshots |
+| Property | Randomized invariants over compiler & programs | `proptest` |
+| Golden/snapshot | Diagnostics, GIR dumps, formatter output | `insta` |
+| Conformance | Language behavior spec (source → expected result/diagnostic) | custom harness in `tests/` |
+| Simulation | End-to-end programs on `gala-sim` | integration tests |
+| Hardware smoke | Selected programs on real backends (nightly/manual) | vendor SDKs |
+
+## 2. Quantum-aware property testing (signature feature)
+
+`gala test` can check *physical* invariants automatically, not just example assertions:
+
+- **Unitarity:** for a `quantum` function `f`, the simulated matrix is unitary (`f† f = I`).
+- **Reversibility round-trip:** `adjoint(f) ∘ f == identity` on random input states.
+- **Uncomputation correctness:** after a scope with liftable ancillae, ancilla qubits are within ε
+  of |0⟩ (no leaked entanglement).
+- **Gradient check:** native `grad(f)` matches finite-difference gradients within tolerance.
+- **Effect honesty:** a function typed `quantum` performs no measurement (checked structurally).
+
+Authors write these as attributes:
+
+```gala
+#[property(unitary)]        fn qft_is_unitary() { qft::<4> }
+#[property(reversible)]     fn adder_roundtrips() { ripple_adder::<8> }
+#[property(uncomputes)]     fn scratch_is_clean() { grover_oracle }
+#[property(grad_matches)]   fn ansatz_grad() { classify }
+```
+
+The harness runs them over randomized inputs on the simulator.
+
+## 3. Compiler conformance suite
+
+A directory of cases, each pinning behavior:
+
+```
+tests/conformance/
+  types/            # expected types & inference results
+  effects/          # expected effect rows; boundary-crossing errors
+  linearity/        # use-after-consume, duplication, implicit-drop errors
+  uncompute/        # auto-uncompute success + E0530 refusal cases
+  diff/             # gradient lowering correctness
+  qir/              # expected QIR profile selection + golden QIR
+  run/              # end-to-end simulated outputs
+```
+
+Each case is `source + expectation` (a type, a diagnostic code, a GIR/QIR snapshot, or a runtime
+result). The suite is the practical source of truth for "what Gala does" outside the formal core
+([02-type-system.md](./02-type-system.md) §7), and every language RFC must add cases here.
+
+## 4. CI pipeline
+
+On every PR:
+1. `cargo fmt --check`, `clippy -D warnings`.
+2. Build (frontend-only feature set — no LLVM/QuEST — for speed) + full build.
+3. `cargo test` (unit + property + snapshot).
+4. Conformance suite.
+5. `gala fmt --check` on all `.gala` fixtures and the stdlib.
+6. Simulation integration tests.
+7. Nightly: hardware smoke tests + larger property runs + benchmark tracking.
+
+## 5. Benchmarks & regression tracking
+
+- **Compile-time** benchmarks (cold and incremental via salsa) tracked over time.
+- **Circuit-quality** benchmarks: gate count / depth after `gala-opt` on a standard algorithm set.
+- **Gradient-cost** benchmarks: device submissions per `grad` evaluation (parameter-shift
+  batching effectiveness).
+
+## 6. Definition of done (per work package)
+
+A work package (see [10-agentic-build-plan.md](./10-agentic-build-plan.md)) is complete only when:
+its code builds warning-free, unit + relevant property tests pass, conformance cases are added or
+updated, public items are documented, and diagnostics (if any) have `explain` entries. No
+exceptions — this is enforced in [11-contributing.md](./11-contributing.md).
