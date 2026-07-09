@@ -8,6 +8,9 @@
     "test": "cargo test --workspace",
     "lint": "cargo clippy --workspace -- -D warnings",
     "fmt": "cargo fmt --all",
-    "clean": "cargo clean"
+    "clean": "cargo clean",
+    "docs:dev": "cd apps/docs && bun next dev",
+    "docs:build": "cd apps/docs && bun next build",
+    "docs:typecheck": "cd apps/docs && bun tsc --noEmit"
   }
 }

@@ -16,6 +16,11 @@ Session.vim
 
 ## Node
 node_modules/
+.next/
+*.tsbuildinfo
+
+## Fumadocs
+.source/
 
 ## OS
 .DS_Store
