@@ -1,6 +1,6 @@
 # Gala
 
-A modern systems programming language designed for safety, performance, and expressiveness.
+A hybrid quantum-classical programming language whose compiler enforces the laws of quantum mechanics.
 
 ## Quick Start
 
