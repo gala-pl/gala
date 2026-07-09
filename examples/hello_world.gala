@@ -1,0 +1,5 @@
+fn main() -> Int {
+    let msg = "Hello, Gala!";
+    print(msg);
+    return 0;
+}
