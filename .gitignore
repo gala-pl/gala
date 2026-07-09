@@ -1,0 +1,22 @@
+## File system
+.DS_Store
+desktop.ini
+
+## Editor
+*.swp
+*.swo
+.vscode/
+.idea/
+*.iml
+Session.vim
+
+## Build artifacts
+/target/
+**/*.rs.bk
+
+## Node
+node_modules/
+
+## OS
+.DS_Store
+Thumbs.db
