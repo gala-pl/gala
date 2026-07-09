@@ -4,6 +4,17 @@ members = [
     "compiler",
     "library/core",
     "library/std",
+    "library/stdlib/gala-string",
+    "library/stdlib/gala-io",
+    "library/stdlib/gala-collections",
+    "library/runtime/gala-chan",
+    "library/runtime/gala-region",
+    "library/runtime/gala-async",
+    "library/runtime/gala-gc",
+    "library/runtime/gala-python",
+    "tools/gala-cli",
+    "tools/gala-lint",
+    "tools/gala-pkg",
     "tools/gala-lsp",
     "tools/gala-fmt",
 ]
@@ -11,3 +22,12 @@ members = [
 [workspace.dependencies]
 thiserror = "1"
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+semver = "1"
+rand = "0.8"
+log = "0.4"
+gala-compiler = { path = "compiler" }
+gala-core = { path = "library/core" }
+tempfile = "3"
