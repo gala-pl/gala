@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "compiler",
+    "library/core",
+    "library/std",
+    "tools/gala-lsp",
+    "tools/gala-fmt",
+]
+
+[workspace.dependencies]
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }

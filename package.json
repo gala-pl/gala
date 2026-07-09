@@ -1,0 +1,13 @@
+{
+  "name": "gala-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Gala programming language monorepo",
+  "scripts": {
+    "build": "cargo build --workspace",
+    "test": "cargo test --workspace",
+    "lint": "cargo clippy --workspace -- -D warnings",
+    "fmt": "cargo fmt --all",
+    "clean": "cargo clean"
+  }
+}
