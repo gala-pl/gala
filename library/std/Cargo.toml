@@ -2,6 +2,12 @@
 name = "gala-std"
 version = "0.1.0"
 edition = "2021"
+description = "Standard library umbrella crate for the Gala programming language"
 
 [dependencies]
-gala-core = { path = "../core" }
+gala-core.workspace = true
+gala-string = { path = "../stdlib/gala-string" }
+gala-io = { path = "../stdlib/gala-io" }
+gala-collections = { path = "../stdlib/gala-collections" }
+gala-chan = { path = "../runtime/gala-chan" }
+gala-region = { path = "../runtime/gala-region" }
