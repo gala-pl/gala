@@ -23,12 +23,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     pub fn error(msg: impl Into<String>) -> Self {
-        Self {
-            level: Level::Error,
-            message: msg.into(),
-            span: None,
-            notes: Vec::new(),
-        }
+        Self { level: Level::Error, message: msg.into(), span: None, notes: Vec::new() }
     }
 
     pub fn with_span(mut self, span: Span) -> Self {

@@ -133,8 +133,12 @@ fn emit_expr(expr: &Expr, out: &mut String, indent: usize) {
         }
         Expr::FnDef(fdef) => {
             let pad = "    ".repeat(indent);
-            out.push_str(&format!("{}fn {}({})", pad, fdef.name,
-                fdef.params.iter()
+            out.push_str(&format!(
+                "{}fn {}({})",
+                pad,
+                fdef.name,
+                fdef.params
+                    .iter()
                     .map(|(n, t)| format!("{n}: {}", type_str(t)))
                     .collect::<Vec<_>>()
                     .join(", ")
