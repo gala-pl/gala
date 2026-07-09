@@ -1,0 +1,7 @@
+[package]
+name = "gala-fmt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gala-compiler = { path = "../../compiler" }
