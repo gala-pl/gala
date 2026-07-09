@@ -1,0 +1,6 @@
+# See https://doc.rust-lang.org/clippy/ for all available lints.
+
+# Enable restriction lints at CI level via -D warnings.
+# This file configures Clippy's behavior thresholds.
+
+msrv = "1.95"
