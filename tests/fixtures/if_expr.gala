@@ -1,0 +1,9 @@
+fn main() -> Int {
+    let x = 10;
+    let y = if x > 5 {
+        x * 2
+    } else {
+        x
+    };
+    return y;
+}
