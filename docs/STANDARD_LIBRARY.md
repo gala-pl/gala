@@ -64,6 +64,6 @@ programs entirely in-language.
 - **Prefer Gala source over intrinsics** so the stdlib doubles as documentation and dogfoods the
   language.
 - **Every public item has doc comments** (`///`) and at least one property test.
-- **No item ships without conformance coverage** ([08-testing-qa.md](./08-testing-qa.md)).
+- **No item ships without conformance coverage** ([TESTING_QA.md](./TESTING_QA.md)).
 - **Stability tiers:** `stable`, `unstable(feature)`, `experimental` — the ML/hardware layers move
   fastest and are explicitly marked.

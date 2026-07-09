@@ -23,19 +23,19 @@ Read in order for a full picture; each doc is self-contained enough to reference
 | # | Document | What it covers |
 |---|----------|----------------|
 | — | [README.md](./README.md) | This index + project overview |
-| 00 | [docs/00-vision.md](./docs/00-vision.md) | Thesis, why now, goals & non-goals, principles |
-| 01 | [docs/01-language-spec.md](./docs/01-language-spec.md) | Surface syntax, grammar (EBNF), semantics, examples |
-| 02 | [docs/02-type-system.md](./docs/02-type-system.md) | Linear types, effect system, uncomputation, reversibility, differentiation |
-| 03 | [docs/03-architecture.md](./docs/03-architecture.md) | Cargo workspace layout, crate boundaries, the compiler as a whole |
-| 04 | [docs/04-compiler-pipeline.md](./docs/04-compiler-pipeline.md) | Lexer → parser → HIR → GIR → optimizer → backends; salsa query graph |
-| 05 | [docs/05-backends-runtime.md](./docs/05-backends-runtime.md) | QIR emission, simulators (roqoqo/QuEST), hardware, the hybrid runtime |
-| 06 | [docs/06-toolchain-dx.md](./docs/06-toolchain-dx.md) | `gala` CLI, LSP, REPL, formatter, package manager, diagnostics |
-| 07 | [docs/07-stdlib.md](./docs/07-stdlib.md) | Standard library layering: core, gates, algorithms, ml, noise, hardware |
-| 08 | [docs/08-testing-qa.md](./docs/08-testing-qa.md) | Test strategy, quantum-aware property testing, CI, conformance suite |
-| 09 | [docs/09-roadmap.md](./docs/09-roadmap.md) | Phased milestones from bootstrap to fault-tolerant readiness |
-| 10 | [docs/10-agentic-build-plan.md](./docs/10-agentic-build-plan.md) | **The agentic build plan** — epics, work packages, agent prompts, acceptance criteria, dependency graph |
-| 11 | [docs/11-contributing.md](./docs/11-contributing.md) | Dev workflow, conventions, definition of done, agent operating rules |
-| 12 | [docs/12-glossary.md](./docs/12-glossary.md) | Quantum + PL + compiler terminology |
+| 00 | [VISION.md](./VISION.md) | Thesis, why now, goals & non-goals, principles |
+| 01 | [LANGUAGE_SPEC.md](./LANGUAGE_SPEC.md) | Surface syntax, grammar (EBNF), semantics, examples |
+| 02 | [TYPE_SYSTEM.md](./TYPE_SYSTEM.md) | Linear types, effect system, uncomputation, reversibility, differentiation |
+| 03 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Cargo workspace layout, crate boundaries, the compiler as a whole |
+| 04 | [COMPILER_PIPELINE.md](./COMPILER_PIPELINE.md) | Lexer → parser → HIR → GIR → optimizer → backends; salsa query graph |
+| 05 | [BACKENDS_RUNTIME.md](./BACKENDS_RUNTIME.md) | QIR emission, simulators (roqoqo/QuEST), hardware, the hybrid runtime |
+| 06 | [TOOLCHAIN_DX.md](./TOOLCHAIN_DX.md) | `gala` CLI, LSP, REPL, formatter, package manager, diagnostics |
+| 07 | [STANDARD_LIBRARY.md](./STANDARD_LIBRARY.md) | Standard library layering: core, gates, algorithms, ml, noise, hardware |
+| 08 | [TESTING_QA.md](./TESTING_QA.md) | Test strategy, quantum-aware property testing, CI, conformance suite |
+| 09 | [ROADMAP.md](./ROADMAP.md) | Phased milestones from bootstrap to fault-tolerant readiness |
+| 10 | [AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md) | **The agentic build plan** — epics, work packages, agent prompts, acceptance criteria, dependency graph |
+| 11 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Dev workflow, conventions, definition of done, agent operating rules |
+| 12 | [GLOSSARY.md](./GLOSSARY.md) | Quantum + PL + compiler terminology |
 
 ---
 
@@ -61,10 +61,10 @@ memory-safe, single-binary toolchain.
 ## Status
 
 Concept / pre-implementation. This suite is the design-of-record and the executable plan. Start
-with [docs/00-vision.md](./docs/00-vision.md), then jump to
-[docs/10-agentic-build-plan.md](./docs/10-agentic-build-plan.md) to begin building.
+with [VISION.md](./VISION.md), then jump to
+[AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md) to begin building.
 
 ## License & governance (intended)
 
 Open-source core (Apache-2.0 or MIT/Apache dual), public RFC process, transparent roadmap.
-See [docs/11-contributing.md](./docs/11-contributing.md).
+See [CONTRIBUTING.md](./CONTRIBUTING.md).

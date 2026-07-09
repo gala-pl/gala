@@ -66,7 +66,7 @@ Quantum, programming-language, and compiler terms used across the suite.
 - **Target lowering** — mapping the logical qubit model to a device's connectivity and native gate
   set (routing, decomposition, scheduling).
 - **Work package (WP)** — a self-contained unit of the build backlog with its own Definition of
-  Done ([10-agentic-build-plan.md](./10-agentic-build-plan.md)).
+  Done ([AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md)).
 
 ## Key Rust crates used
 

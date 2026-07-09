@@ -2,8 +2,8 @@
 
 Gala is a standalone compiler and toolchain implemented as a **Rust Cargo workspace**. This doc
 defines the crate boundaries and how they fit together. The pass-by-pass flow is in
-[04-compiler-pipeline.md](./04-compiler-pipeline.md); backends in
-[05-backends-runtime.md](./05-backends-runtime.md).
+[COMPILER_PIPELINE.md](./COMPILER_PIPELINE.md); backends in
+[BACKENDS_RUNTIME.md](./BACKENDS_RUNTIME.md).
 
 ## 1. Principles for the crate split
 

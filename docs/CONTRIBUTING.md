@@ -1,7 +1,7 @@
 # 11 — Contributing & Agent Operating Rules
 
 Conventions for humans and AI agents building Gala. The build backlog is in
-[10-agentic-build-plan.md](./10-agentic-build-plan.md); this doc is the "how we work" contract.
+[AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md); this doc is the "how we work" contract.
 
 ## 1. Definition of Done (non-negotiable)
 
@@ -29,7 +29,7 @@ shipped path, or a weakened test.
 ## 3. Code conventions (Rust)
 
 - Edition pinned in `rust-toolchain.toml`; `Cargo.lock` committed.
-- Crate boundaries per [03-architecture.md](./03-architecture.md); **nothing above `gala-gir`
+- Crate boundaries per [ARCHITECTURE.md](./ARCHITECTURE.md); **nothing above `gala-gir`
   imports a backend crate** (`gala-qir`, `gala-sim`, `gala-codegen-classical`). CI enforces this
   with a dependency lint.
 - Prefer the designated crate over hand-rolling: parsing `chumsky`, lexing `logos`, diagnostics

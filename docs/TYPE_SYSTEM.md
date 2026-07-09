@@ -69,7 +69,7 @@ first-class diagnostics.
 ## 3. Effect system — the three worlds
 
 Functions carry an effect row: `pure`, `quantum`, or `prob` (see
-[01-language-spec.md](./01-language-spec.md) §5). The effect is part of the type and part of the
+[LANGUAGE_SPEC.md](./LANGUAGE_SPEC.md) §5). The effect is part of the type and part of the
 contract.
 
 - **Subsumption for calls:** a function may call any function whose effect is `⊑` its own in the
@@ -118,7 +118,7 @@ A parameterized quantum circuit is, from the classical side, a function from par
 let dθ = grad(classify, wrt: θ)   // returns fn(Vec<Float>, Params) -> Params
 ```
 
-Differentiation is a lowering pass over GIR (see [04-compiler-pipeline.md](./04-compiler-pipeline.md)),
+Differentiation is a lowering pass over GIR (see [COMPILER_PIPELINE.md](./COMPILER_PIPELINE.md)),
 not a runtime library, so gradients are visible to the optimizer and to hardware lowering.
 
 ---
@@ -146,7 +146,7 @@ and a soundness argument:
   values (proved against a denotational density-matrix model for a core subset).
 
 The formal core is intentionally a *subset*; the full language is defined by the reference
-implementation + conformance suite ([08-testing-qa.md](./08-testing-qa.md)).
+implementation + conformance suite ([TESTING_QA.md](./TESTING_QA.md)).
 
 ## 8. Summary table
 
