@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: RFC (Language Change Proposal)
+    url: https://github.com/gabrielvfonseca/gala/issues/new?template=rfc.yml
+    about: Propose a change to Gala's syntax, types, effects, or semantics.
+  - name: Discussion
+    about: Open-ended questions and discussions about Gala.
+    url: https://github.com/gabrielvfonseca/gala/discussions

@@ -1,0 +1,43 @@
+name: Bug Report
+description: Report a compiler crash, incorrect behaviour, or unexpected diagnostic.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal Gala source or command that triggers the bug.
+      placeholder: |
+        ```gala
+        // your code here
+        ```
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `gala --version`
+      placeholder: e.g. gala 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Rust version (`rustc --version`), OS, target architecture.
+      placeholder: |
+        rustc 1.95.0
+        macOS 15.0 arm64
+    validations:
+      required: false
