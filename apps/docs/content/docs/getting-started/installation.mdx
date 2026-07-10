@@ -1,0 +1,59 @@
+---
+title: Installation
+description: Install the Gala toolchain on your system
+---
+
+Gala requires Rust 1.85+ and a C compiler toolchain (for LLVM/QuEST native dependencies).
+
+## Quick install
+
+```bash
+# Clone the repository
+git clone https://github.com/anomalyco/gala.git
+cd gala
+
+# Build the full toolchain (may take a few minutes for LLVM)
+cargo build --workspace
+
+# Verify it works
+cargo run --bin gala -- --version
+```
+
+## Frontend-only build (faster)
+
+For development without simulators or hardware backends:
+
+```bash
+cargo build --workspace --no-default-features -p gala-cli
+```
+
+## Platform-specific notes
+
+### macOS
+
+Install Xcode Command Line Tools first:
+
+```bash
+xcode-select --install
+```
+
+### Linux
+
+Install LLVM and development headers:
+
+```bash
+# Debian/Ubuntu
+sudo apt install llvm-dev libclang-dev
+
+# Fedora
+sudo dnf install llvm-devel clang-devel
+```
+
+### Windows
+
+Use the LLVM installer from https://releases.llvm.org/ and ensure `llvm-config` is in your PATH.
+
+## Next steps
+
+- [Quickstart](/docs/getting-started/quickstart) — write and run your first Gala program
+- [Language Specification](/docs/language-spec) — learn the syntax and types

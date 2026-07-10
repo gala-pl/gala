@@ -1,0 +1,71 @@
+---
+title: Quickstart
+description: Write and run your first Gala program in minutes
+---
+
+Let's create a Bell pair — the simplest quantum program that demonstrates entanglement.
+
+## Create a project
+
+```bash
+gala new hello-bell
+cd hello-bell
+```
+
+This scaffolds a project with `gala.toml`, `src/main.gala`, and a `tests/` directory.
+
+## Write a Bell pair
+
+Edit `src/main.gala`:
+
+```
+fn main() {
+    let result = bell()
+    print(result)
+}
+
+fn bell() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+```
+
+## Run it
+
+```bash
+gala run
+```
+
+The simulator compiles and executes the program, outputting the final state.
+
+## Introduce a no-cloning bug
+
+Try copying a qubit:
+
+```
+fn bad() -> (Qubit, Qubit) quantum {
+    let a = qubit()
+    (a, a)  // Error!
+}
+```
+
+Gala rejects this:
+
+```
+error[E0410]: qubit `a` duplicated
+  ┌─ src/main.gala:10:5
+9 │     let a = qubit()
+10 │     (a, a)
+  │      ^  ^ `a` used here a second time
+  = help: qubits are linear resources — they cannot be cloned.
+          If you need two qubits, allocate two.
+```
+
+## What's next
+
+- [Vision & Goals](/docs/vision) — understand the philosophy behind Gala
+- [Language Specification](/docs/language-spec) — full syntax reference
+- [Toolchain & DX](/docs/guides/toolchain) — CLI commands, LSP, debugging

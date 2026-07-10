@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "getting-started",
+    "vision",
+    "language-spec",
+    "architecture",
+    "guides",
+    "cookbook",
+    "contributing",
+    "roadmap"
+  ]
+}
