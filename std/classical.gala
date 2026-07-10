@@ -1,0 +1,76 @@
+// Gala classical standard library.
+//
+// Classical data structures and utilities for writing pure Gala code.
+// These are ordinary pure functions — no quantum effects involved.
+
+// ─── Collections ───
+
+/// An array with compile-time-known size.
+/// const N: the number of elements, known at compile time.
+/// A classical array; elements are Copy types.
+// K = [T; N] where T: Copy
+
+/// Slice of an array from start (inclusive) to end (exclusive).
+// fn slice<T>(arr: [T; N], start: Int, end: Int) -> [T; M] pure
+
+// ─── Numerics ───
+
+/// Absolute value
+fn abs(x: Int) -> Int pure {
+    if x < 0 { return -x; }
+    return x;
+}
+
+fn abs_float(x: Float) -> Float pure {
+    if x < 0.0 { return -x; }
+    return x;
+}
+
+/// Maximum of two integers
+fn max(a: Int, b: Int) -> Int pure {
+    if a >= b { return a; }
+    return b;
+}
+
+/// Minimum of two integers
+fn min(a: Int, b: Int) -> Int pure {
+    if a <= b { return a; }
+    return b;
+}
+
+/// Clamp a value between low and high
+fn clamp(x: Int, low: Int, high: Int) -> Int pure {
+    if x < low { return low; }
+    if x > high { return high; }
+    return x;
+}
+
+// ─── Math ───
+
+/// Square root (via Float)
+fn sqrt(x: Float) -> Float pure {
+    // Intrinsic — compiler lowers to LLVM sqrt
+    return x;
+}
+
+/// Sine
+fn sin(x: Float) -> Float pure
+
+/// Cosine
+fn cos(x: Float) -> Float pure
+
+/// Pi constant
+fn pi() -> Float pure {
+    return 3.14159265358979323846;
+}
+
+// ─── IO ───
+
+/// Print a string to stdout
+fn print(msg: String) pure
+
+/// Print a string followed by a newline
+fn println(msg: String) pure {
+    print(msg);
+    print("\n");
+}

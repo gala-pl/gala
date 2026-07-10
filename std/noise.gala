@@ -1,0 +1,64 @@
+// Gala noise library.
+//
+// Noise models as first-class typed values for error-aware
+// development and testing before hardware deployment.
+
+/// A noise channel acting on quantum operations.
+type NoiseChannel = struct {
+    kind: NoiseKind,
+    params: Vec<Float>,
+}
+
+/// Types of noise channels.
+type NoiseKind = enum {
+    Depolarizing,       // Depolarizing noise
+    AmplitudeDamping,  // Energy relaxation (T1)
+    PhaseDamping,     // Dephasing (T2)
+    ReadoutError,     // Measurement error
+    BitFlip,          // Bit-flip channel
+    PhaseFlip,        // Phase-flip channel
+    Custom,           // User-defined Kraus operator
+}
+
+/// Create a depolarizing noise model with given probability.
+fn depolarizing(p: Float) -> NoiseChannel pure {
+    return NoiseChannel {
+        kind: Depolarizing,
+        params: [p],
+    };
+}
+
+/// Create an amplitude damping noise model (T1 relaxation).
+fn amplitude_damping(t1: Float) -> NoiseChannel pure {
+    return NoiseChannel {
+        kind: AmplitudeDamping,
+        params: [t1],
+    };
+}
+
+/// Create a dephasing noise model (T2 dephasing).
+fn phase_damping(t2: Float) -> NoiseChannel pure {
+    return NoiseChannel {
+        kind: PhaseDamping,
+        params: [t2],
+    };
+}
+
+/// Create a readout (measurement) error model.
+fn readout_error(p0: Float, p1: Float) -> NoiseChannel pure {
+    return NoiseChannel {
+        kind: ReadoutError,
+        params: [p0, p1],
+    };
+}
+
+/// Combine multiple noise channels into a composite noise model.
+type NoiseModel = Vec<NoiseChannel>
+
+/// A simple noise model: depolarizing + readout error.
+fn default_noise() -> NoiseModel pure {
+    return [
+        depolarizing(0.001),
+        readout_error(0.01, 0.01),
+    ];
+}
