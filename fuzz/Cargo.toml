@@ -1,0 +1,36 @@
+[package]
+name = "gala-fuzz-targets"
+version = "0.1.0"
+edition = "2021"
+description = "Fuzz testing targets for the Gala compiler"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+gala-fuzz = { path = "../crates/gala-fuzz" }
+gala-driver = { path = "../crates/gala-driver" }
+gala-parser = { path = "../crates/gala-parser" }
+gala-diagnostics = { path = "../crates/gala-diagnostics" }
+gala-span = { path = "../crates/gala-span" }
+gala-lexer = { path = "../crates/gala-lexer" }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "compile"
+path = "fuzz_targets/compile.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diagnostics"
+path = "fuzz_targets/diagnostics.rs"
+test = false
+doc = false
