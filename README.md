@@ -21,9 +21,14 @@ cargo run --release --bin gala -- hello.gala
 │   ├── gala-lsp/      # Language server protocol implementation
 │   └── gala-fmt/      # Code formatter
 ├── docs/              # Language specification and guides
+├── cookbook/          # Task-oriented recipe collection
 ├── tests/             # Integration tests and test fixtures
 └── examples/          # Example Gala programs
 ```
+
+## Cookbook
+
+Browse the [cookbook](./cookbook/) for task-oriented recipes — runnable `.gala` programs with step-by-step walkthroughs covering classical, quantum, and hybrid patterns.
 
 ## Features
 
