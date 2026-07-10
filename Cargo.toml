@@ -1,22 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
-    "compiler",
-    "library/core",
-    "library/std",
-    "library/stdlib/gala-string",
-    "library/stdlib/gala-io",
-    "library/stdlib/gala-collections",
-    "library/runtime/gala-chan",
-    "library/runtime/gala-region",
-    "library/runtime/gala-async",
-    "library/runtime/gala-gc",
-    "library/runtime/gala-python",
-    "tools/gala-cli",
-    "tools/gala-lint",
-    "tools/gala-pkg",
-    "tools/gala-lsp",
-    "tools/gala-fmt",
+    "crates/gala-core",
+    "crates/gala-span",
+    "crates/gala-diagnostics",
+    "crates/gala-lexer",
+    "crates/gala-parser",
+    "crates/gala-ast",
+    "crates/gala-hir",
+    "crates/gala-types",
+    "crates/gala-uncompute",
+    "crates/gala-gir",
+    "crates/gala-diff",
+    "crates/gala-opt",
+    "crates/gala-qir",
+    "crates/gala-codegen-classical",
+    "crates/gala-sim",
+    "crates/gala-runtime",
+    "crates/gala-driver",
+    "crates/gala-cli",
+    "crates/gala-pkg",
+    "crates/gala-fmt",
+    "crates/gala-lsp",
+    "crates/gala-lint",
+    "crates/gala-std",
+    "crates/gala-fuzz",
+    # "extensions/tree-sitter-gala",
 ]
 
 [workspace.dependencies]
@@ -28,6 +37,46 @@ toml = "0.8"
 semver = "1"
 rand = "0.8"
 log = "0.4"
-gala-compiler = { path = "compiler" }
-gala-core = { path = "library/core" }
-tempfile = "3"
+
+logos = "0.13"
+chumsky = "0.11"
+ariadne = "0.5"
+lasso = "0.7"
+
+salsa = "0.27"
+ena = "0.8"
+petgraph = "0.6"
+inkwell = { version = "0.2", features = ["llvm10-0", "target-x86", "target-aarch64"] }
+roqoqo = { version = "0.6", features = ["quest"] }
+roqoqo-quest = { version = "0.6" }
+tower-lsp = { version = "0.20", features = ["runtime-tokio"] }
+lsp-types = "0.98"
+proptest = "1.4"
+insta = { version = "1.42", features = ["json"] }
+libfuzzer-sys = "0.4"
+cc = "1.0"
+
+gala-core = { path = "crates/gala-core" }
+gala-span = { path = "crates/gala-span" }
+gala-diagnostics = { path = "crates/gala-diagnostics" }
+gala-lexer = { path = "crates/gala-lexer" }
+gala-parser = { path = "crates/gala-parser" }
+gala-ast = { path = "crates/gala-ast" }
+gala-hir = { path = "crates/gala-hir" }
+gala-types = { path = "crates/gala-types" }
+gala-uncompute = { path = "crates/gala-uncompute" }
+gala-gir = { path = "crates/gala-gir" }
+gala-diff = { path = "crates/gala-diff" }
+gala-opt = { path = "crates/gala-opt" }
+gala-qir = { path = "crates/gala-qir" }
+gala-codegen-classical = { path = "crates/gala-codegen-classical" }
+gala-sim = { path = "crates/gala-sim" }
+gala-runtime = { path = "crates/gala-runtime" }
+gala-driver = { path = "crates/gala-driver" }
+gala-cli = { path = "crates/gala-cli" }
+gala-pkg = { path = "crates/gala-pkg" }
+gala-fmt = { path = "crates/gala-fmt" }
+gala-lsp = { path = "crates/gala-lsp" }
+gala-lint = { path = "crates/gala-lint" }
+gala-std = { path = "crates/gala-std" }
+gala-fuzz = { path = "crates/gala-fuzz" }
