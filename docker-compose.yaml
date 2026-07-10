@@ -1,0 +1,32 @@
+services:
+  gala-compiler:
+    image: gala:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["--help"]
+    volumes:
+      - ./examples:/workspace/examples:ro
+
+  gala-docs:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "bun install && bun next dev"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/docs:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+
+  gala-test:
+    image: gala:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["test"]
+    volumes:
+      - ./tests:/workspace/tests:ro
+      - ./examples:/workspace/examples:ro
