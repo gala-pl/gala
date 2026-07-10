@@ -1,0 +1,20 @@
+[package]
+name = "gala-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Gala command-line interface"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[[bin]]
+name = "gala"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+gala-driver.workspace = true
+gala-fmt.workspace = true
+gala-lsp.workspace = true
+gala-pkg.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

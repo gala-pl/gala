@@ -1,0 +1,13 @@
+[package]
+name = "gala-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core primitive types for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_core"
+path = "src/lib.rs"
+
+[dependencies]

@@ -1,0 +1,17 @@
+[package]
+name = "gala-parser"
+version = "0.1.0"
+edition = "2021"
+description = "Parser for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_parser"
+path = "src/lib.rs"
+
+[dependencies]
+gala-lexer.workspace = true
+gala-ast.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "gala-std"
+version = "0.1.0"
+edition = "2021"
+description = "Standard library for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_std"
+path = "src/lib.rs"
+
+[dependencies]
+gala-core.workspace = true

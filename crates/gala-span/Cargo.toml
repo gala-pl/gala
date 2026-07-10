@@ -1,0 +1,14 @@
+[package]
+name = "gala-span"
+version = "0.1.0"
+edition = "2021"
+description = "Source spans, file database, string interning for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_span"
+path = "src/lib.rs"
+
+[dependencies]
+lasso.workspace = true

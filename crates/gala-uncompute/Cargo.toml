@@ -1,0 +1,18 @@
+[package]
+name = "gala-uncompute"
+version = "0.1.0"
+edition = "2021"
+description = "Uncomputation analysis and synthesis for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_uncompute"
+path = "src/lib.rs"
+
+[dependencies]
+gala-ast.workspace = true
+gala-hir.workspace = true
+gala-types.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

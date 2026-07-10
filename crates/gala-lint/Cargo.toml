@@ -1,0 +1,22 @@
+[package]
+name = "gala-lint"
+version = "0.1.0"
+edition = "2021"
+description = "Linter for Gala source files"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[[bin]]
+name = "gala-lint"
+path = "src/main.rs"
+
+[lib]
+name = "gala_lint"
+path = "src/lib.rs"
+
+[dependencies]
+clap.workspace = true
+gala-parser.workspace = true
+gala-ast.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

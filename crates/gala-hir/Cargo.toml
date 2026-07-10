@@ -1,0 +1,19 @@
+[package]
+name = "gala-hir"
+version = "0.1.0"
+edition = "2021"
+description = "HIR with desugaring and name resolution for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_hir"
+path = "src/lib.rs"
+
+[dependencies]
+salsa.workspace = true
+gala-lexer.workspace = true
+gala-parser.workspace = true
+gala-ast.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

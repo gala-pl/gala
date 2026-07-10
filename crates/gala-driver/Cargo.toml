@@ -1,0 +1,24 @@
+[package]
+name = "gala-driver"
+version = "0.1.0"
+edition = "2021"
+description = "Compilation orchestration for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_driver"
+path = "src/lib.rs"
+
+[dependencies]
+gala-ast.workspace = true
+gala-lexer.workspace = true
+gala-parser.workspace = true
+gala-hir.workspace = true
+gala-types.workspace = true
+gala-uncompute.workspace = true
+gala-gir.workspace = true
+gala-diff.workspace = true
+gala-opt.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

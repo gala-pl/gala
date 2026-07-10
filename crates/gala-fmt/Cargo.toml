@@ -1,0 +1,22 @@
+[package]
+name = "gala-fmt"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical formatter for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[[bin]]
+name = "gala-fmt"
+path = "src/main.rs"
+
+[lib]
+name = "gala_fmt"
+path = "src/lib.rs"
+
+[dependencies]
+gala-lexer.workspace = true
+gala-parser.workspace = true
+gala-ast.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

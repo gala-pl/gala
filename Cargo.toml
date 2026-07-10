@@ -28,6 +28,12 @@ members = [
     # "extensions/tree-sitter-gala",
 ]
 
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
 [workspace.dependencies]
 thiserror = "1"
 clap = { version = "4", features = ["derive"] }
@@ -46,16 +52,19 @@ lasso = "0.7"
 salsa = "0.27"
 ena = "0.8"
 petgraph = "0.6"
-inkwell = { version = "0.2", features = ["llvm10-0", "target-x86", "target-aarch64"] }
-roqoqo = { version = "0.6", features = ["quest"] }
-roqoqo-quest = { version = "0.6" }
-tower-lsp = { version = "0.20", features = ["runtime-tokio"] }
-lsp-types = "0.98"
 proptest = "1.4"
 insta = { version = "1.42", features = ["json"] }
 libfuzzer-sys = "0.4"
 cc = "1.0"
 
+tower-lsp = { version = "0.20", features = ["runtime-tokio"] }
+lsp-types = "0.98"
+
+inkwell = { version = "0.2", features = ["llvm10-0", "target-x86", "target-aarch64"] }
+roqoqo = { version = "0.6" }
+roqoqo-quest = { version = "0.6" }
+
+# Internal crate dependencies
 gala-core = { path = "crates/gala-core" }
 gala-span = { path = "crates/gala-span" }
 gala-diagnostics = { path = "crates/gala-diagnostics" }
@@ -80,3 +89,12 @@ gala-lsp = { path = "crates/gala-lsp" }
 gala-lint = { path = "crates/gala-lint" }
 gala-std = { path = "crates/gala-std" }
 gala-fuzz = { path = "crates/gala-fuzz" }
+
+[workspace.features]
+default = ["frontend-only"]
+
+frontend-only = []
+qir = ["gala-qir/qir"]
+classical = ["gala-codegen-classical/classical"]
+sim = ["gala-sim/sim"]
+full = ["qir", "classical", "sim"]

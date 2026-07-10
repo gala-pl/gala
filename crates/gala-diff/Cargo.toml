@@ -1,0 +1,16 @@
+[package]
+name = "gala-diff"
+version = "0.1.0"
+edition = "2021"
+description = "Differentiation lowering: parameter-shift + autodiff for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_diff"
+path = "src/lib.rs"
+
+[dependencies]
+gala-gir.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true
