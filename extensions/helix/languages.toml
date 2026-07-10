@@ -1,0 +1,16 @@
+[language]
+name = "gala"
+scope = "source.gala"
+injection-regex = "gala"
+file-types = ["gala"]
+roots = ["gala.toml"]
+comment-token = "//"
+block-comment-tokens = { start = "/*", end = "*/" }
+language-servers = ["gala-lsp"]
+auto-format = true
+formatter = { command = "gala", args = ["fmt"] }
+indent = { tab-width = 4, unit = "    " }
+
+[[grammar]]
+name = "gala"
+source = { git = "https://github.com/gala-lang/gala", subpath = "extensions/tree-sitter-gala" }

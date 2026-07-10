@@ -1,0 +1,34 @@
+{
+  "scope": "source.gala",
+  "completions": [
+    { "trigger": "fn\tfunction", "contents": "fn ${1:name}(${2:params})${3: -> ${4:Type}} ${5:effect} {\n\t${0:body}\n}" },
+    { "trigger": "let\tbinding", "contents": "let ${1:name} = ${0:value};" },
+    { "trigger": "letm\tmutable binding", "contents": "let mut ${1:name} = ${0:value};" },
+    { "trigger": "if\tif", "contents": "if ${1:condition} {\n\t${0:body}\n}" },
+    { "trigger": "ife\tif-else", "contents": "if ${1:condition} {\n\t${2:then}\n} else {\n\t${0:else}\n}" },
+    { "trigger": "match\tmatch", "contents": "match ${1:value} {\n\t${2:pattern} => ${3:expr},\n\t_ => ${0:fallback},\n}" },
+    { "trigger": "for\tfor", "contents": "for ${1:var} in ${2:range} {\n\t${0:body}\n}" },
+    { "trigger": "while\twhile", "contents": "while ${1:condition} {\n\t${0:body}\n}" },
+    { "trigger": "return\treturn", "contents": "return ${0:value};" },
+    { "trigger": "struct\tstruct", "contents": "struct ${1:Name} {\n\t${2:field}: ${3:Type},\n}" },
+    { "trigger": "enum\tenum", "contents": "enum ${1:Name} {\n\t${2:Variant},\n}" },
+    { "trigger": "trait\ttrait", "contents": "trait ${1:Name} {\n\tfn ${0:method}(...) -> ...;\n}" },
+    { "trigger": "impl\timpl", "contents": "impl ${1:Type} {\n\t${0:body}\n}" },
+    { "trigger": "import\timport", "contents": "import ${1:module};" },
+    { "trigger": "importas\timport with alias", "contents": "import ${1:module} as ${2:alias};" },
+    { "trigger": "importbr\timport braces", "contents": "import ${1:module}.{ ${2:item1}, ${3:item2} };" },
+    { "trigger": "qfn\tquantum function", "contents": "fn ${1:name}(${2:params}) -> ${3:Type} quantum {\n\t${0:body}\n}" },
+    { "trigger": "pfn\tprobabilistic function", "contents": "fn ${1:name}(${2:params}) -> ${3:Type} prob {\n\t${0:body}\n}" },
+    { "trigger": "bell\tBell pair", "contents": "fn bell() -> Qubits<2> quantum {\n\tlet a = qubit()\n\tlet b = qubit()\n\th(a)\n\tlet (a, b) = cx(a, b)\n\t(a, b)\n}" },
+    { "trigger": "measure\tmeasure", "contents": "let ${1:result} = measure(${2:q});" },
+    { "trigger": "grad\tgradient", "contents": "let d${1:θ} = grad(${2:fn}, wrt: ${3:params});" },
+    { "trigger": "adj\tadjoint", "contents": "adjoint(${1:fn})(${2:args});" },
+    { "trigger": "ctrl\tcontrolled", "contents": "control(${1:fn})(${2:control}, ${3:target});" },
+    { "trigger": "const\tconstant", "contents": "const ${1:NAME}: ${2:Type} = ${0:value};" },
+
+    "qubit", "qubits", "Qubit", "Qubits", "Measured", "Bool", "Int", "Float", "Complex",
+    "Vec", "Params", "String", "Unit", "pure", "quantum", "prob", "adjoint", "reverse",
+    "control", "grad", "drop", "h", "x", "y", "z", "s", "t", "rx", "ry", "rz", "cx", "cz",
+    "swap", "print", "println", "assert", "len", "true", "false", "mut", "where", "Self"
+  ]
+}

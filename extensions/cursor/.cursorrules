@@ -1,0 +1,63 @@
+You are working with Gala, a hybrid quantum-classical programming language.
+
+## Gala Language Overview
+
+- **Extension:** `.gala`
+- **Effects:** Every function has an effect: `pure`, `quantum` (no measurement, reversible), or `prob` (has measurement)
+- **Linear types:** `Qubit` and `Qubits<N>` are linear — can't be duplicated, dropped, or used after consume
+- **Built-in gates:** `h`, `x`, `y`, `z`, `s`, `t`, `rx`, `ry`, `rz`, `cx`, `cz`, `swap`
+- **Built-in ops:** `qubit()`, `qubits<N>()`, `measure(q)`, `drop(q)`, `reverse(f)`, `adjoint(f)`, `control(f)`, `grad(f, wrt: p)`
+- **Standard modules:** `gala.core`, `gala.gates`, `gala.algorithms`, `gala.ml`, `gala.noise`, `gala.classical`
+- **Toolchain commands:** `gala check`, `gala run`, `gala build`, `gala test`, `gala fmt`, `gala repl`, `gala explain <code>`, `gala lsp`
+
+## Diagnostics
+
+Error codes:
+- `E01xx` — syntax errors
+- `E02xx` — type errors
+- `E03xx` — effect errors (e.g., calling `prob` from `quantum`)
+- `E04xx` — linearity errors (no-cloning violations)
+- `E05xx` — uncomputation errors
+
+## Style
+
+- Expression-oriented: blocks return their trailing expression
+- One canonical style (enforced by `gala fmt`)
+- Doc comments with `///`
+- Indentation: 4 spaces
+
+## Quantum-Specific Patterns
+
+```gala
+// Bell pair
+fn bell() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+
+// Fair coin (crossing boundary)
+fn coin() -> Measured<Bool> prob {
+    let q = qubit()
+    h(q)
+    measure(q)
+}
+
+// Gradient
+let dθ = grad(classify, wrt: θ)
+```
+
+## Project Structure
+
+```
+myproject/
+├── gala.toml
+├── gala.lock
+├── src/
+│   ├── main.gala
+│   └── ...
+└── tests/
+    └── ...
+```

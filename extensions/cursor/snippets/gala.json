@@ -1,0 +1,137 @@
+{
+  "Function definition": {
+    "prefix": ["fn"],
+    "body": [
+      "fn ${1:name}(${2:params})${3: -> ${4:Type}} ${5:effect} {",
+      "\t${0:body}",
+      "}"
+    ]
+  },
+  "Quantum function": {
+    "prefix": ["qfn"],
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:Type} quantum {",
+      "\t${0:body}",
+      "}"
+    ]
+  },
+  "Probabilistic function": {
+    "prefix": ["pfn"],
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:Type} prob {",
+      "\t${0:body}",
+      "}"
+    ]
+  },
+  "Pure function": {
+    "prefix": ["purefn"],
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:Type} pure {",
+      "\t${0:body}",
+      "}"
+    ]
+  },
+  "Bell pair": {
+    "prefix": ["bell"],
+    "body": [
+      "fn bell() -> Qubits<2> quantum {",
+      "\tlet a = qubit()",
+      "\tlet b = qubit()",
+      "\th(a)",
+      "\tlet (a, b) = cx(a, b)",
+      "\t(a, b)",
+      "}"
+    ]
+  },
+  "Let binding": {
+    "prefix": ["let"],
+    "body": ["let ${1:name} = ${0:value};"]
+  },
+  "Mutable let binding": {
+    "prefix": ["letm"],
+    "body": ["let mut ${1:name} = ${0:value};"]
+  },
+  "If expression": {
+    "prefix": ["if"],
+    "body": [
+      "if ${1:condition} {",
+      "\t${0:body}",
+      "}"
+    ]
+  },
+  "If-else expression": {
+    "prefix": ["ife"],
+    "body": [
+      "if ${1:condition} {",
+      "\t${2:then}",
+      "} else {",
+      "\t${0:else}",
+      "}"
+    ]
+  },
+  "Match expression": {
+    "prefix": ["match"],
+    "body": [
+      "match ${1:value} {",
+      "\t${2:pattern} => ${3:expr},",
+      "\t_ => ${0:fallback},",
+      "}"
+    ]
+  },
+  "For loop": {
+    "prefix": ["for"],
+    "body": [
+      "for ${1:var} in ${2:range} {",
+      "\t${0:body}",
+      "}"
+    ]
+  },
+  "Measure qubit": {
+    "prefix": ["measure"],
+    "body": ["let ${1:result} = measure(${2:q});"]
+  },
+  "Gradient": {
+    "prefix": ["grad"],
+    "body": ["let d${1:θ} = grad(${2:fn}, wrt: ${3:params});"]
+  },
+  "Adjoint": {
+    "prefix": ["adj"],
+    "body": ["adjoint(${1:fn})(${2:args});"]
+  },
+  "Controlled": {
+    "prefix": ["ctrl"],
+    "body": ["control(${1:fn})(${2:control}, ${3:target});"]
+  },
+  "Struct definition": {
+    "prefix": ["struct"],
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:Type},",
+      "}"
+    ]
+  },
+  "Enum definition": {
+    "prefix": ["enum"],
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant},",
+      "}"
+    ]
+  },
+  "Import": {
+    "prefix": ["import"],
+    "body": ["import ${1:module};"]
+  },
+  "Import specific": {
+    "prefix": ["importbr"],
+    "body": ["import ${1:module}.{ ${2:item1}, ${3:item2} };"]
+  },
+  "Main function": {
+    "prefix": ["main"],
+    "body": [
+      "fn main() {",
+      "\t${0:body}",
+      "}"
+    ]
+  }
+}

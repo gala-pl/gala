@@ -1,0 +1,116 @@
+{
+  "name": "gala",
+  "displayName": "Gala",
+  "description": "Gala language support — hybrid quantum-classical programming with first-class differentiation",
+  "version": "0.1.0",
+  "publisher": "gala-lang",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters",
+    "Formatters"
+  ],
+  "keywords": [
+    "quantum",
+    "gala",
+    "quantum-computing",
+    "hybrid",
+    "ml"
+  ],
+  "activationEvents": [
+    "onLanguage:gala"
+  ],
+  "main": "./client/extension",
+  "contributes": {
+    "languages": [
+      {
+        "id": "gala",
+        "aliases": ["Gala", "gala"],
+        "extensions": [".gala"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "gala",
+        "scopeName": "source.gala",
+        "path": "./syntaxes/gala.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "gala",
+        "path": "./snippets/gala.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "gala.check",
+        "title": "Gala: Check current file"
+      },
+      {
+        "command": "gala.run",
+        "title": "Gala: Run on simulator"
+      },
+      {
+        "command": "gala.explain",
+        "title": "Gala: Explain error code"
+      },
+      {
+        "command": "gala.showCircuit",
+        "title": "Gala: Show circuit diagram"
+      }
+    ],
+    "configuration": {
+      "title": "Gala",
+      "properties": {
+        "gala.compilerPath": {
+          "type": "string",
+          "default": "gala",
+          "description": "Path to the `gala` compiler binary"
+        },
+        "gala.lintOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run diagnostics on save"
+        },
+        "gala.showInlineCircuits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline circuit diagram lenses for quantum functions"
+        }
+      }
+    }
+  },
+  "menus": {
+    "commandPalette": [
+      {
+        "command": "gala.check",
+        "when": "editorLangId == gala"
+      },
+      {
+        "command": "gala.run",
+        "when": "editorLangId == gala"
+      },
+      {
+        "command": "gala.explain",
+        "when": "editorLangId == gala"
+      },
+      {
+        "command": "gala.showCircuit",
+        "when": "editorLangId == gala"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gala-lang/gala"
+  },
+  "bugs": {
+    "url": "https://github.com/gala-lang/gala/issues"
+  }
+}
