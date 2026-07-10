@@ -1,0 +1,26 @@
+---
+title: Cookbook
+description: Task-oriented recipes for solving problems with Gala
+---
+
+A collection of task-oriented recipes for solving problems with Gala. Each recipe is a self-contained `.gala` program with an accompanying walkthrough that explains the concepts, the code, and how to run it.
+
+## Sections
+
+- [Beginner](/docs/cookbook/beginner) — getting started with Gala
+- [Quantum](/docs/cookbook/quantum) — core quantum patterns
+- [Hybrid](/docs/cookbook/hybrid) — quantum-classical ML
+- [Advanced](/docs/cookbook/advanced) — algorithms and deep dives
+- [References](/docs/cookbook/references) — concept guides
+
+## Running recipes
+
+Recipes live in `cookbook/` at the project root. To check or run a recipe:
+
+```bash
+# Check (compile only)
+cargo run --bin gala -- check cookbook/beginner/hello_world/hello_world.gala
+
+# Run
+cargo run --bin gala -- run cookbook/beginner/hello_world/hello_world.gala
+```
