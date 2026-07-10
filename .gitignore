@@ -22,6 +22,10 @@ node_modules/
 ## Fumadocs
 .source/
 
+## Fuzz
+fuzz/artifacts/
+fuzz/coverage/
+
 ## OS
 .DS_Store
 Thumbs.db

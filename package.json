@@ -9,8 +9,18 @@
     "lint": "cargo clippy --workspace -- -D warnings",
     "fmt": "cargo fmt --all",
     "clean": "cargo clean",
+    "mcp:build": "cd tools/gala-mcp && npm install && npm run build",
+    "mcp:dev": "cd tools/gala-mcp && npm run dev",
+    "mcp:inspect": "cd tools/gala-mcp && npm run inspect",
     "docs:dev": "cd apps/docs && bun next dev",
     "docs:build": "cd apps/docs && bun next build",
     "docs:typecheck": "cd apps/docs && bun tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "typescript": "^7.0.2"
   }
 }
