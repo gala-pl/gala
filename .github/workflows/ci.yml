@@ -38,5 +38,11 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Verify cookbook recipes compile
+        run: |
+          for f in $(find cookbook -name '*.gala'); do
+            cargo run --bin gala -- check "$f"
+          done
+
       - name: Verify docs
         run: cargo doc --workspace --no-deps

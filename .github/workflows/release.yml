@@ -35,7 +35,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish to crates.io
+    name: Publish crates to crates.io
     runs-on: ubuntu-latest
     needs: [build]
     steps:
@@ -49,8 +49,28 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-      - name: Publish gala-compiler
-        run: cargo publish -p gala-compiler
+      - name: Publish gala-span
+        run: cargo publish -p gala-span
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish gala-diagnostics
+        run: cargo publish -p gala-diagnostics
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish gala-lexer
+        run: cargo publish -p gala-lexer
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish gala-ast
+        run: cargo publish -p gala-ast
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish gala-parser
+        run: cargo publish -p gala-parser
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -76,9 +96,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate release notes
+      - name: Generate release notes from CHANGELOG
         run: |
-          awk '/^## /{if(seen) exit; seen=1} seen{print}' CHANGELOG.md > release-notes.md
+          if [ -f CHANGELOG.md ]; then
+            awk '/^## /{if(seen) exit; seen=1} seen{print}' CHANGELOG.md > release-notes.md
+          else
+            echo "CHANGELOG.md not found — using auto-generated notes" > release-notes.md
+          fi
 
       - name: Create release
         uses: softprops/action-gh-release@v2
