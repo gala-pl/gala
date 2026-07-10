@@ -1,0 +1,10 @@
+# Generated corpus artifacts (not seed inputs)
+corpus/**/*
+!corpus/**/.gitkeep
+!corpus/parser/*.gala
+!corpus/compile/*.gala
+!corpus/diagnostics/*.gala
+
+# cargo-fuzz artifacts
+artifacts/
+coverage/
