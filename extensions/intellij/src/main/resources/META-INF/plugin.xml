@@ -1,0 +1,46 @@
+<idea-plugin>
+    <id>com.gala.lang</id>
+    <name>Gala Language Support</name>
+    <version>0.1.0</version>
+    <vendor email="team@gala-lang.dev" url="https://gala-lang.dev">Gala Language Team</vendor>
+
+    <description><![CDATA[
+    <h2>Gala Language Support</h2>
+    <p>Hybrid quantum-classical programming language with first-class differentiation.</p>
+    <ul>
+        <li>Syntax highlighting for .gala files</li>
+        <li>Brace matching and commenter</li>
+        <li>File type auto-detection</li>
+        <li>Custom color scheme</li>
+    </ul>
+    ]]></description>
+
+    <change-notes><![CDATA[
+    <ul>
+        <li>Initial release: syntax highlighting, brace matching, commenter</li>
+    </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.lang</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+            name="Gala"
+            implementationClass="com.gala.lang.GalaFileType"
+            fieldName="INSTANCE"
+            language="gala"
+            extensions="gala"
+        />
+        <lang.syntaxHighlighterFactory
+            language="gala"
+            implementationClass="com.gala.lang.GalaSyntaxHighlighterFactory"/>
+        <lang.commenter
+            language="gala"
+            implementationClass="com.gala.lang.GalaCommenter"/>
+        <lang.braceMatcher
+            language="gala"
+            implementationClass="com.gala.lang.GalaBraceMatcher"/>
+        <colorSettingsPage
+            implementation="com.gala.lang.GalaColorSettingsPage"/>
+    </extensions>
+</idea-plugin>

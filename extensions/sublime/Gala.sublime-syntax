@@ -1,0 +1,151 @@
+%YAML 1.2
+---
+name: Gala
+file_extensions: [gala]
+scope: source.gala
+
+variables:
+  identifier: '[A-Za-z_][A-Za-z0-9_]*'
+  q_ident: '[A-Za-z_α-ψ][A-Za-z0-9_α-ψ]*'
+
+contexts:
+  main:
+    - include: comments
+    - include: doc-comments
+    - include: strings
+    - include: numbers
+    - include: keywords
+    - include: types
+    - include: effects
+    - include: quantum-keywords
+    - include: gates
+    - include: builtins
+    - include: function-declaration
+    - include: lambda
+    - include: identifiers
+    - include: operators
+    - include: punctuation
+
+  comments:
+    - match: \/\/
+      scope: comment.line.double-slash.gala
+      push:
+        - meta_scope: comment.line.gala
+        - match: $\n?
+          pop: true
+    - match: \/\*
+      scope: comment.block.gala
+      push:
+        - meta_scope: comment.block.gala
+        - meta_content_scope: comment.block.gala
+        - match: \*\/
+          pop: true
+        - match: \/\*
+          push:
+            - meta_scope: comment.block.gala
+            - match: \*\/
+              pop: true
+
+  doc-comments:
+    - match: '///'
+      scope: comment.block.documentation.gala documentation
+      push:
+        - meta_scope: comment.block.documentation.gala
+        - match: $\n?
+          pop: true
+        - match: '@\w+'
+          scope: storage.type.class.documentation.gala
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.gala
+      push:
+        - meta_scope: string.quoted.double.gala
+        - match: '"'
+          scope: punctuation.definition.string.end.gala
+          pop: true
+        - match: \\.
+          scope: constant.character.escape.gala
+
+  numbers:
+    - match: \b\d+[iIjJ]\b
+      scope: constant.numeric.complex.gala
+    - match: \b\d+\.\d*([eE][+-]?\d+)?\b
+      scope: constant.numeric.float.gala
+    - match: \b0[xX][0-9a-fA-F]+\b
+      scope: constant.numeric.integer.hex.gala
+    - match: \b0[bB][01]+\b
+      scope: constant.numeric.integer.binary.gala
+    - match: \b\d+\b
+      scope: constant.numeric.integer.gala
+
+  keywords:
+    - match: \b(if|else|match|for|in|while|return|drop)\b
+      scope: keyword.control.gala
+    - match: \b(fn|let|mut|import|from|as|type|struct|enum|trait|impl|const|where)\b
+      scope: keyword.declaration.gala
+    - match: \b(true|false)\b
+      scope: constant.language.gala
+
+  types:
+    - match: \b(Qubit|Qubits|Measured|Bool|Int|Float|Complex|Vec|Params|String|Unit|Self)\b
+      scope: support.type.primitive.gala
+
+  effects:
+    - match: \b(pure|quantum|prob)\b
+      scope: storage.type.effect.gala
+
+  quantum-keywords:
+    - match: \b(qubit|qubits|measure|reverse|adjoint|control|grad|drop)\b
+      scope: keyword.quantum.gala
+
+  gates:
+    - match: \b(h|x|y|z|s|t|rx|ry|rz|cx|cz|swap)\b
+      scope: support.function.gate.gala
+
+  builtins:
+    - match: \b(print|println|assert|len|sample|expectation|distribution|qubit|qubits|measure|reverse|adjoint|control|grad|drop|backend)\b
+      scope: support.function.builtin.gala
+
+  function-declaration:
+    - match: (?<=\bfn\s+){{identifier}}(?=\s*\()
+      scope: entity.name.function.gala
+
+  lambda:
+    - match: \|
+      scope: keyword.operator.pipe.gala
+      push:
+        - match: \|
+          scope: keyword.operator.pipe.gala
+          pop: true
+        - include: types
+        - match: ':'
+          scope: punctuation.delimiter.colon.gala
+
+  identifiers:
+    - match: '{{identifier}}'
+      scope: variable.other.gala
+
+  operators:
+    - match: '[+\-*/%]'
+      scope: keyword.operator.arithmetic.gala
+    - match: '==|!=|<=|>=|<|>'
+      scope: keyword.operator.comparison.gala
+    - match: '&&|\|\|'
+      scope: keyword.operator.logical.gala
+    - match: '='
+      scope: keyword.operator.assignment.gala
+    - match: '->'
+      scope: keyword.operator.arrow.gala
+    - match: '\.\.'
+      scope: keyword.operator.range.gala
+    - match: '!'
+      scope: keyword.operator.logical.gala
+
+  punctuation:
+    - match: '[{}()\[\]]'
+      scope: punctuation.definition.bracket.gala
+    - match: '[,;:]'
+      scope: punctuation.delimiter.gala
+    - match: '\.'
+      scope: punctuation.accessor.gala

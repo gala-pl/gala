@@ -1,0 +1,75 @@
+%YAML 1.2
+---
+name: Gala
+file_extensions: [gala]
+scope: source.gala
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: numbers
+    - include: keywords
+    - include: types
+    - include: effects
+    - include: quantum-keywords
+    - include: operators
+
+  comments:
+    - match: \/\/
+      scope: comment.line
+      push:
+        - meta_scope: comment.line
+        - match: $\n?
+          pop: true
+    - match: \/\*
+      scope: comment.block
+      push:
+        - meta_scope: comment.block
+        - match: \*\/
+          pop: true
+        - match: \/\*
+          push:
+            - match: \*\/
+              pop: true
+
+  strings:
+    - match: '"'
+      push:
+        - meta_scope: string.quoted.double
+        - match: '"'
+          pop: true
+        - match: \\.
+          scope: constant.character.escape
+
+  numbers:
+    - match: \b0[xX][0-9a-fA-F]+\b
+      scope: constant.numeric.hex
+    - match: \b0[bB][01]+\b
+      scope: constant.numeric.binary
+    - match: \b\d+\.\d*([eE][+-]?\d+)?\b
+      scope: constant.numeric.float
+    - match: \b\d+[iIjJ]\b
+      scope: constant.numeric
+    - match: \b\d+\b
+      scope: constant.numeric
+
+  keywords:
+    - match: \b(fn|let|mut|if|else|match|for|in|while|return|import|from|as|type|struct|enum|trait|impl|const|where|true|false)\b
+      scope: keyword
+
+  types:
+    - match: \b(Qubit|Qubits|Measured|Bool|Int|Float|Complex|Vec|Params|String|Unit|Self)\b
+      scope: support.type
+
+  effects:
+    - match: \b(pure|quantum|prob)\b
+      scope: storage.type
+
+  quantum-keywords:
+    - match: \b(qubit|qubits|measure|reverse|adjoint|control|grad|drop|h|x|y|z|s|t|rx|ry|rz|cx|cz|swap)\b
+      scope: entity.name.function
+
+  operators:
+    - match: '[+\-*/%=!<>]=?|->|\.\.|[&|]{1,2}'
+      scope: keyword.operator

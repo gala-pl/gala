@@ -1,0 +1,1 @@
+au BufNewFile,BufRead *.gala setfiletype gala

@@ -1,0 +1,29 @@
+{
+  "name": "tree-sitter-gala",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Gala programming language",
+  "main": "bindings/node",
+  "scripts": {
+    "test": "tree-sitter test",
+    "generate": "tree-sitter generate",
+    "build": "tree-sitter build",
+    "parse": "tree-sitter parse"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gala-lang/gala"
+  },
+  "keywords": [
+    "parser",
+    "gala",
+    "quantum",
+    "tree-sitter"
+  ],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "nan": "^2.19.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.21.0"
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "Function definition": {
+    "prefix": ["fn"],
+    "body": [
+      "fn ${1:name}(${2:params})${3: -> ${4:Type}} ${5:effect} {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "Define a function"
+  },
+  "Bell pair": {
+    "prefix": ["bell"],
+    "body": [
+      "fn bell() -> Qubits<2> quantum {",
+      "\tlet a = qubit()",
+      "\tlet b = qubit()",
+      "\th(a)",
+      "\tlet (a, b) = cx(a, b)",
+      "\t(a, b)",
+      "}"
+    ],
+    "description": "Bell pair circuit"
+  },
+  "Quantum function": {
+    "prefix": ["qfn"],
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:Type} quantum {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "Quantum effect function"
+  },
+  "Probabilistic function": {
+    "prefix": ["pfn"],
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:Type} prob {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "Probabilistic function with measurement"
+  },
+  "Pure function": {
+    "prefix": ["purefn"],
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:Type} pure {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "Pure classical function"
+  },
+  "Let binding": {
+    "prefix": ["let"],
+    "body": ["let ${1:name} = ${0:value};"],
+    "description": "Variable binding"
+  },
+  "Mutable let binding": {
+    "prefix": ["letm"],
+    "body": ["let mut ${1:name} = ${0:value};"],
+    "description": "Mutable variable binding"
+  },
+  "If expression": {
+    "prefix": ["if"],
+    "body": [
+      "if ${1:condition} {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "If expression"
+  },
+  "If-else expression": {
+    "prefix": ["ife"],
+    "body": [
+      "if ${1:condition} {",
+      "\t${2:then}",
+      "} else {",
+      "\t${0:else}",
+      "}"
+    ],
+    "description": "If-else expression"
+  },
+  "Match expression": {
+    "prefix": ["match"],
+    "body": [
+      "match ${1:value} {",
+      "\t${2:pattern} => ${3:expr},",
+      "\t_ => ${0:fallback},",
+      "}"
+    ],
+    "description": "Match expression"
+  },
+  "For loop": {
+    "prefix": ["for"],
+    "body": [
+      "for ${1:var} in ${2:range} {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "For loop"
+  },
+  "While loop": {
+    "prefix": ["while"],
+    "body": [
+      "while ${1:condition} {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Measure qubit": {
+    "prefix": ["measure"],
+    "body": ["let ${1:result} = measure(${2:q});"],
+    "description": "Measure a qubit"
+  },
+  "Qubit allocation": {
+    "prefix": ["qubit"],
+    "body": ["let ${1:q} = qubit();"],
+    "description": "Allocate a single qubit"
+  },
+  "Qubits register": {
+    "prefix": ["qubits"],
+    "body": ["let ${1:q} = qubits<${2:N}>();"],
+    "description": "Allocate a register of N qubits"
+  },
+  "Gradient": {
+    "prefix": ["grad"],
+    "body": ["let d${1:θ} = grad(${2:fn}, wrt: ${3:params});"],
+    "description": "Native gradient operator"
+  },
+  "Adjoint / reverse": {
+    "prefix": ["adj"],
+    "body": ["adjoint(${1:fn})(${2:args});"],
+    "description": "Compiler-derived adjoint (inverse)"
+  },
+  "Controlled operation": {
+    "prefix": ["ctrl"],
+    "body": ["control(${1:fn})(${2:control}, ${3:target});"],
+    "description": "Compiler-derived controlled variant"
+  },
+  "Struct definition": {
+    "prefix": ["struct"],
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:Type},",
+      "}"
+    ],
+    "description": "Define a struct"
+  },
+  "Enum definition": {
+    "prefix": ["enum"],
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant},",
+      "}"
+    ],
+    "description": "Define an enum"
+  },
+  "Trait definition": {
+    "prefix": ["trait"],
+    "body": [
+      "trait ${1:Name} {",
+      "\tfn ${2:method}(${3:params}) -> ${0:Type};",
+      "}"
+    ],
+    "description": "Define a trait"
+  },
+  "Impl block": {
+    "prefix": ["impl"],
+    "body": [
+      "impl ${1:Type} {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "Implementation block"
+  },
+  "Import statement": {
+    "prefix": ["import"],
+    "body": ["import ${1:module};"],
+    "description": "Import a module"
+  },
+  "Import with alias": {
+    "prefix": ["importas"],
+    "body": ["import ${1:module} as ${2:alias};"],
+    "description": "Import with alias"
+  },
+  "Import specific items": {
+    "prefix": ["importbr"],
+    "body": ["import ${1:module}.{ ${2:item1}, ${3:item2} };"],
+    "description": "Import specific items from a module"
+  },
+  "QFT circuit": {
+    "prefix": ["qft"],
+    "body": [
+      "fn qft(q: Qubits<${1:N}>) -> Qubits<${1:N}> quantum {",
+      "\tfor i in 0..${1:N} {",
+      "\t\th(q[i])",
+      "\t\tfor j in i+1..${1:N} {",
+      "\t\t\tlet (q[j], q[i]) = crz(q[j], q[i], π / 2.0^(j-i))",
+      "\t\t}",
+      "\t}",
+      "\tq",
+      "}"
+    ],
+    "description": "Quantum Fourier Transform"
+  },
+  "Variational ansatz": {
+    "prefix": ["ansatz"],
+    "body": [
+      "fn ansatz(q: Qubits<${1:4}>, θ: Params) -> Qubits<${1:4}> quantum {",
+      "\tfor layer in 0..θ.depth {",
+      "\t\tfor i in 0..${1:4} { ry(q[i], θ[layer][i]) }",
+      "\t\tfor i in 0..${1:4}-1 { cx(q[i], q[i+1]) }",
+      "\t}",
+      "\tq",
+      "}"
+    ],
+    "description": "Variational ansatz circuit"
+  },
+  "Type alias": {
+    "prefix": ["type"],
+    "body": ["type ${1:Name} = ${0:Type};"],
+    "description": "Type alias"
+  },
+  "Constant definition": {
+    "prefix": ["const"],
+    "body": ["const ${1:NAME}: ${2:Type} = ${0:value};"],
+    "description": "Constant definition"
+  },
+  "Main function": {
+    "prefix": ["main"],
+    "body": [
+      "fn main() {",
+      "\t${0:body}",
+      "}"
+    ],
+    "description": "Main entry point"
+  }
+}
