@@ -1,0 +1,19 @@
+[package]
+name = "gala-fuzz"
+version = "0.1.0"
+edition = "2021"
+description = "Shared fuzzing infrastructure for the Gala compiler"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+publish = false
+
+[lib]
+
+[dependencies]
+rand.workspace = true
+gala-driver.workspace = true
+gala-parser.workspace = true
+gala-diagnostics.workspace = true
+gala-span.workspace = true
+libfuzzer-sys.workspace = true
+proptest.workspace = true

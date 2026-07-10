@@ -572,8 +572,6 @@ dependencies = [
  "gala-diff",
  "gala-gir",
  "gala-opt",
- "gala-qir",
- "gala-sim",
  "gala-span",
 ]
 

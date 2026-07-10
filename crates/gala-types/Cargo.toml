@@ -1,0 +1,18 @@
+[package]
+name = "gala-types"
+version = "0.1.0"
+edition = "2021"
+description = "Type and effect inference, linearity checking for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_types"
+path = "src/lib.rs"
+
+[dependencies]
+ena.workspace = true
+gala-ast.workspace = true
+gala-hir.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

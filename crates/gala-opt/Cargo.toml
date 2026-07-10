@@ -1,0 +1,16 @@
+[package]
+name = "gala-opt"
+version = "0.1.0"
+edition = "2021"
+description = "GIR optimization passes for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_opt"
+path = "src/lib.rs"
+
+[dependencies]
+gala-gir.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

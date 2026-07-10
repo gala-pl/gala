@@ -1,0 +1,23 @@
+[package]
+name = "gala-sim"
+version.workspace = true
+edition.workspace = true
+description = "Simulator backends (roqoqo/QuEST) for Gala"
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "gala_sim"
+path = "src/lib.rs"
+
+[features]
+default = []
+sim = ["roqoqo", "roqoqo-quest"]
+
+[dependencies]
+roqoqo = { version = "0.6", optional = true }
+roqoqo-quest = { version = "0.6", optional = true }
+gala-gir.workspace = true
+gala-opt.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

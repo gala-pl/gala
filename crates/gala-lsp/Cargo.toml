@@ -1,0 +1,13 @@
+[package]
+name = "gala-lsp"
+version = "0.1.0"
+edition = "2021"
+description = "Language Server Protocol implementation for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_lsp"
+path = "src/lib.rs"
+
+[dependencies]

@@ -1,0 +1,15 @@
+[package]
+name = "gala-diagnostics"
+version = "0.1.0"
+edition = "2021"
+description = "Rich diagnostics with ariadne rendering and error codes for Gala"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_diagnostics"
+path = "src/lib.rs"
+
+[dependencies]
+ariadne.workspace = true
+gala-span.workspace = true

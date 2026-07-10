@@ -1,0 +1,21 @@
+[package]
+name = "gala-runtime"
+version.workspace = true
+edition.workspace = true
+description = "Hybrid runtime: dispatch, mid-circuit measurement, batching"
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "gala_runtime"
+path = "src/lib.rs"
+
+[features]
+default = []
+
+[dependencies]
+gala-gir.workspace = true
+gala-opt.workspace = true
+gala-diff.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "gala-gir"
+version = "0.1.0"
+edition = "2021"
+description = "Gala Intermediate Representation (GIR)"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_gir"
+path = "src/lib.rs"
+
+[dependencies]
+petgraph.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+gala-ast.workspace = true
+gala-hir.workspace = true
+gala-types.workspace = true
+gala-uncompute.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true

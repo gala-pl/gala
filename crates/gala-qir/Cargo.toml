@@ -1,0 +1,22 @@
+[package]
+name = "gala-qir"
+version.workspace = true
+edition.workspace = true
+description = "QIR emission (LLVM IR) for Gala"
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "gala_qir"
+path = "src/lib.rs"
+
+[features]
+default = []
+qir = ["inkwell"]
+
+[dependencies]
+inkwell = { version = "0.2", features = ["llvm10-0", "target-x86", "target-aarch64"], optional = true }
+gala-gir.workspace = true
+gala-opt.workspace = true
+gala-span.workspace = true
+gala-diagnostics.workspace = true
