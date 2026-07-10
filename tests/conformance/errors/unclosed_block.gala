@@ -1,0 +1,5 @@
+// Gala conformance test: unclosed block
+
+fn main() -> Int {
+    return 0;
+

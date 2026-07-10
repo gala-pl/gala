@@ -1,0 +1,22 @@
+import gala.ml.{ angle_encode, Params }
+
+fn encode(x: Vec<Float>) -> Qubits<4> quantum {
+    let q = qubits<4>()
+    angle_encode(q, x)
+    q
+}
+
+fn ansatz(q: Qubits<4>, θ: Params) -> Qubits<4> quantum {
+    for layer in 0..θ.depth {
+        for i in 0..4 { ry(q[i], θ[layer][i]) }
+        for i in 0..3 { cx(q[i], q[i+1]) }
+    }
+    q
+}
+
+fn classify(x: Vec<Float>, θ: Params) -> Measured<Bool> prob {
+    let q = ansatz(encode(x), θ)
+    measure(q[0])
+}
+
+let dθ = grad(classify, wrt: θ)

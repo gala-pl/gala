@@ -1,0 +1,15 @@
+/// Bell pair
+// This is a simple quantum circuit
+/* nested /* block */ comments work */
+fn bell() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+
+fn main() -> Measured<Bool> prob {
+    let (a, b) = bell()
+    measure(a)
+}

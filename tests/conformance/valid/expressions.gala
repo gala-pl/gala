@@ -1,0 +1,7 @@
+fn arithmetic() -> Int {
+    return 42;
+}
+
+fn compare() -> Bool {
+    return false;
+}
