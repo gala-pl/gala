@@ -316,6 +316,79 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
 - Deps: M3 complete.
 - DoD: a course teaches Gala end to end (M5 gate).
 
+### M2+ — AI Agent First (cross-cutting)
+
+**WP-060 — Structured diagnostics JSON + `gala check --json`**
+- Goal: `gala-diagnostics` emits JSON schema v1; `gala check --json` outputs structured diagnostics with error codes, spans, suggested fixes.
+- Deps: WP-002, WP-017.
+- DoD: Schema published; `gala check --json` passes conformance; 80% of E04xx/E05xx have machine-applicable fixes.
+
+**WP-061 — Suggested fixes in diagnostics**
+- Goal: `Diagnostic` includes `suggested_fixes: Vec<Fix>` (TextEdit-based); implemented for common errors (E0412, E0530, E03xx).
+- Deps: WP-060, WP-014, WP-015.
+- DoD: `gala fix --apply` works on conformance suite; fixes validated by re-check.
+
+**WP-062 — GIR JSON schema v1 + `--emit gir=json`**
+- Goal: `gala-gir` serializes to versioned JSON (`gir.v1.json`); `gala build --emit gir=json --gir-version 1`; round-trip via `--from-gir`.
+- Deps: WP-016.
+- DoD: Schema published; golden GIR snapshots; round-trip preserves semantics.
+
+**WP-063 — LSP custom methods for agents**
+- Goal: `gala-lsp` exposes `gala/girAtPosition`, `gala/suggestFixes`, `gala/typeAtPosition`, `gala/effectAtPosition`; semantic tokens include linearity/effect markers.
+- Deps: WP-034, WP-060, WP-062.
+- DoD: VS Code extension shows GIR on hover; agent can query type/effect/linearity at position.
+
+**WP-064 — `gala fmt` canonical formatter**
+- Goal: `gala-fmt` with `--check --diff --stdin`; idempotent; formats stdlib; CI gate.
+- Deps: WP-025.
+- DoD: `fmt(fmt(x)) == fmt(x)`; all `.gala` files in repo pass `--check`.
+
+**WP-065 — `gala test --property --json` harness**
+- Goal: Property test runner outputs JSON (`property_result.v1.json`); runs unitarity, reversibility, uncomputes, grad_matches, effect_honesty.
+- Deps: WP-027, WP-030.
+- DoD: JSON output validated against schema; CI runs property suite.
+
+**WP-066 — `gala explain <code> --markdown/--json`**
+- Goal: All `E0xxx` codes have long-form explanations; CLI outputs markdown or JSON.
+- Deps: WP-002, WP-060.
+- DoD: `gala explain E0412 --markdown` renders correctly; JSON includes examples.
+
+**WP-067 — Conformance suite as training corpus generator**
+- Goal: `gala test --generate-corpus` emits JSONL (`{prompt, completion, properties[]}`) for fine-tuning.
+- Deps: WP-017, WP-027.
+- DoD: Corpus covers all conformance categories; used to eval agent generation quality.
+
+**WP-068 — Package manager `gala pkg` with JSON output**
+- Goal: `gala pkg add/remove/update --json`; lockfile (`gala.lock`); reproducible builds.
+- Deps: WP-046.
+- DoD: `gala pkg add` works in CI; lockfile diff is deterministic.
+
+**WP-069 — REPL with `--json` mode**
+- Goal: `gala repl --json` for programmatic inspection; incremental eval; state dump.
+- Deps: WP-026.
+- DoD: `echo 'fn f() -> Int { 1 }' | gala repl --json` works.
+
+**WP-070 — Agent-friendly CI command**
+- Goal: `gala check --json --fail-on-warnings` single command for agent pipelines.
+- Deps: WP-060.
+- DoD: Exit code 0 = clean; 1 = diagnostics; JSON always emitted.
+
+**WP-071 — MCP Server (`gala-mcp`)**
+- Goal: TypeScript/Node.js MCP server in `tools/gala-mcp/` exposing Gala as tools/resources/prompts for AI agents.
+  - Tools: `gala_check`, `gala_build`, `gala_run`, `gala_test`, `gala_fix`, `gala_explain`, `gala_gir`, `gala_lsp_query`
+  - Resources: `gala://diagnostics/{file}`, `gala://gir/{file}`, `gala://schema/diagnostic.v1`, `gala://schema/gir.v1`
+  - Prompts: `gala/debug-error`, `gala/write-quantum-fn`, `gala/optimize-circuit`
+- Location: `tools/gala-mcp/` (npm package, not in Cargo workspace)
+- Deps: WP-060, WP-061, WP-063, WP-065
+- DoD: `npx gala-mcp` works; all tools return schema-validated JSON; MCP Inspector connects; published to npm as `gala-mcp`
+
+**WP-072 — Agent SDK (TypeScript + Python)**
+- Goal: High-level client libraries wrapping MCP for ergonomic agent usage.
+  - `@gala-lang/agent` (npm) and `gala-agent` (PyPI)
+  - API: `agent.check(code)`, `agent.run(code)`, `agent.grad(fn, wrt)`, `agent.verifyProperties(code, props)`
+- Deps: WP-071
+- DoD: Both SDKs published; README with agent patterns; used in Gala's own CI for conformance validation.
+
 ---
 
 ## 5. Parallelization guidance
