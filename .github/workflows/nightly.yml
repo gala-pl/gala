@@ -20,8 +20,8 @@ jobs:
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
+      - name: Cargo deny (advisories, licenses, bans)
+        uses: EmbarkStudios/cargo-deny-action@v2
 
   full-test:
     runs-on: ubuntu-latest
@@ -42,3 +42,23 @@ jobs:
 
       - name: Conformance suite
         run: cargo test --test conformance 2>/dev/null || echo "Conformance suite not yet implemented"
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Build fuzz targets
+        run: cargo fuzz build
+
+      - name: Run parser fuzz (short)
+        run: cargo fuzz run parser -- -runs=50000 -max_total_time=120
