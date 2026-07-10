@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gala-lang.org/schemas/diagnostic.v1.json",
+  "title": "Gala Diagnostic",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["code", "severity", "message", "primary_span", "labels", "notes", "suggested_fixes"],
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^E\\d{4}$"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["error", "warning", "note", "help"]
+    },
+    "message": { "type": "string" },
+    "primary_span": {
+      "type": "object",
+      "required": ["file_id", "start", "end"],
+      "properties": {
+        "file_id": { "type": "integer" },
+        "start": { "type": "integer" },
+        "end": { "type": "integer" },
+        "file_path": { "type": "string" }
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file_id", "start", "end", "message"],
+        "properties": {
+          "file_id": { "type": "integer" },
+          "start": { "type": "integer" },
+          "end": { "type": "integer" },
+          "message": { "type": "string" },
+          "file_path": { "type": "string" }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "suggested_fixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "edits"],
+        "properties": {
+          "description": { "type": "string" },
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["file_id", "start", "end", "new_text"],
+              "properties": {
+                "file_id": { "type": "integer" },
+                "start": { "type": "integer" },
+                "end": { "type": "integer" },
+                "new_text": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "explain_url": { "type": "string", "format": "uri" }
+  }
+}

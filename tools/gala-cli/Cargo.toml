@@ -1,0 +1,19 @@
+[package]
+name = "gala-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Gala command-line interface — run, build, test, fmt, repl"
+
+[[bin]]
+name = "gala-cli"
+path = "src/main.rs"
+
+[dependencies]
+gala-compiler.workspace = true
+gala-core.workspace = true
+gala-fmt = { path = "../gala-fmt" }
+gala-lsp = { path = "../gala-lsp" }
+clap.workspace = true
+serde.workspace = true
+toml.workspace = true
+log.workspace = true

@@ -1,0 +1,18 @@
+[install]
+cache = true
+
+[run]
+# Enable experimental features if needed
+# shell = "bash"
+
+[test]
+# Vitest configuration
+coverage = true
+environment = "node"
+include = ["tests/**/*.test.ts"]
+
+[trusted-dependencies]
+# Allow certain packages to run lifecycle scripts
+"@modelcontextprotocol/sdk" = true
+"vitest" = true
+"vite" = true

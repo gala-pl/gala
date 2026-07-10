@@ -1,0 +1,17 @@
+[package]
+name = "gala-pkg"
+version = "0.1.0"
+edition = "2021"
+description = "Package manager for the Gala programming language"
+
+[[bin]]
+name = "gala-pkg"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+semver.workspace = true
+log.workspace = true
