@@ -1,0 +1,5 @@
+// Gala conformance test: syntax errors
+
+fn missing_paren( -> Int {
+    return 0;
+}

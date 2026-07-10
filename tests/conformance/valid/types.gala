@@ -1,0 +1,7 @@
+fn bool_fn() -> Bool {
+    return true;
+}
+
+fn int_fn() -> Int {
+    return 42;
+}

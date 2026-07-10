@@ -1,0 +1,7 @@
+fn main() -> Int {
+    return 0;
+}
+
+fn add() -> Int {
+    return 42;
+}
