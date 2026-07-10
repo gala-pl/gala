@@ -1,0 +1,29 @@
+// Gala core library — compiler intrinsics and primitive operations.
+// These operations are built into the compiler and have special lowering.
+
+/// Allocate a single qubit initialized to |0⟩.
+/// Effect: quantum — this is a quantum operation.
+fn qubit() -> Qubit quantum
+
+/// Allocate N qubits initialized to |0⟩.
+/// Effect: quantum
+fn qubits<N>() -> Qubits<N> quantum
+
+/// Measure a qubit, collapsing it to a classical bit.
+/// The qubit is consumed (no-cloning theorem).
+/// Returns a probabilistic result.
+/// Effect: prob — measurement introduces classical randomness.
+fn measure(q: Qubit) -> Measured<Bool> prob
+
+/// Safely release a qubit. The compiler synthesizes the
+/// uncompute sequence (adjoint of the provenance) before
+/// releasing the qubit back to |0⟩.
+/// If the qubit is not liftable, this is a compile error E0530.
+fn drop(q: Qubit) quantum
+
+/// Copy a classical value. Only works for Copy types
+/// (Bool, Int, Float, String, Measured<T>, etc).
+fn copy<T: Copy>(x: T) -> (T, T) pure
+
+/// Identity function.
+fn id<T>(x: T) -> T pure

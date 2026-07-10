@@ -1,0 +1,73 @@
+// Gala standard gate set — compiler-derived adjoint and controlled forms.
+//
+// Each gate in this library automatically gets:
+//   - adjoint(f) — compiler-derived inverse (daggger)
+//   - control(f) — compiler-derived controlled variant
+//
+// Usage:
+//   import gala.gates.{ h, x, cx, rz }
+//   h(q)
+//   cx(q1, q2)
+//   rz(q, theta)
+
+// ─── Single-qubit Clifford gates ───
+
+/// Hadamard gate: creates superposition |+⟩ = (|0⟩ + |1⟩)/√2
+/// Adjoint: H† = H
+fn h(q: Qubit) -> Qubit quantum
+
+/// Pauli-X gate (NOT): flips |0⟩↔|1⟩
+/// Adjoint: X† = X
+fn x(q: Qubit) -> Qubit quantum
+
+/// Pauli-Y gate: rotates around Y-axis
+/// Adjoint: Y† = Y
+fn y(q: Qubit) -> Qubit quantum
+
+/// Pauli-Z gate: phase flip |1⟩ → -|1⟩
+/// Adjoint: Z† = Z
+fn z(q: Qubit) -> Qubit quantum
+
+/// Phase gate S: applies phase i to |1⟩
+/// Adjoint: S† = S³
+fn s(q: Qubit) -> Qubit quantum
+
+/// T gate: applies phase √i to |1⟩
+/// Adjoint: T† = T⁷
+fn t(q: Qubit) -> Qubit quantum
+
+// ─── Single-qubit rotation gates ───
+
+/// Rotation around X-axis by angle θ
+fn rx(q: Qubit, θ: Float) -> Qubit quantum
+
+/// Rotation around Y-axis by angle θ
+fn ry(q: Qubit, θ: Float) -> Qubit quantum
+
+/// Rotation around Z-axis by angle θ
+fn rz(q: Qubit, θ: Float) -> Qubit quantum
+
+// ─── Two-qubit gates ───
+
+/// CNOT (CX): flips target if control is |1⟩
+/// Adjoint: CX† = CX
+fn cx(control: Qubit, target: Qubit) -> (Qubit, Qubit) quantum
+
+/// CZ: applies Z to target if control is |1⟩
+/// Adjoint: CZ† = CZ
+fn cz(control: Qubit, target: Qubit) -> (Qubit, Qubit) quantum
+
+/// SWAP: exchanges two qubits
+/// Adjoint: SWAP† = SWAP
+fn swap(a: Qubit, b: Qubit) -> (Qubit, Qubit) quantum
+
+// ─── Controlled rotations ───
+
+/// Controlled rotation around Z-axis
+fn crz(control: Qubit, target: Qubit, θ: Float) -> (Qubit, Qubit) quantum
+
+/// Controlled rotation around X-axis
+fn crx(control: Qubit, target: Qubit, θ: Float) -> (Qubit, Qubit) quantum
+
+/// Controlled rotation around Y-axis
+fn cry(control: Qubit, target: Qubit, θ: Float) -> (Qubit, Qubit) quantum

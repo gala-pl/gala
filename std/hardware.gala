@@ -1,0 +1,56 @@
+// Gala hardware capabilities library.
+//
+// Backend capability descriptors and topology information
+// for target-aware compilation.
+
+/// Qubit connectivity topology.
+type Topology = enum {
+    Linear,         // N qubits in a line
+    Grid { rows: Int, cols: Int },  // 2D grid
+    Full,           // All-to-all connectivity
+    Custom { edges: Vec<(Int, Int)> },  // User-defined
+}
+
+/// A backend to run quantum programs on.
+type Backend = struct {
+    name: String,
+    num_qubits: Int,
+    native_gates: Vec<String>,
+    topology: Topology,
+    supports_mid_circuit_measurement: Bool,
+    supports_conditional: Bool,
+    max_shots: Int,
+    gate_durations: Vec<(String, Float)>,  // nanoseconds
+}
+
+/// Get the available backends.
+/// This is resolved at compile time based on the target.
+fn available_backends() -> Vec<Backend> pure {
+    return [
+        Backend {
+            name: "gala-sim",
+            num_qubits: 32,
+            native_gates: ["h", "x", "y", "z", "cx", "rz", "rx", "ry"],
+            topology: Full,
+            supports_mid_circuit_measurement: true,
+            supports_conditional: true,
+            max_shots: 100000,
+            gate_durations: [],
+        },
+    ];
+}
+
+/// Check if a backend has sufficient qubits.
+fn has_enough_qubits(backend: Backend, needed: Int) -> Bool pure {
+    return backend.num_qubits >= needed;
+}
+
+/// Check if a backend supports a specific gate natively.
+fn supports_gate(backend: Backend, gate: String) -> Bool pure {
+    for g in backend.native_gates {
+        if g == gate {
+            return true;
+        }
+    }
+    return false;
+}

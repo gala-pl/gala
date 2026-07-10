@@ -1,0 +1,121 @@
+// Gala machine learning library.
+//
+// Hybrid quantum-classical ML primitives: encoders, ansätze,
+// optimizers, and gradient utilities.
+
+import gala.gates.{ h, rx, ry, rz, cx }
+import gala.core.{ qubits, measure }
+
+/// Trainable parameter bundle for variational circuits.
+type Params = Vec<Float>
+
+// ─── Encoders ───
+
+/// Angle encoding: encode classical data x into rotation angles.
+/// Each feature is encoded as a rotation on a dedicated qubit.
+fn angle_encode(q: Qubits<N>, x: Vec<Float>) -> Qubits<N> quantum {
+    for i in 0..N {
+        ry(q[i], x[i])
+    }
+    return q;
+}
+
+/// Amplitude encoding: encode data into quantum amplitudes.
+/// Requires N qubits for 2^N amplitudes.
+fn amplitude_encode(q: Qubits<N>, x: Vec<Float>) -> Qubits<N> quantum {
+    // Placeholder: would prepare arbitrary state
+    return q;
+}
+
+/// Basis encoding: encode binary data directly into computational basis states.
+fn basis_encode(q: Qubits<N>, bits: Vec<Bool>) -> Qubits<N> quantum {
+    for i in 0..N {
+        if bits[i] {
+            x(q[i])
+        }
+    }
+    return q;
+}
+
+// ─── Ansätze ───
+
+/// Hardware-efficient layered ansatz.
+/// Each layer: Ry rotations + entangling CX gates.
+fn layered_ansatz(q: Qubits<N>, θ: Params, depth: Int) -> Qubits<N> quantum {
+    for layer in 0..depth {
+        for i in 0..N {
+            ry(q[i], θ[layer * N + i])
+        }
+        for i in 0..N-1 {
+            cx(q[i], q[i+1])
+        }
+    }
+    return q;
+}
+
+/// Simple variational classifier.
+fn variational_classifier(x: Vec<Float>, θ: Params) -> Measured<Bool> prob {
+    let q = qubits<4>()
+    let q = angle_encode(q, x)
+    let q = layered_ansatz(q, θ, 2)
+    return measure(q[0])
+}
+
+// ─── Optimizers ───
+
+/// Gradient descent step.
+fn gd_step(θ: Params, dθ: Params, lr: Float) -> Params pure {
+    for i in 0..len(θ) {
+        θ[i] = θ[i] - lr * dθ[i]
+    }
+    return θ;
+}
+
+/// Adam optimizer step (simplified).
+fn adam_step(
+    θ: Params,
+    g: Params,
+    m: Params,
+    v: Params,
+    t: Int,
+    lr: Float
+) -> (Params, Params, Params) pure {
+    let β1 = 0.9
+    let β2 = 0.999
+    let ε = 1e-8
+
+    for i in 0..len(θ) {
+        m[i] = β1 * m[i] + (1.0 - β1) * g[i]
+        v[i] = β2 * v[i] + (1.0 - β2) * g[i] * g[i]
+        let m̂ = m[i] / (1.0 - pow(β1, t))
+        let v̂ = v[i] / (1.0 - pow(β2, t))
+        θ[i] = θ[i] - lr * m̂ / (sqrt(v̂) + ε)
+    }
+    return (θ, m, v);
+}
+
+// ─── QAOA Template ───
+
+/// QAOA mixer Hamiltonian (X rotations).
+fn qaoa_mixer(q: Qubits<N>, β: Float) -> Qubits<N> quantum {
+    for i in 0..N {
+        rx(q[i], β)
+    }
+    return q;
+}
+
+/// QAOA cost Hamiltonian (ZZ interactions).
+fn qaoa_cost(q: Qubits<N>, γ: Float) -> Qubits<N> quantum {
+    for i in 0..N-1 {
+        rz(q[i], γ)
+        cz(q[i], q[i+1])
+    }
+    return q;
+}
+
+/// One QAOA layer.
+fn qaoa_layer(q: Qubits<N>, γ: Float, β: Float) -> Qubits<N> quantum {
+    let q = qaoa_cost(q, γ)
+    let q = qaoa_mixer(q, β)
+    return q;
+}
