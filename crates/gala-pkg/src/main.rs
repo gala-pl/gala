@@ -30,9 +30,7 @@ enum PackageCommands {
         path: Option<PathBuf>,
     },
     /// Remove a dependency
-    Remove {
-        name: String,
-    },
+    Remove { name: String },
     /// Update dependencies
     Update {
         #[arg(long)]
@@ -99,12 +97,14 @@ struct Lockfile {
 }
 
 fn read_manifest(path: &PathBuf) -> Result<Manifest, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| format!("cannot read manifest: {e}"))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("cannot read manifest: {e}"))?;
     toml::from_str(&content).map_err(|e| format!("manifest parse error: {e}"))
 }
 
 fn write_manifest(path: &PathBuf, manifest: &Manifest) -> Result<(), String> {
-    let content = toml::to_string_pretty(manifest).map_err(|e| format!("serialization error: {e}"))?;
+    let content =
+        toml::to_string_pretty(manifest).map_err(|e| format!("serialization error: {e}"))?;
     std::fs::write(path, content).map_err(|e| format!("write error: {e}"))
 }
 
@@ -137,10 +137,7 @@ fn resolve_dependencies(manifest: &Manifest) -> Result<Lockfile, String> {
         }
     }
 
-    Ok(Lockfile {
-        version: 1,
-        packages,
-    })
+    Ok(Lockfile { version: 1, packages })
 }
 
 fn init_project(name: &str, is_lib: bool) -> Result<(), String> {
@@ -196,12 +193,7 @@ fn main() {
             });
             let deps = manifest.dependencies.get_or_insert_with(HashMap::new);
             let dep = if let Some(g) = git {
-                Dependency::Detailed {
-                    version: None,
-                    git: Some(g),
-                    path: None,
-                    features: None,
-                }
+                Dependency::Detailed { version: None, git: Some(g), path: None, features: None }
             } else if let Some(p) = path {
                 Dependency::Detailed {
                     version: None,
@@ -272,10 +264,7 @@ fn main() {
                 eprintln!("error: {e}");
                 process::exit(1);
             });
-            println!(
-                "installed {} package(s)",
-                lockfile.packages.len()
-            );
+            println!("installed {} package(s)", lockfile.packages.len());
         }
     }
 }
