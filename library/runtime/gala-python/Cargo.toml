@@ -1,9 +1,0 @@
-[package]
-name = "gala-python"
-version = "0.1.0"
-edition = "2021"
-description = "Python interoperability bridge for the Gala runtime"
-
-[dependencies]
-gala-core.workspace = true
-log.workspace = true

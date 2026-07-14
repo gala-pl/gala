@@ -1,9 +1,0 @@
-[package]
-name = "gala-gc"
-version = "0.1.0"
-edition = "2021"
-description = "Garbage collector for the Gala runtime"
-
-[dependencies]
-gala-core.workspace = true
-log.workspace = true
