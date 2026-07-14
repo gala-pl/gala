@@ -1,9 +1,5 @@
 //! Linter for Gala source files.
 
-use gala_ast::{Item, Expr, Stmt, Type, Pattern, Ident, BinOp, UnOp, Literal, FnDef, Block, Param};
-use gala_span::{FileId, Span, SourceMap};
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
-
 /// A lint diagnostic.
 #[derive(Debug, Clone)]
 pub struct Lint {

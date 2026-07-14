@@ -1,6 +1,6 @@
 //! Differentiation lowering for Gala (param-shift + autodiff).
 
-use gala_gir::{Gir, GirFunc, BlockId};
+use gala_gir::{Gir, GirFunc};
 
 /// Lower gradient operations in GIR.
 pub fn lower_gradients(gir: &mut Gir) {

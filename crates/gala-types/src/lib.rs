@@ -1,10 +1,10 @@
 //! Type and effect inference, linearity checking for Gala.
 
-use gala_ast::{self, Literal, ConstExpr, Type, Effect as HEffect};
+use ena::unify::{InPlace, UnificationTable, UnifyKey};
+use gala_ast::{self, ConstExpr, Literal, Type};
+use gala_diagnostics::{codes, Diagnostic, Diagnostics};
 use gala_hir::*;
-use gala_span::{Span, FileId};
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
-use ena::unify::{InPlace, UnifyKey, UnificationTable};
+use gala_span::{FileId, Span};
 use std::collections::HashMap;
 
 /// Type representation for inference.
@@ -34,9 +34,15 @@ pub struct TyVar(pub u32);
 
 impl UnifyKey for TyVar {
     type Value = ();
-    fn index(&self) -> u32 { self.0 }
-    fn from_index(i: u32) -> Self { TyVar(i) }
-    fn tag() -> &'static str { "TyVar" }
+    fn index(&self) -> u32 {
+        self.0
+    }
+    fn from_index(i: u32) -> Self {
+        TyVar(i)
+    }
+    fn tag() -> &'static str {
+        "TyVar"
+    }
 }
 
 /// Type inference error.
@@ -77,7 +83,15 @@ pub struct InferCtxt {
 #[derive(Debug, Clone)]
 enum Constraint {
     Equate(Ty, Ty),
+    // Effect-subsumption scaffolding: constructed via `constrain_effect`, solved in `solve`.
+    #[allow(dead_code)]
     SubEffect(Effect, Effect),
+}
+
+impl Default for InferCtxt {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InferCtxt {
@@ -126,6 +140,7 @@ impl InferCtxt {
         self.constraints.push(Constraint::Equate(a, b));
     }
 
+    #[allow(dead_code)]
     fn constrain_effect(&mut self, actual: Effect, expected: Effect) {
         self.constraints.push(Constraint::SubEffect(actual, expected));
     }
@@ -146,7 +161,11 @@ impl InferCtxt {
                 }
             }
         }
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -164,13 +183,12 @@ pub fn check_effect_boundary(
         gala_ast::Effect::Prob => Effect::Prob,
     };
     if !fn_e.subsumes(callee_eff) {
-        let msg = format!(
-            "cannot call {:?} function from {:?} context",
-            callee_eff, fn_e
+        let msg = format!("cannot call {:?} function from {:?} context", callee_eff, fn_e);
+        diags.push(
+            Diagnostic::error(codes::TYPE_MISMATCH, msg)
+                .with_primary_label(span, "effect mismatch here")
+                .with_help("change the calling function's effect or restructure the code"),
         );
-        diags.push(Diagnostic::error(codes::TYPE_MISMATCH, msg)
-            .with_primary_label(span, "effect mismatch here")
-            .with_help("change the calling function's effect or restructure the code"));
     }
 }
 
@@ -194,11 +212,18 @@ pub fn type_check_fn(hir_fn: &HirFnDef) -> Result<Ty, Diagnostics> {
 
     if let Err(errors) = cx.solve() {
         for error in errors {
-            diags.push(Diagnostic::error(codes::TYPE_MISMATCH, format!("type mismatch: {:?}", error)));
+            diags.push(Diagnostic::error(
+                codes::TYPE_MISMATCH,
+                format!("type mismatch: {:?}", error),
+            ));
         }
     }
 
-    if diags.has_errors() { Err(diags) } else { Ok(body_ty) }
+    if diags.has_errors() {
+        Err(diags)
+    } else {
+        Ok(body_ty)
+    }
 }
 
 fn effect_to_ty_effect(e: &gala_ast::Effect) -> Effect {
@@ -225,10 +250,8 @@ fn check_block(
             HirStmt::Expr(e) => {
                 last_ty = check_hir_expr(cx, e, fn_eff, diags);
             }
-            HirStmt::Return(e) => {
-                if let Some(e) = e {
-                    last_ty = check_hir_expr(cx, e, fn_eff, diags);
-                }
+            HirStmt::Return(Some(e)) => {
+                last_ty = check_hir_expr(cx, e, fn_eff, diags);
             }
             _ => {}
         }
@@ -254,11 +277,14 @@ fn check_hir_expr(
             Literal::Complex { .. } => Ty::Complex,
             Literal::Unit => Ty::Unit,
         },
-        HirExpr::Ident(_, def_id) => {
+        HirExpr::Ident(_, def_id, _) => {
             if let Some(ty) = cx.lookup(def_id) {
                 ty
             } else {
-                diags.push(Diagnostic::error(codes::UNKNOWN_TYPE, format!("unknown variable {:?}", def_id)));
+                diags.push(Diagnostic::error(
+                    codes::UNKNOWN_TYPE,
+                    format!("unknown variable {:?}", def_id),
+                ));
                 Ty::TyError
             }
         }
@@ -266,14 +292,20 @@ fn check_hir_expr(
             let lhs = check_hir_expr(cx, &b.lhs, fn_eff, diags);
             let rhs = check_hir_expr(cx, &b.rhs, fn_eff, diags);
             match b.op {
-                gala_ast::BinOp::Add | gala_ast::BinOp::Sub
-                | gala_ast::BinOp::Mul | gala_ast::BinOp::Div | gala_ast::BinOp::Mod => {
+                gala_ast::BinOp::Add
+                | gala_ast::BinOp::Sub
+                | gala_ast::BinOp::Mul
+                | gala_ast::BinOp::Div
+                | gala_ast::BinOp::Mod => {
                     cx.equate(lhs.clone(), rhs.clone());
                     lhs
                 }
-                gala_ast::BinOp::Eq | gala_ast::BinOp::Ne
-                | gala_ast::BinOp::Lt | gala_ast::BinOp::Le
-                | gala_ast::BinOp::Gt | gala_ast::BinOp::Ge => {
+                gala_ast::BinOp::Eq
+                | gala_ast::BinOp::Ne
+                | gala_ast::BinOp::Lt
+                | gala_ast::BinOp::Le
+                | gala_ast::BinOp::Gt
+                | gala_ast::BinOp::Ge => {
                     cx.equate(lhs.clone(), rhs.clone());
                     Ty::Bool
                 }
@@ -288,15 +320,11 @@ fn check_hir_expr(
         HirExpr::Block(b) => check_block(cx, b, fn_eff, diags),
         HirExpr::Call(c) => {
             let _callee_ty = check_hir_expr(cx, &c.callee, fn_eff, diags);
-            let arg_tys: Vec<Ty> = c.args.iter()
-                .map(|a| check_hir_expr(cx, a, fn_eff, diags))
-                .collect();
+            let arg_tys: Vec<Ty> =
+                c.args.iter().map(|a| check_hir_expr(cx, a, fn_eff, diags)).collect();
             let ret_ty = cx.fresh_var();
-            let fn_ty = Ty::Fn {
-                params: arg_tys,
-                ret: Box::new(ret_ty.clone()),
-                effect: Effect::Pure,
-            };
+            let fn_ty =
+                Ty::Fn { params: arg_tys, ret: Box::new(ret_ty.clone()), effect: Effect::Pure };
             cx.equate(_callee_ty, fn_ty);
             ret_ty
         }
@@ -304,7 +332,9 @@ fn check_hir_expr(
             let cond_ty = check_hir_expr(cx, &i.cond, fn_eff, diags);
             cx.equate(cond_ty, Ty::Bool);
             let then_ty = check_block(cx, &i.then_branch, fn_eff, diags);
-            let else_ty = i.else_branch.as_ref()
+            let else_ty = i
+                .else_branch
+                .as_ref()
                 .map(|e| check_hir_expr(cx, e, fn_eff, diags))
                 .unwrap_or(Ty::Unit);
             cx.equate(then_ty.clone(), else_ty.clone());
@@ -353,15 +383,17 @@ pub fn ast_type_to_ty(ty: &Type) -> Ty {
             _ => Ty::TyError,
         },
         Type::Measured(t) => Ty::Measured(Box::new(ast_type_to_ty(t))),
-        Type::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| ast_type_to_ty(t)).collect()),
+        Type::Tuple(ts) => Ty::Tuple(ts.iter().map(ast_type_to_ty).collect()),
         Type::Array(t, n) => match &**n {
             ConstExpr::Int(n) => Ty::Array(Box::new(ast_type_to_ty(t)), *n as u64),
             _ => Ty::TyError,
         },
-        Type::Named(_s, ts) => Ty::Named(DefId { crate_id: CrateId(FileId(0)), index: 0 },
-            ts.iter().map(|t| ast_type_to_ty(t)).collect()),
+        Type::Named(_s, ts) => Ty::Named(
+            DefId { crate_id: CrateId(FileId(0)), index: 0 },
+            ts.iter().map(ast_type_to_ty).collect(),
+        ),
         Type::Fn { params, ret, .. } => Ty::Fn {
-            params: params.iter().map(|t| ast_type_to_ty(t)).collect(),
+            params: params.iter().map(ast_type_to_ty).collect(),
             ret: Box::new(ast_type_to_ty(ret)),
             effect: Effect::Pure,
         },
@@ -374,8 +406,10 @@ pub fn unify_qubits_size(a: u64, b: u64) -> Result<u64, Diagnostics> {
         Ok(a)
     } else {
         let mut diags = Diagnostics::new();
-        diags.push(Diagnostic::error(codes::TYPE_MISMATCH,
-            format!("qubit register size mismatch: {} vs {}", a, b)));
+        diags.push(Diagnostic::error(
+            codes::TYPE_MISMATCH,
+            format!("qubit register size mismatch: {} vs {}", a, b),
+        ));
         Err(diags)
     }
 }
@@ -388,11 +422,11 @@ pub fn unify_qubits_size(a: u64, b: u64) -> Result<u64, Diagnostics> {
 pub fn is_linear_type(ty: &Ty) -> bool {
     match ty {
         Ty::Qubit | Ty::Qubits(_) => true,
-        Ty::Measured(_) => false,  // Measured<T> is classical (copyable)
+        Ty::Measured(_) => false, // Measured<T> is classical (copyable)
         Ty::Tuple(ts) => ts.iter().any(is_linear_type),
         Ty::Array(t, _) => is_linear_type(t),
         Ty::Fn { .. } => false,
-        Ty::Var(_) => true,  // Conservative: assume linear if unknown
+        Ty::Var(_) => true, // Conservative: assume linear if unknown
         _ => false,
     }
 }
@@ -474,14 +508,18 @@ fn check_expr_linearity(
     diags: &mut Diagnostics,
 ) {
     match expr {
-        HirExpr::Ident(_, def_id) => {
-            let key = (true, def_id.index);
+        HirExpr::Ident(_, def_id, _) => {
+            let _key = (true, def_id.index);
             let lin_state = track_id(state, true, def_id.index);
             if lin_state == LinearState::Consumed {
-                diags.push(Diagnostic::error(codes::USE_AFTER_CONSUME,
-                    format!("value {:?} used after it was consumed", def_id))
+                diags.push(
+                    Diagnostic::error(
+                        codes::USE_AFTER_CONSUME,
+                        format!("value {:?} used after it was consumed", def_id),
+                    )
                     .with_help("qubits are linear resources — they must be used exactly once")
-                    .with_note("move the use before the consuming operation or restructure"));
+                    .with_note("move the use before the consuming operation or restructure"),
+                );
             }
             // Check if this is a quantum type by looking up in local env
             let local_id = LocalId(def_id.index);
@@ -515,7 +553,10 @@ fn check_expr_linearity(
                 check_expr_linearity(else_, &mut else_state, type_env, diags);
                 // Merge: a value is available only if available in both branches
                 for (k, v) in &saved_state {
-                    if *v == LinearState::Available && else_state.get(k).copied().unwrap_or(LinearState::Consumed) == LinearState::Available {
+                    if *v == LinearState::Available
+                        && else_state.get(k).copied().unwrap_or(LinearState::Consumed)
+                            == LinearState::Available
+                    {
                         state.insert(*k, LinearState::Available);
                     } else {
                         state.insert(*k, LinearState::Consumed);
@@ -523,10 +564,8 @@ fn check_expr_linearity(
                 }
             }
         }
-        HirExpr::Return(e) => {
-            if let Some(e) = e {
-                check_expr_linearity(e, state, type_env, diags);
-            }
+        HirExpr::Return(Some(e)) => {
+            check_expr_linearity(e, state, type_env, diags);
         }
         _ => {}
     }
@@ -553,10 +592,16 @@ mod tests {
 
     #[test]
     fn test_ast_type_to_ty() {
-        assert_eq!(ast_type_to_ty(&Type::Path(gala_ast::Path {
-            segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
-            span: Span::dummy(),
-        })), Ty::Int);
+        assert_eq!(
+            ast_type_to_ty(&Type::Path(gala_ast::Path {
+                segments: vec![gala_ast::PathSegment {
+                    ident: Ident::new("Int"),
+                    type_args: Vec::new()
+                }],
+                span: Span::dummy(),
+            })),
+            Ty::Int
+        );
         assert_eq!(ast_type_to_ty(&Type::Qubit), Ty::Qubit);
         assert_eq!(ast_type_to_ty(&Type::Qubits(Box::new(ConstExpr::Int(4)))), Ty::Qubits(4));
     }
@@ -638,12 +683,17 @@ mod tests {
             generics: Vec::new(),
             params: Vec::new(),
             ret_ty: Some(gala_ast::Type::Path(gala_ast::Path {
-                segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
+                segments: vec![gala_ast::PathSegment {
+                    ident: Ident::new("Int"),
+                    type_args: Vec::new(),
+                }],
                 span: Span::dummy(),
             })),
             effect: gala_ast::Effect::Pure,
             body: gala_hir::HirBlock {
-                stmts: vec![gala_hir::HirStmt::Return(Some(Box::new(gala_hir::HirExpr::Literal(Literal::Int(42)))))],
+                stmts: vec![gala_hir::HirStmt::Return(Some(Box::new(gala_hir::HirExpr::Literal(
+                    Literal::Int(42),
+                ))))],
                 tail: None,
                 span: Span::dummy(),
             },
@@ -702,18 +752,22 @@ mod tests {
             def_id: DefId { crate_id: cid.clone(), index: 0 },
             ident: Ident::new("bad"),
             generics: Vec::new(),
-            params: vec![
-                HirParam { local_id: qid, mutable: false,
-                    pattern: gala_ast::Pattern::Ident(Ident::new("q")),
-                    ty: gala_ast::Type::Qubit, span: Span::dummy() },
-            ],
-            ret_ty: None, effect: gala_ast::Effect::Quantum,
+            params: vec![HirParam {
+                local_id: qid,
+                mutable: false,
+                pattern: gala_ast::Pattern::Ident(Ident::new("q")),
+                ty: gala_ast::Type::Qubit,
+                span: Span::dummy(),
+            }],
+            ret_ty: None,
+            effect: gala_ast::Effect::Quantum,
             body: gala_hir::HirBlock {
                 stmts: vec![
                     gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone())),
                     gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone())),
                 ],
-                tail: None, span: Span::dummy(),
+                tail: None,
+                span: Span::dummy(),
             },
             span: Span::dummy(),
         };
@@ -727,23 +781,31 @@ mod tests {
         let xid = LocalId(0);
         let dx = DefId { crate_id: cid.clone(), index: xid.0 };
         let hir_fn = HirFnDef {
-            def_id: DefId { crate_id: cid.clone(), index: 0 }, ident: Ident::new("ok"),
+            def_id: DefId { crate_id: cid.clone(), index: 0 },
+            ident: Ident::new("ok"),
             generics: Vec::new(),
-            params: vec![
-                HirParam { local_id: xid, mutable: false,
-                    pattern: gala_ast::Pattern::Ident(Ident::new("x")),
-                    ty: gala_ast::Type::Path(gala_ast::Path {
-                        segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
-                        span: Span::dummy() }),
-                    span: Span::dummy() },
-            ],
-            ret_ty: None, effect: gala_ast::Effect::Pure,
+            params: vec![HirParam {
+                local_id: xid,
+                mutable: false,
+                pattern: gala_ast::Pattern::Ident(Ident::new("x")),
+                ty: gala_ast::Type::Path(gala_ast::Path {
+                    segments: vec![gala_ast::PathSegment {
+                        ident: Ident::new("Int"),
+                        type_args: Vec::new(),
+                    }],
+                    span: Span::dummy(),
+                }),
+                span: Span::dummy(),
+            }],
+            ret_ty: None,
+            effect: gala_ast::Effect::Pure,
             body: gala_hir::HirBlock {
                 stmts: vec![
                     gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("x"), dx.clone())),
                     gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("x"), dx.clone())),
                 ],
-                tail: None, span: Span::dummy(),
+                tail: None,
+                span: Span::dummy(),
             },
             span: Span::dummy(),
         };
@@ -758,14 +820,18 @@ mod tests {
         let dq = DefId { crate_id: cid.clone(), index: qid.0 };
         let dh = DefId { crate_id: cid.clone(), index: 99 };
         let hir_fn = HirFnDef {
-            def_id: DefId { crate_id: cid.clone(), index: 1 }, ident: Ident::new("test"),
+            def_id: DefId { crate_id: cid.clone(), index: 1 },
+            ident: Ident::new("test"),
             generics: Vec::new(),
-            params: vec![
-                HirParam { local_id: qid, mutable: false,
-                    pattern: gala_ast::Pattern::Ident(Ident::new("q")),
-                    ty: gala_ast::Type::Qubit, span: Span::dummy() },
-            ],
-            ret_ty: None, effect: gala_ast::Effect::Quantum,
+            params: vec![HirParam {
+                local_id: qid,
+                mutable: false,
+                pattern: gala_ast::Pattern::Ident(Ident::new("q")),
+                ty: gala_ast::Type::Qubit,
+                span: Span::dummy(),
+            }],
+            ret_ty: None,
+            effect: gala_ast::Effect::Quantum,
             body: gala_hir::HirBlock {
                 stmts: vec![
                     gala_hir::HirStmt::Expr(gala_hir::HirExpr::Call(gala_hir::HirCallExpr {
@@ -775,7 +841,8 @@ mod tests {
                     })),
                     gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone())),
                 ],
-                tail: None, span: Span::dummy(),
+                tail: None,
+                span: Span::dummy(),
             },
             span: Span::dummy(),
         };

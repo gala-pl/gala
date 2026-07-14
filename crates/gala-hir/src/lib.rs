@@ -1,9 +1,9 @@
 //! HIR with desugaring and name resolution for Gala.
 
 use gala_ast::*;
+use gala_diagnostics::{codes, Diagnostic, Diagnostics};
 use gala_span::{FileId, Span};
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A crate in the compilation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -98,6 +98,7 @@ pub struct HirFnDef {
     pub params: Vec<HirParam>,
     pub ret_ty: Option<Type>,
     pub effect: Effect,
+    pub is_extern: bool,
     pub body: HirBlock,
     pub span: Span,
 }
@@ -144,7 +145,7 @@ pub struct HirLetStmt {
 #[derive(Debug, Clone)]
 pub enum HirExpr {
     Literal(Literal),
-    Ident(Ident, DefId),
+    Ident(Ident, DefId, bool),
     Binary(HirBinaryExpr),
     Unary(HirUnaryExpr),
     Call(HirCallExpr),
@@ -278,11 +279,7 @@ struct Desugarer {
 
 impl Desugarer {
     fn new(file_id: FileId) -> Self {
-        Desugarer {
-            file_id,
-            local_counter: 0,
-            in_place_vars: HashMap::new(),
-        }
+        Desugarer { file_id, local_counter: 0, in_place_vars: HashMap::new() }
     }
 
     fn fresh_local(&mut self) -> LocalId {
@@ -323,8 +320,9 @@ impl Desugarer {
             generics: f.generics.clone(),
             params,
             ret_ty: f.ret_ty.clone(),
-            effect: f.effect.clone().unwrap_or(Effect::Pure),
+            effect: f.effect.unwrap_or(Effect::Pure),
             body,
+            is_extern: false,
             span: f.span,
         }
     }
@@ -365,9 +363,17 @@ impl Desugarer {
             Expr::Literal(l) => HirExpr::Literal(l.clone()),
             Expr::Ident(ident) => {
                 if let Some(local_id) = self.in_place_vars.get(ident) {
-                    HirExpr::Ident(ident.clone(), DefId { crate_id: CrateId(self.file_id), index: local_id.0 })
+                    HirExpr::Ident(
+                        ident.clone(),
+                        DefId { crate_id: CrateId(self.file_id), index: local_id.0 },
+                        false,
+                    )
                 } else {
-                    HirExpr::Ident(ident.clone(), DefId { crate_id: CrateId(self.file_id), index: 0 })
+                    HirExpr::Ident(
+                        ident.clone(),
+                        DefId { crate_id: CrateId(self.file_id), index: 0 },
+                        false,
+                    )
                 }
             }
             Expr::Binary(b) => HirExpr::Binary(HirBinaryExpr {
@@ -453,13 +459,7 @@ impl Desugarer {
             });
         }
         let body = Box::new(self.desugar_expr(&l.body));
-        HirLambdaExpr {
-            params,
-            ret_ty: l.ret_ty.clone(),
-            effect: l.effect.clone(),
-            body,
-            span: l.span,
-        }
+        HirLambdaExpr { params, ret_ty: l.ret_ty.clone(), effect: l.effect, body, span: l.span }
     }
 
     fn desugar_let_expr(&mut self, l: &LetExpr) -> HirLetExpr {
@@ -479,11 +479,11 @@ impl Desugarer {
             def_id,
             ident: s.ident.clone(),
             generics: s.generics.clone(),
-            fields: s.fields.iter().map(|f| StructField {
-                ident: f.ident.clone(),
-                ty: f.ty.clone(),
-                span: f.span,
-            }).collect(),
+            fields: s
+                .fields
+                .iter()
+                .map(|f| StructField { ident: f.ident.clone(), ty: f.ty.clone(), span: f.span })
+                .collect(),
             span: s.span,
         }
     }
@@ -494,11 +494,15 @@ impl Desugarer {
             def_id,
             ident: e.ident.clone(),
             generics: e.generics.clone(),
-            variants: e.variants.iter().map(|v| EnumVariant {
-                ident: v.ident.clone(),
-                fields: v.fields.clone(),
-                span: v.span,
-            }).collect(),
+            variants: e
+                .variants
+                .iter()
+                .map(|v| EnumVariant {
+                    ident: v.ident.clone(),
+                    fields: v.fields.clone(),
+                    span: v.span,
+                })
+                .collect(),
             span: e.span,
         }
     }
@@ -509,21 +513,29 @@ impl Desugarer {
             def_id,
             ident: t.ident.clone(),
             generics: t.generics.clone(),
-            items: t.items.iter().map(|i| match i {
-                gala_ast::TraitItem::Fn(sig) => gala_ast::TraitItem::Fn(gala_ast::FnSig {
-                    ident: sig.ident.clone(),
-                    generics: sig.generics.clone(),
-                    params: sig.params.iter().map(|p| gala_ast::Param {
-                        mutable: p.mutable,
-                        pattern: p.pattern.clone(),
-                        ty: p.ty.clone(),
-                        span: p.span,
-                    }).collect(),
-                    ret_ty: sig.ret_ty.clone(),
-                    effect: sig.effect.clone(),
-                    span: sig.span,
-                }),
-            }).collect(),
+            items: t
+                .items
+                .iter()
+                .map(|i| match i {
+                    gala_ast::TraitItem::Fn(sig) => gala_ast::TraitItem::Fn(gala_ast::FnSig {
+                        ident: sig.ident.clone(),
+                        generics: sig.generics.clone(),
+                        params: sig
+                            .params
+                            .iter()
+                            .map(|p| gala_ast::Param {
+                                mutable: p.mutable,
+                                pattern: p.pattern.clone(),
+                                ty: p.ty.clone(),
+                                span: p.span,
+                            })
+                            .collect(),
+                        ret_ty: sig.ret_ty.clone(),
+                        effect: sig.effect,
+                        span: sig.span,
+                    }),
+                })
+                .collect(),
             span: t.span,
         }
     }
@@ -531,14 +543,18 @@ impl Desugarer {
     fn desugar_impl_block(&mut self, i: &ImplBlock) -> HirImplBlock {
         HirImplBlock {
             ty: i.ty.clone(),
-            effect: i.effect.clone(),
-            items: i.items.iter().filter_map(|item| {
-                if let Item::FnDef(f) = item {
-                    Some(self.desugar_fn_def(f))
-                } else {
-                    None
-                }
-            }).collect(),
+            effect: i.effect,
+            items: i
+                .items
+                .iter()
+                .filter_map(|item| {
+                    if let Item::FnDef(f) = item {
+                        Some(self.desugar_fn_def(f))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
             span: i.span,
         }
     }
@@ -565,6 +581,8 @@ impl Desugarer {
         HirImport {
             path: i.path.clone(),
             alias: i.alias.clone(),
+            items: i.items.clone(),
+            glob: i.glob,
             span: i.span,
         }
     }
@@ -633,6 +651,8 @@ pub struct HirConstDef {
 pub struct HirImport {
     pub path: Path,
     pub alias: Option<Ident>,
+    pub items: Option<Vec<Ident>>,
+    pub glob: bool,
     pub span: Span,
 }
 
@@ -674,23 +694,25 @@ pub struct Resolver {
     pub module_graph: ModuleGraph,
     pub next_module_id: u32,
     pub diagnostics: Diagnostics,
+    pub extern_defids: HashSet<DefId>,
+}
+
+impl Default for Resolver {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Resolver {
     pub fn new() -> Self {
-        let mut scopes = Vec::new();
-        scopes.push(Scope {
-            parent: None,
-            bindings: HashMap::new(),
-            depth: 0,
-        });
         let mut resolver = Resolver {
-            scopes,
+            scopes: vec![Scope { parent: None, bindings: HashMap::new(), depth: 0 }],
             current_scope: 0,
             def_counter: 0,
             module_graph: ModuleGraph::default(),
             next_module_id: 1,
             diagnostics: Diagnostics::new(),
+            extern_defids: HashSet::new(),
         };
         resolver.populate_builtins();
         resolver
@@ -738,7 +760,8 @@ impl Resolver {
     }
 
     pub fn insert_local(&mut self, name: &str, local_id: LocalId) {
-        self.scopes[self.current_scope].bindings
+        self.scopes[self.current_scope]
+            .bindings
             .insert(name.to_string(), ScopeEntry::Local(local_id));
     }
 
@@ -757,16 +780,41 @@ impl Resolver {
             if let Some(parent) = self.scopes[scope].parent {
                 scope = parent;
             } else {
-                return None;
+                break;
             }
         }
+
+        // If not found in scopes, check for extern names
+        if self.is_extern_name(name) {
+            // Return a special marker for extern names using DefId with max values
+            return Some(ScopeEntry::Def(DefId {
+                crate_id: CrateId(FileId(u32::MAX)),
+                index: u32::MAX,
+            }));
+        }
+
+        None
+    }
+
+    fn is_extern_name(&self, name: &str) -> bool {
+        // Extern names come from known crates (e.g. "gala_std.io.print").
+        name.starts_with("gala_std.")
+    }
+
+    fn is_extern_def_id(&self, def_id: &DefId) -> bool {
+        // Extern names resolve to the sentinel DefId with max crate/index values.
+        def_id.crate_id.0 .0 == u32::MAX
     }
 
     /// Resolve all names in a HIR file, returning a new HIR file with resolved DefIds.
     pub fn resolve_file(&mut self, hir_file: &HirFile) -> HirFile {
         let mut resolved_items = Vec::new();
         for item in &hir_file.items {
-            resolved_items.push(self.resolve_item(item, hir_file.file_id));
+            let resolved = self.resolve_item(item, hir_file.file_id);
+            // Skip import items as they've been processed during resolution
+            if !matches!(resolved, HirItem::Import(_)) {
+                resolved_items.push(resolved);
+            }
         }
         HirFile { file_id: hir_file.file_id, items: resolved_items }
     }
@@ -788,6 +836,11 @@ impl Resolver {
                 let def_id = self.fresh_def_id(file_id);
                 self.scopes[0].bindings.insert(e.ident.0.clone(), ScopeEntry::Def(def_id));
                 HirItem::EnumDef(e.clone())
+            }
+            HirItem::Import(import) => {
+                // Resolve the import so its names become available in scope.
+                self.resolve_import(import, file_id);
+                HirItem::Import(import.clone())
             }
             _ => item.clone(),
         }
@@ -814,9 +867,119 @@ impl Resolver {
             generics: f.generics.clone(),
             params: resolved_params,
             ret_ty: f.ret_ty.clone(),
-            effect: f.effect.clone(),
+            effect: f.effect,
             body: resolved_body,
+            is_extern: f.is_extern,
             span: f.span,
+        }
+    }
+
+    fn resolve_import(&mut self, import: &HirImport, file_id: FileId) {
+        // Resolve the import path to find the referenced module/items
+        // For now, we only support imports from known extern crates (like gala_std)
+        // In the future, this would be extended to support local modules and other crates
+
+        // Check if this is an import from a known extern crate
+        if !import.path.segments.is_empty() {
+            let first_segment = &import.path.segments[0];
+            let crate_name = &first_segment.ident.0;
+
+            // Check if this is a known extern crate
+            if crate_name == "gala_std" {
+                // Import from gala_std - resolve the items
+                if import.glob {
+                    // Import everything: import gala_std.*;
+                    // For now, we'll import a predefined set of items
+                    self.add_glob_import_from_gala_std(file_id);
+                } else if let Some(items) = &import.items {
+                    // Import specific items: import gala_std.{ item1, item2 };
+                    self.add_named_imports_from_gala_std(items, file_id);
+                } else {
+                    // Import module: import gala_std;
+                    // This makes the module name available, but not its contents
+                    // For simplicity, we'll treat this as importing the module itself
+                    self.add_module_import("gala_std", file_id);
+                }
+            }
+        }
+    }
+
+    fn add_glob_import_from_gala_std(&mut self, _file_id: FileId) {
+        // Add all public items from gala_std to the current scope
+        // These are the known public items from gala_std
+        let gala_std_items = [
+            ("io", "gala_std.io"),   // module
+            ("str", "gala_std.str"), // module
+            ("vec", "gala_std.vec"), // module
+            // io module items
+            ("print", "gala_std.io.print"),
+        ];
+
+        for (local_name, _full_path) in gala_std_items.iter() {
+            // Check if this name is already in scope to avoid warnings/errors
+            if !self.scopes[0].bindings.contains_key(*local_name) {
+                // Create a DefId pointing to the extern location
+                let extern_def_id = DefId {
+                    crate_id: CrateId(FileId(u32::MAX)),
+                    index: self.extern_defids.len() as u32, // Simple counter for now
+                };
+                self.extern_defids.insert(extern_def_id.clone());
+
+                // Add to scope
+                self.scopes[0]
+                    .bindings
+                    .insert(local_name.to_string(), ScopeEntry::Def(extern_def_id));
+            }
+        }
+    }
+
+    fn add_named_imports_from_gala_std(&mut self, items: &[Ident], _file_id: FileId) {
+        // Map of simple names to their full paths in gala_std
+        let item_map = [
+            ("io", "gala_std.io"),
+            ("str", "gala_std.str"),
+            ("vec", "gala_std.vec"),
+            ("print", "gala_std.io.print"),
+        ];
+
+        for item in items {
+            let item_name = &item.0;
+            if let Some(_full_path) =
+                item_map.iter().find_map(
+                    |(simple, full)| if *simple == *item_name { Some(*full) } else { None },
+                )
+            {
+                // Check if this name is already in scope to avoid warnings/errors
+                if !self.scopes[0].bindings.contains_key(item_name) {
+                    // Create a DefId pointing to the extern location
+                    let extern_def_id = DefId {
+                        crate_id: CrateId(FileId(u32::MAX)),
+                        index: self.extern_defids.len() as u32, // Simple counter for now
+                    };
+                    self.extern_defids.insert(extern_def_id.clone());
+
+                    // Add to scope
+                    self.scopes[0]
+                        .bindings
+                        .insert(item_name.to_string(), ScopeEntry::Def(extern_def_id));
+                }
+            }
+        }
+    }
+
+    fn add_module_import(&mut self, module_name: &str, _file_id: FileId) {
+        // For module imports like "import gala_std;", we make the module name available
+        // but not its contents. This is useful for qualified access like gala_std.io.print
+        if !self.scopes[0].bindings.contains_key(module_name) {
+            // Create a DefId for the module itself
+            let extern_def_id = DefId {
+                crate_id: CrateId(FileId(u32::MAX)),
+                index: self.extern_defids.len() as u32,
+            };
+            self.extern_defids.insert(extern_def_id.clone());
+
+            // Add to scope
+            self.scopes[0].bindings.insert(module_name.to_string(), ScopeEntry::Def(extern_def_id));
         }
     }
 
@@ -842,7 +1005,7 @@ impl Resolver {
                 }
                 HirStmt::Return(e) => {
                     resolved_stmts.push(HirStmt::Return(
-                        e.as_ref().map(|e| Box::new(self.resolve_expr(e, file_id)))
+                        e.as_ref().map(|e| Box::new(self.resolve_expr(e, file_id))),
                     ));
                 }
                 _ => {
@@ -852,19 +1015,17 @@ impl Resolver {
         }
         let tail = block.tail.as_ref().map(|e| Box::new(self.resolve_expr(e, file_id)));
         self.pop_scope();
-        HirBlock {
-            stmts: resolved_stmts,
-            tail,
-            span: block.span,
-        }
+        HirBlock { stmts: resolved_stmts, tail, span: block.span }
     }
 
     fn resolve_expr(&mut self, expr: &HirExpr, file_id: FileId) -> HirExpr {
         match expr {
-            HirExpr::Ident(name, _) => {
+            HirExpr::Ident(name, _, _) => {
                 let resolved_def = match self.resolve_name(&name.0) {
                     Some(entry) => match entry {
-                        ScopeEntry::Local(local_id) => DefId { crate_id: CrateId(file_id), index: local_id.0 },
+                        ScopeEntry::Local(local_id) => {
+                            DefId { crate_id: CrateId(file_id), index: local_id.0 }
+                        }
                         ScopeEntry::Def(def_id) => def_id,
                         ScopeEntry::Builtin(_) => DefId { crate_id: CrateId(file_id), index: 0 },
                     },
@@ -874,7 +1035,9 @@ impl Resolver {
                         DefId { crate_id: CrateId(file_id), index: 0 }
                     }
                 };
-                HirExpr::Ident(name.clone(), resolved_def)
+                // Check if this is an extern function
+                let is_extern = self.is_extern_def_id(&resolved_def);
+                HirExpr::Ident(name.clone(), resolved_def, is_extern)
             }
             HirExpr::Binary(b) => HirExpr::Binary(HirBinaryExpr {
                 lhs: Box::new(self.resolve_expr(&b.lhs, file_id)),
@@ -894,7 +1057,10 @@ impl Resolver {
             HirExpr::If(i) => HirExpr::If(HirIfExpr {
                 cond: Box::new(self.resolve_expr(&i.cond, file_id)),
                 then_branch: self.resolve_block(&i.then_branch, file_id),
-                else_branch: i.else_branch.as_ref().map(|e| Box::new(self.resolve_expr(e, file_id))),
+                else_branch: i
+                    .else_branch
+                    .as_ref()
+                    .map(|e| Box::new(self.resolve_expr(e, file_id))),
                 span: i.span,
             }),
             _ => expr.clone(),
@@ -932,13 +1098,16 @@ impl Resolver {
         // Build module graph
         let root_id = ModuleId(0);
         self.module_graph.root = root_id;
-        self.module_graph.modules.insert(root_id, ModuleData {
-            id: root_id,
-            name: Ident::new("root"),
-            parent: None,
-            children: Vec::new(),
-            items: Vec::new(),
-        });
+        self.module_graph.modules.insert(
+            root_id,
+            ModuleData {
+                id: root_id,
+                name: Ident::new("root"),
+                parent: None,
+                children: Vec::new(),
+                items: Vec::new(),
+            },
+        );
 
         HirFile { file_id: hir_file.file_id, items: resolved_items }
     }
@@ -956,38 +1125,39 @@ fn pattern_name(pattern: &Pattern) -> String {
 pub fn build_module_graph(files: &[(FileId, &HirFile)]) -> ModuleGraph {
     let mut graph = ModuleGraph::default();
     let root_id = ModuleId(0);
-    let mut next_id = 1u32;
 
     graph.root = root_id;
-    graph.modules.insert(root_id, ModuleData {
-        id: root_id,
-        name: Ident::new("root"),
-        parent: None,
-        children: Vec::new(),
-        items: Vec::new(),
-    });
+    graph.modules.insert(
+        root_id,
+        ModuleData {
+            id: root_id,
+            name: Ident::new("root"),
+            parent: None,
+            children: Vec::new(),
+            items: Vec::new(),
+        },
+    );
 
-    for (file_id, hir_file) in files {
-        let module_id = ModuleId(next_id);
-        next_id += 1;
+    for (idx, (file_id, hir_file)) in files.iter().enumerate() {
+        let module_id = ModuleId(idx as u32 + 1);
 
         let mut module_items = Vec::new();
         for item in &hir_file.items {
-            match item {
-                HirItem::FnDef(f) => {
-                    module_items.push(DefId { crate_id: CrateId(*file_id), index: f.def_id.index });
-                }
-                _ => {}
+            if let HirItem::FnDef(f) = item {
+                module_items.push(DefId { crate_id: CrateId(*file_id), index: f.def_id.index });
             }
         }
 
-        graph.modules.insert(module_id, ModuleData {
-            id: module_id,
-            name: Ident::new(&format!("file_{}", file_id.0)),
-            parent: Some(root_id),
-            children: Vec::new(),
-            items: module_items,
-        });
+        graph.modules.insert(
+            module_id,
+            ModuleData {
+                id: module_id,
+                name: Ident::new(format!("file_{}", file_id.0)),
+                parent: Some(root_id),
+                children: Vec::new(),
+                items: module_items,
+            },
+        );
 
         if let Some(root) = graph.modules.get_mut(&root_id) {
             root.children.push(module_id);
@@ -1004,24 +1174,27 @@ mod tests {
 
     #[test]
     fn test_desugar_simple_fn_def() {
-        let ast = vec![
-            Item::FnDef(gala_ast::FnDef {
-                ident: Ident::new("main"),
-                generics: Vec::new(),
-                params: Vec::new(),
-                ret_ty: Some(gala_ast::Type::Path(gala_ast::Path {
-                    segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
-                    span: Span::dummy(),
-                })),
-                effect: Some(gala_ast::Effect::Pure),
-                body: gala_ast::Block {
-                    stmts: vec![gala_ast::Stmt::Return(Some(gala_ast::Expr::Literal(gala_ast::Literal::Int(42))))],
-                    tail: None,
-                    span: Span::dummy(),
-                },
+        let ast = vec![Item::FnDef(gala_ast::FnDef {
+            ident: Ident::new("main"),
+            generics: Vec::new(),
+            params: Vec::new(),
+            ret_ty: Some(gala_ast::Type::Path(gala_ast::Path {
+                segments: vec![gala_ast::PathSegment {
+                    ident: Ident::new("Int"),
+                    type_args: Vec::new(),
+                }],
                 span: Span::dummy(),
-            }),
-        ];
+            })),
+            effect: Some(gala_ast::Effect::Pure),
+            body: gala_ast::Block {
+                stmts: vec![gala_ast::Stmt::Return(Some(gala_ast::Expr::Literal(
+                    gala_ast::Literal::Int(42),
+                )))],
+                tail: None,
+                span: Span::dummy(),
+            },
+            span: Span::dummy(),
+        })];
 
         let hir = desugar_file(&ast, FileId(0));
         assert_eq!(hir.items.len(), 1);
@@ -1029,40 +1202,44 @@ mod tests {
 
     #[test]
     fn test_desugar_with_params() {
-        let ast = vec![
-            Item::FnDef(gala_ast::FnDef {
-                ident: Ident::new("add"),
-                generics: Vec::new(),
-                params: vec![
-                    gala_ast::Param {
-                        mutable: false,
-                        pattern: gala_ast::Pattern::Ident(Ident::new("x")),
-                        ty: gala_ast::Type::Path(gala_ast::Path {
-                            segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
-                            span: Span::dummy(),
-                        }),
+        let ast = vec![Item::FnDef(gala_ast::FnDef {
+            ident: Ident::new("add"),
+            generics: Vec::new(),
+            params: vec![
+                gala_ast::Param {
+                    mutable: false,
+                    pattern: gala_ast::Pattern::Ident(Ident::new("x")),
+                    ty: gala_ast::Type::Path(gala_ast::Path {
+                        segments: vec![gala_ast::PathSegment {
+                            ident: Ident::new("Int"),
+                            type_args: Vec::new(),
+                        }],
                         span: Span::dummy(),
-                    },
-                    gala_ast::Param {
-                        mutable: false,
-                        pattern: gala_ast::Pattern::Ident(Ident::new("y")),
-                        ty: gala_ast::Type::Path(gala_ast::Path {
-                            segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
-                            span: Span::dummy(),
-                        }),
-                        span: Span::dummy(),
-                    },
-                ],
-                ret_ty: None,
-                effect: None,
-                body: gala_ast::Block {
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(gala_ast::Expr::Literal(gala_ast::Literal::Int(0)))),
+                    }),
                     span: Span::dummy(),
                 },
+                gala_ast::Param {
+                    mutable: false,
+                    pattern: gala_ast::Pattern::Ident(Ident::new("y")),
+                    ty: gala_ast::Type::Path(gala_ast::Path {
+                        segments: vec![gala_ast::PathSegment {
+                            ident: Ident::new("Int"),
+                            type_args: Vec::new(),
+                        }],
+                        span: Span::dummy(),
+                    }),
+                    span: Span::dummy(),
+                },
+            ],
+            ret_ty: None,
+            effect: None,
+            body: gala_ast::Block {
+                stmts: Vec::new(),
+                tail: Some(Box::new(gala_ast::Expr::Literal(gala_ast::Literal::Int(0)))),
                 span: Span::dummy(),
-            }),
-        ];
+            },
+            span: Span::dummy(),
+        })];
 
         let hir = desugar_file(&ast, FileId(0));
         if let HirItem::FnDef(f) = &hir.items[0] {
@@ -1075,23 +1252,22 @@ mod tests {
 
     #[test]
     fn test_desugar_struct_def() {
-        let ast = vec![
-            Item::StructDef(gala_ast::StructDef {
-                ident: Ident::new("Point"),
-                generics: Vec::new(),
-                fields: vec![
-                    gala_ast::StructField {
-                        ident: Ident::new("x"),
-                        ty: gala_ast::Type::Path(gala_ast::Path {
-                            segments: vec![gala_ast::PathSegment { ident: Ident::new("Float"), type_args: Vec::new() }],
-                            span: Span::dummy(),
-                        }),
-                        span: Span::dummy(),
-                    },
-                ],
+        let ast = vec![Item::StructDef(gala_ast::StructDef {
+            ident: Ident::new("Point"),
+            generics: Vec::new(),
+            fields: vec![gala_ast::StructField {
+                ident: Ident::new("x"),
+                ty: gala_ast::Type::Path(gala_ast::Path {
+                    segments: vec![gala_ast::PathSegment {
+                        ident: Ident::new("Float"),
+                        type_args: Vec::new(),
+                    }],
+                    span: Span::dummy(),
+                }),
                 span: Span::dummy(),
-            }),
-        ];
+            }],
+            span: Span::dummy(),
+        })];
 
         let hir = desugar_file(&ast, FileId(0));
         assert_eq!(hir.items.len(), 1);
@@ -1099,31 +1275,30 @@ mod tests {
 
     #[test]
     fn test_desugar_local_id_assignment() {
-        let ast = vec![
-            Item::FnDef(gala_ast::FnDef {
-                ident: Ident::new("f"),
-                generics: Vec::new(),
-                params: vec![
-                    gala_ast::Param {
-                        mutable: false,
-                        pattern: gala_ast::Pattern::Ident(Ident::new("a")),
-                        ty: gala_ast::Type::Path(gala_ast::Path {
-                            segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
-                            span: Span::dummy(),
-                        }),
-                        span: Span::dummy(),
-                    },
-                ],
-                ret_ty: None,
-                effect: None,
-                body: gala_ast::Block {
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(gala_ast::Expr::Ident(Ident::new("a")))),
+        let ast = vec![Item::FnDef(gala_ast::FnDef {
+            ident: Ident::new("f"),
+            generics: Vec::new(),
+            params: vec![gala_ast::Param {
+                mutable: false,
+                pattern: gala_ast::Pattern::Ident(Ident::new("a")),
+                ty: gala_ast::Type::Path(gala_ast::Path {
+                    segments: vec![gala_ast::PathSegment {
+                        ident: Ident::new("Int"),
+                        type_args: Vec::new(),
+                    }],
                     span: Span::dummy(),
-                },
+                }),
                 span: Span::dummy(),
-            }),
-        ];
+            }],
+            ret_ty: None,
+            effect: None,
+            body: gala_ast::Block {
+                stmts: Vec::new(),
+                tail: Some(Box::new(gala_ast::Expr::Ident(Ident::new("a")))),
+                span: Span::dummy(),
+            },
+            span: Span::dummy(),
+        })];
 
         let hir = desugar_file(&ast, FileId(0));
         if let HirItem::FnDef(f) = &hir.items[0] {
@@ -1224,31 +1399,30 @@ mod tests {
 
     #[test]
     fn test_resolver_build_and_resolve_fn() {
-        let ast = vec![
-            Item::FnDef(gala_ast::FnDef {
-                ident: Ident::new("main"),
-                generics: Vec::new(),
-                params: vec![
-                    gala_ast::Param {
-                        mutable: false,
-                        pattern: gala_ast::Pattern::Ident(Ident::new("x")),
-                        ty: gala_ast::Type::Path(gala_ast::Path {
-                            segments: vec![gala_ast::PathSegment { ident: Ident::new("Int"), type_args: Vec::new() }],
-                            span: Span::dummy(),
-                        }),
-                        span: Span::dummy(),
-                    },
-                ],
-                ret_ty: None,
-                effect: None,
-                body: gala_ast::Block {
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(gala_ast::Expr::Ident(Ident::new("x")))),
+        let ast = vec![Item::FnDef(gala_ast::FnDef {
+            ident: Ident::new("main"),
+            generics: Vec::new(),
+            params: vec![gala_ast::Param {
+                mutable: false,
+                pattern: gala_ast::Pattern::Ident(Ident::new("x")),
+                ty: gala_ast::Type::Path(gala_ast::Path {
+                    segments: vec![gala_ast::PathSegment {
+                        ident: Ident::new("Int"),
+                        type_args: Vec::new(),
+                    }],
                     span: Span::dummy(),
-                },
+                }),
                 span: Span::dummy(),
-            }),
-        ];
+            }],
+            ret_ty: None,
+            effect: None,
+            body: gala_ast::Block {
+                stmts: Vec::new(),
+                tail: Some(Box::new(gala_ast::Expr::Ident(Ident::new("x")))),
+                span: Span::dummy(),
+            },
+            span: Span::dummy(),
+        })];
 
         let hir = desugar_file(&ast, FileId(0));
         let mut resolver = Resolver::new();
@@ -1261,21 +1435,15 @@ mod tests {
 
     #[test]
     fn test_build_module_graph() {
-        let ast = vec![
-            Item::FnDef(gala_ast::FnDef {
-                ident: Ident::new("main"),
-                generics: Vec::new(),
-                params: Vec::new(),
-                ret_ty: None,
-                effect: None,
-                body: gala_ast::Block {
-                    stmts: Vec::new(),
-                    tail: None,
-                    span: Span::dummy(),
-                },
-                span: Span::dummy(),
-            }),
-        ];
+        let ast = vec![Item::FnDef(gala_ast::FnDef {
+            ident: Ident::new("main"),
+            generics: Vec::new(),
+            params: Vec::new(),
+            ret_ty: None,
+            effect: None,
+            body: gala_ast::Block { stmts: Vec::new(), tail: None, span: Span::dummy() },
+            span: Span::dummy(),
+        })];
 
         let hir = desugar_file(&ast, FileId(0));
         let graph = build_module_graph(&[(FileId(0), &hir)]);

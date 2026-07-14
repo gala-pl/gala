@@ -1,20 +1,17 @@
 //! Compilation orchestration for Gala.
 
-use gala_parser::parse_file;
-use gala_hir::{desugar_file, HirFnDef, DefId, CrateId};
 use gala_ast::Effect as HirEffect;
-use gala_types::{type_check_fn, check_linearity, Effect as TyEffect};
-use gala_uncompute::{analyze_provenance, synthesize_uncompute};
-use gala_gir::{Gir, lower_hir_to_gir};
+use gala_diagnostics::Diagnostics;
+use gala_gir::{lower_hir_to_gir, Gir};
+use gala_hir::{desugar_file, CrateId, DefId, HirFnDef};
+use gala_parser::parse_file;
 use gala_span::{FileId, SourceMap};
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
+use gala_types::{check_linearity, type_check_fn, Effect as TyEffect};
+use gala_uncompute::{analyze_provenance, synthesize_uncompute};
 use std::collections::HashMap;
 
 /// Compile a single source file through the entire pipeline.
-pub fn compile_source(
-    source: &str,
-    source_map: &mut SourceMap,
-) -> Result<Gir, Diagnostics> {
+pub fn compile_source(source: &str, source_map: &mut SourceMap) -> Result<Gir, Diagnostics> {
     let fid = source_map.add_file("<input>".into(), source.to_string());
     compile_file(fid, source, source_map)
 }
@@ -29,7 +26,9 @@ pub fn compile_file(
 
     let items = match parse_file(file_id, source, source_map) {
         Ok(items) => items,
-        Err(e) => { return Err(e); }
+        Err(e) => {
+            return Err(e);
+        }
     };
 
     let hir_file = desugar_file(&items, file_id);
@@ -49,7 +48,9 @@ pub fn compile_file(
 
     for (def_id, hir_fn) in &hir_funcs {
         match type_check_fn(hir_fn) {
-            Ok(ty) => { type_of.insert(def_id.clone(), ty); }
+            Ok(ty) => {
+                type_of.insert(def_id.clone(), ty);
+            }
             Err(e) => diags.extend(e),
         }
         let eff = match &hir_fn.effect {
@@ -60,32 +61,35 @@ pub fn compile_file(
         effect_of.insert(def_id.clone(), eff);
     }
 
-    for (_, hir_fn) in &hir_funcs {
+    for hir_fn in hir_funcs.values() {
         let lin_diags = check_linearity(hir_fn);
         if lin_diags.has_errors() {
             diags.extend(lin_diags);
         }
     }
 
-    for (_def_id, hir_fn) in &hir_funcs {
+    for hir_fn in hir_funcs.values() {
         let provenance = analyze_provenance(hir_fn);
         let _ = synthesize_uncompute(hir_fn, &provenance).map_err(|e| diags.extend(e));
     }
 
     let gir = match lower_hir_to_gir(&hir_funcs, &type_of, &effect_of) {
         Ok(gir) => gir,
-        Err(e) => { diags.extend(e); return Err(diags); }
+        Err(e) => {
+            diags.extend(e);
+            return Err(diags);
+        }
     };
 
-    if diags.has_errors() { Err(diags) } else { Ok(gir) }
+    if diags.has_errors() {
+        Err(diags)
+    } else {
+        Ok(gir)
+    }
 }
 
 /// Check-only: parse, HIR, type check.
-pub fn check_file(
-    file_id: FileId,
-    source: &str,
-    source_map: &mut SourceMap,
-) -> Diagnostics {
+pub fn check_file(file_id: FileId, source: &str, source_map: &mut SourceMap) -> Diagnostics {
     match compile_file(file_id, source, source_map) {
         Ok(_) => Diagnostics::new(),
         Err(diags) => diags,
@@ -119,10 +123,7 @@ mod tests {
 
     #[test]
     fn test_compile_source_smoke() {
-        let sources = vec![
-            "fn a() -> Int { return 1; }",
-            "fn b(x: Int) -> Int { return x + 1; }",
-        ];
+        let sources = vec!["fn a() -> Int { return 1; }", "fn b(x: Int) -> Int { return x + 1; }"];
         for src in &sources {
             let mut map = SourceMap::new();
             let _ = compile_source(src, &mut map);

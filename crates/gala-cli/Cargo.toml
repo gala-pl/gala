@@ -18,3 +18,4 @@ gala-lsp.workspace = true
 gala-pkg.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
+gala-std.workspace = true

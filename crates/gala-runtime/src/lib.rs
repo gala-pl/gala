@@ -1,7 +1,7 @@
 //! Hybrid runtime for Gala (dispatch, mid-circuit measurement, batching).
 
-use gala_gir::{Gir, GirFunc};
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
+use gala_diagnostics::Diagnostics;
+use gala_gir::Gir;
 use std::collections::HashMap;
 
 /// Backend capability descriptor.
@@ -59,14 +59,23 @@ pub struct SimBackend {
     pub capability: BackendCapability,
 }
 
+impl Default for SimBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimBackend {
     pub fn new() -> Self {
         SimBackend {
             capability: BackendCapability {
                 name: "gala-sim".to_string(),
                 num_qubits: 32,
-                native_gates: vec!["h", "x", "y", "z", "cx", "rz", "rx", "ry"].into_iter().map(String::from).collect(),
-                connectivity: (0..31).map(|i| (i, i+1)).collect(),
+                native_gates: vec!["h", "x", "y", "z", "cx", "rz", "rx", "ry"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                connectivity: (0..31).map(|i| (i, i + 1)).collect(),
                 supports_mid_circuit_measurement: true,
                 supports_reset: true,
             },
@@ -89,6 +98,12 @@ pub struct Runtime {
     pub backends: HashMap<String, Box<dyn Backend>>,
 }
 
+impl Default for Runtime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Runtime {
     pub fn new() -> Self {
         let mut backends: HashMap<String, Box<dyn Backend>> = HashMap::new();
@@ -100,7 +115,12 @@ impl Runtime {
         self.backends.insert(name, backend);
     }
 
-    pub fn run(&self, gir: &Gir, backend_name: &str, shots: u64) -> Result<RuntimeResult, Diagnostics> {
+    pub fn run(
+        &self,
+        gir: &Gir,
+        backend_name: &str,
+        shots: u64,
+    ) -> Result<RuntimeResult, Diagnostics> {
         let _ = (gir, backend_name, shots);
         Err(Diagnostics::new())
     }
@@ -111,12 +131,22 @@ pub struct GradientBatcher {
     pub pending: Vec<(RuntimeProgram, std::sync::mpsc::Sender<RuntimeResult>)>,
 }
 
+impl Default for GradientBatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GradientBatcher {
     pub fn new() -> Self {
         GradientBatcher { pending: Vec::new() }
     }
 
-    pub fn submit(&mut self, program: RuntimeProgram, sender: std::sync::mpsc::Sender<RuntimeResult>) {
+    pub fn submit(
+        &mut self,
+        program: RuntimeProgram,
+        sender: std::sync::mpsc::Sender<RuntimeResult>,
+    ) {
         self.pending.push((program, sender));
     }
 
@@ -160,22 +190,15 @@ mod tests {
 
     #[test]
     fn test_runtime_result_creation() {
-        let result = RuntimeResult {
-            counts: HashMap::new(),
-            memory: Vec::new(),
-        };
+        let result = RuntimeResult { counts: HashMap::new(), memory: Vec::new() };
         assert!(result.counts.is_empty());
         assert!(result.memory.is_empty());
     }
 
     #[test]
     fn test_runtime_program_creation() {
-        let program = RuntimeProgram {
-            operations: Vec::new(),
-            num_qubits: 2,
-            num_clbits: 2,
-            shots: 1024,
-        };
+        let program =
+            RuntimeProgram { operations: Vec::new(), num_qubits: 2, num_clbits: 2, shots: 1024 };
         assert_eq!(program.num_qubits, 2);
         assert_eq!(program.shots, 1024);
     }
@@ -183,12 +206,8 @@ mod tests {
     #[test]
     fn test_backend_execute_returns_err_for_now() {
         let backend = SimBackend::new();
-        let program = RuntimeProgram {
-            operations: Vec::new(),
-            num_qubits: 1,
-            num_clbits: 1,
-            shots: 1,
-        };
+        let program =
+            RuntimeProgram { operations: Vec::new(), num_qubits: 1, num_clbits: 1, shots: 1 };
         let result = backend.execute(&program);
         // Currently returns error since simulator is not hooked up
         assert!(result.is_err());

@@ -1,8 +1,7 @@
 //! Simulator backends for Gala (roqoqo/QuEST).
 
-use gala_gir::{Gir, GirFunc};
-use gala_span::Span;
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
+use gala_diagnostics::Diagnostics;
+use gala_gir::Gir;
 use std::collections::HashMap;
 
 /// Simulator backend type.
@@ -33,12 +32,7 @@ pub struct NoiseModel {
 
 impl Default for SimConfig {
     fn default() -> Self {
-        SimConfig {
-            backend: SimBackend::StateVector,
-            shots: 1024,
-            seed: None,
-            noise_model: None,
-        }
+        SimConfig { backend: SimBackend::StateVector, shots: 1024, seed: None, noise_model: None }
     }
 }
 
@@ -109,12 +103,7 @@ mod tests {
     fn test_run_simulation_all_backends() {
         let gir = Gir::default();
         for backend in &[SimBackend::StateVector, SimBackend::Noisy, SimBackend::TensorNetwork] {
-            let config = SimConfig {
-                backend: *backend,
-                shots: 10,
-                seed: None,
-                noise_model: None,
-            };
+            let config = SimConfig { backend: *backend, shots: 10, seed: None, noise_model: None };
             // Currently returns error since simulation is not implemented
             let _ = run_simulation(&gir, config);
         }

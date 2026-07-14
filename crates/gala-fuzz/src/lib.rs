@@ -2,9 +2,9 @@
 
 /// Generate a random Gala source program for fuzzing.
 pub fn generate_random_source(rng: &mut impl rand::Rng) -> String {
-    let keywords = ["fn", "let", "if", "else", "return", "match", "for", "while"];
+    let _keywords = ["fn", "let", "if", "else", "return", "match", "for", "while"];
     let types = ["Int", "Float", "Bool", "String", "Unit", "Qubit"];
-    let ops = ["+", "-", "*", "/", "==", "<", ">", "&&", "||"];
+    let _ops = ["+", "-", "*", "/", "==", "<", ">", "&&", "||"];
 
     let mut src = String::new();
     let num_fns = rng.gen_range(1..=3);
@@ -12,11 +12,13 @@ pub fn generate_random_source(rng: &mut impl rand::Rng) -> String {
         src.push_str(&format!("fn func{}(", fi));
         let num_params = rng.gen_range(0..=3);
         for pi in 0..num_params {
-            if pi > 0 { src.push_str(", "); }
+            if pi > 0 {
+                src.push_str(", ");
+            }
             let ty = types[rng.gen_range(0..types.len())];
             src.push_str(&format!("p{pi}: {ty}"));
         }
-        src.push_str(&format!(") -> Int {{\n"));
+        src.push_str(") -> Int {\n");
         src.push_str("    return 42;\n");
         src.push_str("}\n\n");
     }

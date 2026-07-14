@@ -1,5 +1,6 @@
 //! AST and CST types with visitors for Gala.
 
+#[allow(unused_imports)]
 use gala_span::{ByteSpan, FileId, Span};
 use std::fmt;
 
@@ -138,9 +139,19 @@ pub struct BinaryExpr {
 /// Binary operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
-    Add, Sub, Mul, Div, Mod,
-    Eq, Ne, Lt, Le, Gt, Ge,
-    And, Or,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
     Range,
 }
 
@@ -412,6 +423,8 @@ pub struct ConstDef {
 pub struct Import {
     pub path: Path,
     pub alias: Option<Ident>,
+    pub items: Option<Vec<Ident>>,
+    pub glob: bool,
     pub span: Span,
 }
 
@@ -425,10 +438,7 @@ mod tests {
 
     #[test]
     fn test_ast_construction() {
-        let span = Span::new(
-            FileId(0),
-            ByteSpan::new(0, 10),
-        );
+        let span = Span::new(FileId(0), ByteSpan::new(0, 10));
 
         let expr = Expr::Literal(Literal::Int(42));
         let item = Item::FnDef(FnDef {

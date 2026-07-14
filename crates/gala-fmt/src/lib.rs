@@ -1,21 +1,19 @@
 //! Canonical formatter for Gala.
 
-use gala_parser::parse;
+use gala_ast::{Expr, Item, Stmt, Type};
 use gala_lexer::Lexer;
-use gala_ast::{Item, Expr, Stmt, Type, Pattern};
-use gala_span::{FileId, SourceMap, Span};
+use gala_parser::parse;
+use gala_span::SourceMap;
 
 /// Formats Gala source code.
 pub fn format_source(source: &str) -> String {
     let mut map = SourceMap::new();
     let fid = map.add_file("<fmt>".into(), source.to_string());
-    let mut lexer = Lexer::new(fid, source);
+    let lexer = Lexer::new(fid, source);
     let tokens = lexer.collect_all();
 
     match parse(&tokens) {
-        Ok(items) => {
-            format_items(&items)
-        }
+        Ok(items) => format_items(&items),
         Err(_) => source.to_string(),
     }
 }
@@ -40,7 +38,9 @@ fn format_item(item: &Item, out: &mut String, indent: usize) {
         gala_ast::Item::FnDef(f) => {
             out.push_str(&format!("{}fn {}(", pad, f.ident));
             for (i, p) in f.params.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&format!("{:?}: {}", p.pattern, type_to_string(&p.ty)));
             }
             out.push(')');
@@ -57,7 +57,12 @@ fn format_item(item: &Item, out: &mut String, indent: usize) {
         gala_ast::Item::StructDef(s) => {
             out.push_str(&format!("{}struct {} {{", pad, s.ident));
             for f in &s.fields {
-                out.push_str(&format!("\n{}    {}: {},", "    ".repeat(indent + 1), f.ident, type_to_string(&f.ty)));
+                out.push_str(&format!(
+                    "\n{}    {}: {},",
+                    "    ".repeat(indent + 1),
+                    f.ident,
+                    type_to_string(&f.ty)
+                ));
             }
             out.push_str(&format!("\n{}}}", pad));
         }
@@ -80,12 +85,16 @@ fn format_stmt(stmt: &Stmt, out: &mut String, indent: usize) {
     let pad = "    ".repeat(indent);
     match stmt {
         Stmt::Let(l) => {
-            let ty_str = l.ty.as_ref().map(|t| type_to_string(t)).unwrap_or_default();
-            let init_str = l.init.as_ref().map(|e| {
-                let mut s = String::new();
-                format_expr(e, &mut s, 0);
-                s
-            }).unwrap_or_default();
+            let ty_str = l.ty.as_ref().map(type_to_string).unwrap_or_default();
+            let init_str = l
+                .init
+                .as_ref()
+                .map(|e| {
+                    let mut s = String::new();
+                    format_expr(e, &mut s, 0);
+                    s
+                })
+                .unwrap_or_default();
             out.push_str(&format!("{}let {:?}: {} = {};\n", pad, l.pattern, ty_str, init_str));
         }
         Stmt::Expr(e) => {
@@ -96,7 +105,7 @@ fn format_stmt(stmt: &Stmt, out: &mut String, indent: usize) {
         Stmt::Return(e) => {
             out.push_str(&format!("{}return", pad));
             if let Some(e) = e {
-                out.push_str(" ");
+                out.push(' ');
                 format_expr(e, out, indent);
             }
             out.push_str(";\n");
@@ -110,13 +119,16 @@ fn format_expr(expr: &Expr, out: &mut String, indent: usize) {
         Expr::Literal(l) => out.push_str(&literal_to_string(l)),
         Expr::Ident(i) => out.push_str(&i.0),
         Expr::Binary(b) => {
-            out.push_str(&format!("({} {} {})", 
-                expr_to_string(&b.lhs), 
-                binop_to_string(b.op), 
-                expr_to_string(&b.rhs)));
+            out.push_str(&format!(
+                "({} {} {})",
+                expr_to_string(&b.lhs),
+                binop_to_string(b.op),
+                expr_to_string(&b.rhs)
+            ));
         }
         Expr::Call(c) => {
-            out.push_str(&format!("{}({})", 
+            out.push_str(&format!(
+                "{}({})",
                 expr_to_string(&c.callee),
                 c.args.iter().map(expr_to_string).collect::<Vec<_>>().join(", ")
             ));
@@ -172,12 +184,18 @@ fn type_to_string(ty: &Type) -> String {
         Type::Qubits(c) => format!("Qubits<{}>", const_expr_to_string(c)),
         Type::Qubit => "Qubit".to_string(),
         Type::Measured(t) => format!("Measured<{}>", type_to_string(t)),
-        Type::Tuple(ts) => format!("({})", ts.iter().map(type_to_string).collect::<Vec<_>>().join(", ")),
+        Type::Tuple(ts) => {
+            format!("({})", ts.iter().map(type_to_string).collect::<Vec<_>>().join(", "))
+        }
         Type::Array(t, c) => format!("[{}; {}]", type_to_string(t), const_expr_to_string(c)),
-        Type::Fn { params, ret, .. } => format!("fn({}) -> {}", 
+        Type::Fn { params, ret, .. } => format!(
+            "fn({}) -> {}",
             params.iter().map(type_to_string).collect::<Vec<_>>().join(", "),
-            type_to_string(ret)),
-        Type::Named(s, ts) => format!("{}<{}>", s, ts.iter().map(type_to_string).collect::<Vec<_>>().join(", ")),
+            type_to_string(ret)
+        ),
+        Type::Named(s, ts) => {
+            format!("{}<{}>", s, ts.iter().map(type_to_string).collect::<Vec<_>>().join(", "))
+        }
     }
 }
 
@@ -189,8 +207,12 @@ fn const_expr_to_string(c: &gala_ast::ConstExpr) -> String {
     match c {
         gala_ast::ConstExpr::Int(i) => i.to_string(),
         gala_ast::ConstExpr::Ident(i) => i.0.clone(),
-        gala_ast::ConstExpr::Binary { lhs, op, rhs } => format!("({} {} {})", 
-            const_expr_to_string(lhs), binop_to_string(*op), const_expr_to_string(rhs)),
+        gala_ast::ConstExpr::Binary { lhs, op, rhs } => format!(
+            "({} {} {})",
+            const_expr_to_string(lhs),
+            binop_to_string(*op),
+            const_expr_to_string(rhs)
+        ),
     }
 }
 
