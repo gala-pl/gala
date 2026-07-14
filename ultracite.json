@@ -1,0 +1,9 @@
+{
+  "extends": ["ultracite"],
+  "rules": {
+    "style": {
+      "useConst": "error",
+      "useTemplate": "error"
+    }
+  }
+}

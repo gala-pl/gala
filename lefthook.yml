@@ -1,0 +1,80 @@
+# Lefthook configuration for Gala monorepo
+# Install: lefthook install
+# Run all: lefthook run
+# Run one: lefthook run <hook-name>
+
+pre-commit:
+  parallel: true
+  commands:
+    check-merge-conflict:
+      glob: "*.{md,txt,rs,toml,yaml,yml,json,jsonc,ts,js}"
+      run: git diff --check --no-ext-diff {staged_files}
+      stage_fixed: true
+
+    check-toml:
+      glob: "*.toml"
+      run: taplo check {staged_files}
+      stage_fixed: true
+
+    check-yaml:
+      glob: "*.{yaml,yml}"
+      run: yamllint {staged_files}
+      stage_fixed: true
+
+    end-of-file-fixer:
+      glob: "*.{md,txt,rs,toml,yaml,yml,json,jsonc,ts,js}"
+      run: sed -i '' -e '$a\' {staged_files}
+      stage_fixed: true
+
+    trailing-whitespace:
+      glob: "*.{md,txt,rs,toml,yaml,yml,json,jsonc,ts,js}"
+      run: sed -i '' -e 's/[[:space:]]*$//' {staged_files}
+      stage_fixed: true
+
+    check-added-large-files:
+      run: |
+        large_files=$(find {staged_files} -size +2048k -type f 2>/dev/null)
+        if [ -n "$large_files" ]; then
+          echo "Large files detected (>2MB):"
+          echo "$large_files"
+          exit 1
+        fi
+      stage_fixed: false
+
+    cargo-fmt:
+      glob: "*.rs"
+      run: cargo fmt --check -- {staged_files}
+      stage_fixed: false
+
+    cargo-clippy:
+      glob: "*.rs"
+      run: cargo clippy -- -D warnings
+      stage_fixed: false
+
+    cargo-check:
+      glob: "*.rs"
+      run: cargo check
+      stage_fixed: false
+
+    biome-format:
+      glob: "*.{ts,js,mjs,cjs,json,jsonc}"
+      run: biome format --write {staged_files}
+      stage_fixed: true
+
+    biome-lint:
+      glob: "*.{ts,js,mjs,cjs}"
+      run: biome lint --write {staged_files}
+      stage_fixed: true
+
+commit-msg:
+  commands:
+    conventional-commits:
+      run: npx commitlint --default-config --edit {1}
+      stage: false
+
+pre-push:
+  parallel: false
+  commands:
+    cargo-test:
+      run: cargo test
+      stage_fixed: false
