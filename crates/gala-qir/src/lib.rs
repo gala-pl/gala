@@ -1,8 +1,7 @@
 //! QIR emission (LLVM IR) for Gala.
 
-use gala_gir::{Gir, GirFunc};
-use gala_span::Span;
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
+use gala_diagnostics::Diagnostics;
+use gala_gir::Gir;
 
 /// QIR profile to emit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,7 +12,7 @@ pub enum QirProfile {
 
 /// Emit QIR from GIR.
 pub fn emit_qir(gir: &Gir, profile: QirProfile) -> Result<String, Diagnostics> {
-    let mut diags = Diagnostics::new();
+    let _diags = Diagnostics::new();
     let mut output = String::new();
 
     output.push_str("; QIR Module\n");

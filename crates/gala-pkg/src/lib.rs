@@ -4,7 +4,6 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process;
 
 #[derive(Parser)]
 #[command(name = "gala-pkg", version, about = "Gala package manager")]
@@ -32,9 +31,7 @@ enum PackageCommands {
         path: Option<PathBuf>,
     },
     /// Remove a dependency
-    Remove {
-        name: String,
-    },
+    Remove { name: String },
     /// Update dependencies
     Update {
         #[arg(long)]
@@ -113,13 +110,15 @@ pub struct Lockfile {
 
 /// Read manifest from gala.toml.
 pub fn read_manifest(path: &PathBuf) -> Result<Manifest, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| format!("cannot read manifest: {e}"))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("cannot read manifest: {e}"))?;
     toml::from_str(&content).map_err(|e| format!("manifest parse error: {e}"))
 }
 
 /// Write manifest to gala.toml.
 pub fn write_manifest(path: &PathBuf, manifest: &Manifest) -> Result<(), String> {
-    let content = toml::to_string_pretty(manifest).map_err(|e| format!("serialization error: {e}"))?;
+    let content =
+        toml::to_string_pretty(manifest).map_err(|e| format!("serialization error: {e}"))?;
     std::fs::write(path, content).map_err(|e| format!("write error: {e}"))
 }
 
@@ -170,12 +169,7 @@ pub fn add_dependency(
     let mut manifest = read_manifest(&manifest_path)?;
 
     let dep = if let Some(g) = git {
-        Dependency::Detailed {
-            version: None,
-            git: Some(g),
-            path: None,
-            features: None,
-        }
+        Dependency::Detailed { version: None, git: Some(g), path: None, features: None }
     } else if let Some(p) = path {
         Dependency::Detailed {
             version: None,
@@ -209,7 +203,8 @@ pub fn update_dependencies(package: Option<String>) -> Result<(), String> {
     let manifest = read_manifest(&manifest_path)?;
 
     let lockfile = resolve_dependencies(&manifest)?;
-    let lock_content = toml::to_string_pretty(&lockfile).map_err(|e| format!("serialization error: {e}"))?;
+    let lock_content =
+        toml::to_string_pretty(&lockfile).map_err(|e| format!("serialization error: {e}"))?;
     std::fs::write("gala.lock", lock_content).map_err(|e| format!("write error: {e}"))?;
 
     if let Some(pkg) = package {
@@ -233,7 +228,10 @@ fn resolve_dependencies(manifest: &Manifest) -> Result<Lockfile, String> {
                 } else if let Some(p) = path {
                     ("0.1.0".to_string(), format!("path+{p}"))
                 } else {
-                    (version.clone().unwrap_or_else(|| "*".to_string()), format!("registry+{}", version.as_deref().unwrap_or("*")))
+                    (
+                        version.clone().unwrap_or_else(|| "*".to_string()),
+                        format!("registry+{}", version.as_deref().unwrap_or("*")),
+                    )
                 }
             }
         };
@@ -263,8 +261,10 @@ pub fn publish_package(registry: Option<String>, token: Option<String>) -> Resul
 /// Install dependencies from lockfile.
 pub fn install_dependencies() -> Result<(), String> {
     let lockfile_path = PathBuf::from("gala.lock");
-    let content = std::fs::read_to_string(&lockfile_path).map_err(|e| format!("cannot read lockfile: {e}"))?;
-    let lockfile: Lockfile = toml::from_str(&content).map_err(|e| format!("lockfile parse error: {e}"))?;
+    let content = std::fs::read_to_string(&lockfile_path)
+        .map_err(|e| format!("cannot read lockfile: {e}"))?;
+    let lockfile: Lockfile =
+        toml::from_str(&content).map_err(|e| format!("lockfile parse error: {e}"))?;
 
     println!("installed {} package(s)", lockfile.packages.len());
     Ok(())

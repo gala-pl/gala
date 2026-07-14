@@ -1,9 +1,9 @@
 //! Uncomputation analysis and synthesis for Gala.
 
-use gala_hir::*;
 use gala_ast::Ident;
+use gala_diagnostics::{codes, Diagnostic, Diagnostics};
+use gala_hir::*;
 use gala_types::Ty;
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
 use std::collections::HashMap;
 
 /// Provenance tracking for linear values.
@@ -42,9 +42,7 @@ pub fn analyze_provenance(hir_fn: &HirFnDef) -> HashMap<DefId, Provenance> {
     // Bind parameters as External (unknown provenance)
     for param in &hir_fn.params {
         let def_id = DefId { crate_id: hir_fn.def_id.crate_id.clone(), index: param.local_id.0 };
-        provenance.insert(def_id.clone(), Provenance {
-            nodes: vec![ProvenanceNode::External],
-        });
+        provenance.insert(def_id.clone(), Provenance { nodes: vec![ProvenanceNode::External] });
         env.insert(param.local_id, def_id);
     }
 
@@ -67,7 +65,9 @@ fn analyze_block(
                 let def_id = DefId { crate_id: fn_def_id.crate_id.clone(), index: l.local_id.0 };
                 env.insert(l.local_id, def_id.clone());
                 // Copy provenance from the init expression
-                if let Some(init_prov) = provenance.get(&DefId { crate_id: fn_def_id.crate_id.clone(), index: 0 }) {
+                if let Some(init_prov) =
+                    provenance.get(&DefId { crate_id: fn_def_id.crate_id.clone(), index: 0 })
+                {
                     provenance.insert(def_id, init_prov.clone());
                 }
             }
@@ -80,11 +80,11 @@ fn analyze_block(
     if let Some(tail) = &block.tail {
         // For tail expressions, we need to handle the return
         match tail.as_ref() {
-            HirExpr::Ident(_, def_id) => {
+            HirExpr::Ident(_, def_id, _) => {
                 // Return passes through the provenance unchanged
                 let _ = def_id;
             }
-            HirExpr::Call(c) => {
+            HirExpr::Call(_c) => {
                 // For calls, mark the result and consume inputs
                 analyze_expr(tail, fn_def_id, env, provenance);
             }
@@ -102,52 +102,54 @@ fn analyze_expr(
     provenance: &mut HashMap<DefId, Provenance>,
 ) {
     match expr {
-        HirExpr::Ident(_, def_id) => {
+        HirExpr::Ident(_, _def_id, _) => {
             // Record this usage (the provenance was established at binding time)
         }
         HirExpr::Call(c) => {
             // Check if this is a gate application or allocation
-            if let HirExpr::Ident(gate_name, _) = c.callee.as_ref() {
+            if let HirExpr::Ident(gate_name, _, _) = c.callee.as_ref() {
                 let name = gate_name.0.as_str();
                 match name {
                     "qubit" | "qubits" => {
                         // Allocation: generate fresh provenance
                         let fresh_def = DefId { crate_id: fn_def_id.crate_id.clone(), index: 0 };
-                        provenance.insert(fresh_def, Provenance {
-                            nodes: vec![ProvenanceNode::Alloc { ty: Ty::Qubit }],
-                        });
+                        provenance.insert(
+                            fresh_def,
+                            Provenance { nodes: vec![ProvenanceNode::Alloc { ty: Ty::Qubit }] },
+                        );
                     }
                     "measure" => {
                         // Measurement: mark as measured (not liftable)
                         for arg in &c.args {
-                            if let HirExpr::Ident(arg_name, arg_def) = arg {
+                            if let HirExpr::Ident(arg_name, arg_def, _) = arg {
                                 let _ = arg_name;
-                                provenance.insert(arg_def.clone(), Provenance {
-                                    nodes: vec![ProvenanceNode::Measure],
-                                });
+                                provenance.insert(
+                                    arg_def.clone(),
+                                    Provenance { nodes: vec![ProvenanceNode::Measure] },
+                                );
                             }
                         }
                     }
-                    "h" | "x" | "y" | "z" | "s" | "t"
-                    | "rx" | "ry" | "rz"
-                    | "cx" | "cz" | "swap" => {
+                    "h" | "x" | "y" | "z" | "s" | "t" | "rx" | "ry" | "rz" | "cx" | "cz"
+                    | "swap" => {
                         // Gate application: the output has provenance based on inputs
                         let mut inputs = Vec::new();
                         for arg in &c.args {
-                            if let HirExpr::Ident(_, arg_def) = arg {
+                            if let HirExpr::Ident(_, arg_def, _) = arg {
                                 inputs.push(arg_def.clone());
                             }
                         }
-                        if let Some(result) = c.args.first() {
-                            if let HirExpr::Ident(result_name, result_def) = result {
-                                let _ = result_name;
-                                provenance.insert(result_def.clone(), Provenance {
+                        if let Some(HirExpr::Ident(result_name, result_def, _)) = c.args.first() {
+                            let _ = result_name;
+                            provenance.insert(
+                                result_def.clone(),
+                                Provenance {
                                     nodes: vec![ProvenanceNode::Gate {
                                         gate: Ident::new(name),
                                         inputs,
                                     }],
-                                });
-                            }
+                                },
+                            );
                         }
                     }
                     _ => {} // Unknown function call
@@ -167,14 +169,15 @@ fn analyze_expr(
 
 /// Determine if a value is liftable (can be auto-uncomputed).
 pub fn is_liftable(provenance: &Provenance) -> bool {
-    !provenance.nodes.iter().any(|n| {
-        matches!(n, ProvenanceNode::Measure | ProvenanceNode::External)
-    })
+    !provenance
+        .nodes
+        .iter()
+        .any(|n| matches!(n, ProvenanceNode::Measure | ProvenanceNode::External))
 }
 
 /// Synthesize uncomputation steps for a function.
 pub fn synthesize_uncompute(
-    hir_fn: &HirFnDef,
+    _hir_fn: &HirFnDef,
     provenance: &HashMap<DefId, Provenance>,
 ) -> Result<UncomputePlan, Diagnostics> {
     let mut diags = Diagnostics::new();
@@ -183,20 +186,32 @@ pub fn synthesize_uncompute(
     for (def_id, prov) in provenance {
         if is_liftable(prov) {
             // For liftable values, synthesize adjoint
-            if prov.nodes.iter().any(|n| matches!(n, ProvenanceNode::Gate { .. } | ProvenanceNode::Alloc { .. })) {
+            if prov
+                .nodes
+                .iter()
+                .any(|n| matches!(n, ProvenanceNode::Gate { .. } | ProvenanceNode::Alloc { .. }))
+            {
                 steps.push(UncomputeStep::Adjoint {
                     target: def_id.clone(),
                     provenance: prov.clone(),
                 });
             }
         } else {
-            diags.push(Diagnostic::error(codes::CANNOT_UNCOMPUTE,
-                format!("cannot automatically uncompute value {:?}", def_id))
-                .with_help("provide an explicit uncomputation strategy using uncompute_with()"));
+            diags.push(
+                Diagnostic::error(
+                    codes::CANNOT_UNCOMPUTE,
+                    format!("cannot automatically uncompute value {:?}", def_id),
+                )
+                .with_help("provide an explicit uncomputation strategy using uncompute_with()"),
+            );
         }
     }
 
-    if diags.has_errors() { Err(diags) } else { Ok(UncomputePlan { steps }) }
+    if diags.has_errors() {
+        Err(diags)
+    } else {
+        Ok(UncomputePlan { steps })
+    }
 }
 
 /// Insert uncomputation steps into HIR (returns modified HIR).
@@ -208,8 +223,8 @@ pub fn insert_uncompute(hir_fn: &HirFnDef, plan: UncomputePlan) -> HirFnDef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gala_span::{FileId, Span};
     use gala_ast::{self, Ident, Item};
+    use gala_span::{FileId, Span};
 
     #[test]
     fn test_is_liftable() {
@@ -221,25 +236,20 @@ mod tests {
         };
         assert!(is_liftable(&rev_prov));
 
-        let measure_prov = Provenance {
-            nodes: vec![ProvenanceNode::Measure],
-        };
+        let measure_prov = Provenance { nodes: vec![ProvenanceNode::Measure] };
         assert!(!is_liftable(&measure_prov));
     }
 
     #[test]
     fn test_provenance_is_external_not_liftable() {
-        let external_prov = Provenance {
-            nodes: vec![ProvenanceNode::External],
-        };
+        let external_prov = Provenance { nodes: vec![ProvenanceNode::External] };
         assert!(!is_liftable(&external_prov));
     }
 
     #[test]
     fn test_provenance_alloc_is_liftable() {
-        let alloc_prov = Provenance {
-            nodes: vec![ProvenanceNode::Alloc { ty: gala_types::Ty::Qubit }],
-        };
+        let alloc_prov =
+            Provenance { nodes: vec![ProvenanceNode::Alloc { ty: gala_types::Ty::Qubit }] };
         assert!(is_liftable(&alloc_prov));
     }
 
@@ -259,23 +269,21 @@ mod tests {
             def_id: fn_def_id.clone(),
             ident: Ident::new("bell"),
             generics: Vec::new(),
-            params: vec![
-                HirParam {
-                    local_id: qid, mutable: false,
-                    pattern: gala_ast::Pattern::Ident(Ident::new("q")),
-                    ty: gala_ast::Type::Qubit, span: Span::dummy(),
-                },
-            ],
+            params: vec![HirParam {
+                local_id: qid,
+                mutable: false,
+                pattern: gala_ast::Pattern::Ident(Ident::new("q")),
+                ty: gala_ast::Type::Qubit,
+                span: Span::dummy(),
+            }],
             ret_ty: None,
             effect: gala_ast::Effect::Quantum,
             body: HirBlock {
-                stmts: vec![
-                    HirStmt::Expr(HirExpr::Call(HirCallExpr {
-                        callee: Box::new(HirExpr::Ident(Ident::new("h"), dq.clone())),
-                        args: vec![HirExpr::Ident(Ident::new("q"), dq.clone())],
-                        span: Span::dummy(),
-                    })),
-                ],
+                stmts: vec![HirStmt::Expr(HirExpr::Call(HirCallExpr {
+                    callee: Box::new(HirExpr::Ident(Ident::new("h"), dq.clone())),
+                    args: vec![HirExpr::Ident(Ident::new("q"), dq.clone())],
+                    span: Span::dummy(),
+                }))],
                 tail: None,
                 span: Span::dummy(),
             },
@@ -296,11 +304,7 @@ mod tests {
             params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
-            body: HirBlock {
-                stmts: Vec::new(),
-                tail: None,
-                span: Span::dummy(),
-            },
+            body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
             span: Span::dummy(),
         };
         let prov = analyze_provenance(&hir_fn);
@@ -312,8 +316,10 @@ mod tests {
         let hir_fn = HirFnDef {
             def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
             ident: Ident::new("f"),
-            generics: Vec::new(), params: Vec::new(),
-            ret_ty: None, effect: gala_ast::Effect::Pure,
+            generics: Vec::new(),
+            params: Vec::new(),
+            ret_ty: None,
+            effect: gala_ast::Effect::Pure,
             body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
             span: Span::dummy(),
         };
@@ -330,12 +336,9 @@ mod tests {
             target: DefId { crate_id: CrateId(FileId(0)), index: 0 },
             provenance: Provenance { nodes: Vec::new() },
         };
-        let free = UncomputeStep::Free {
-            target: DefId { crate_id: CrateId(FileId(0)), index: 0 },
-        };
-        let measure = UncomputeStep::Measure {
-            target: DefId { crate_id: CrateId(FileId(0)), index: 0 },
-        };
+        let free = UncomputeStep::Free { target: DefId { crate_id: CrateId(FileId(0)), index: 0 } };
+        let measure =
+            UncomputeStep::Measure { target: DefId { crate_id: CrateId(FileId(0)), index: 0 } };
         assert!(matches!(adj, UncomputeStep::Adjoint { .. }));
         assert!(matches!(free, UncomputeStep::Free { .. }));
         assert!(matches!(measure, UncomputeStep::Measure { .. }));
@@ -348,13 +351,13 @@ mod tests {
             def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
             ident: Ident::new("f"),
             generics: Vec::new(),
-            params: vec![
-                HirParam {
-                    local_id: qid, mutable: false,
-                    pattern: gala_ast::Pattern::Ident(Ident::new("q")),
-                    ty: gala_ast::Type::Qubit, span: Span::dummy(),
-                },
-            ],
+            params: vec![HirParam {
+                local_id: qid,
+                mutable: false,
+                pattern: gala_ast::Pattern::Ident(Ident::new("q")),
+                ty: gala_ast::Type::Qubit,
+                span: Span::dummy(),
+            }],
             ret_ty: None,
             effect: gala_ast::Effect::Quantum,
             body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },

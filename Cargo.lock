@@ -394,6 +394,7 @@ dependencies = [
  "gala-lsp",
  "gala-pkg",
  "gala-span",
+ "gala-std",
 ]
 
 [[package]]

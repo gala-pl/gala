@@ -1,10 +1,10 @@
 //! Gala Intermediate Representation (GIR).
 
-use gala_ast::{self, Ident, Literal, BinOp, UnOp};
+use gala_ast::{self, Ident, Literal};
+use gala_diagnostics::Diagnostics;
 use gala_hir::*;
-use gala_types::{Ty, Effect};
-use gala_span::{Span, ByteSpan};
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
+use gala_span::Span;
+use gala_types::{Effect, Ty};
 use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -60,17 +60,38 @@ pub enum NodeKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GateKind {
-    H, X, Y, Z, S, T,
-    Rx, Ry, Rz,
-    CX, CZ, SWAP,
+    H,
+    X,
+    Y,
+    Z,
+    S,
+    T,
+    Rx,
+    Ry,
+    Rz,
+    CX,
+    CZ,
+    SWAP,
     Measure,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClassicalOp {
-    Add, Sub, Mul, Div, Mod,
-    Eq, Ne, Lt, Le, Gt, Ge,
-    And, Or, Not, Neg,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+    Not,
+    Neg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -82,9 +103,12 @@ pub enum AllocKind {
 
 #[derive(Debug, Clone)]
 pub enum Constant {
-    Int(i64), Float(f64), Bool(bool),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
     Complex { re: f64, im: f64 },
-    String(String), Unit,
+    String(String),
+    Unit,
 }
 
 #[derive(Debug, Clone)]
@@ -104,8 +128,14 @@ pub struct GirType {
 
 #[derive(Debug, Clone)]
 pub enum TypeKind {
-    Int, Float, Bool, Complex, String, Unit,
-    Qubit, Qubits(u64),
+    Int,
+    Float,
+    Bool,
+    Complex,
+    String,
+    Unit,
+    Qubit,
+    Qubits(u64),
     Measured(TypeId),
     Tuple(Vec<TypeId>),
     Array(TypeId, u64),
@@ -122,25 +152,18 @@ pub struct GirConst {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct FuncId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct BlockId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct NodeId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ValueId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TypeId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ConstId(pub u32);
-
-impl Default for FuncId { fn default() -> Self { FuncId(0) } }
-impl Default for BlockId { fn default() -> Self { BlockId(0) } }
-impl Default for NodeId { fn default() -> Self { NodeId(0) } }
-impl Default for ValueId { fn default() -> Self { ValueId(0) } }
-impl Default for TypeId { fn default() -> Self { TypeId(0) } }
-impl Default for ConstId { fn default() -> Self { ConstId(0) } }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GIR Builder
@@ -228,7 +251,7 @@ impl<'a> GirBuilder<'a> {
 
     fn lower_all(&mut self) {
         let hir_funcs_copy = self.hir_funcs.clone();
-        for (_def_id, hir_fn) in &hir_funcs_copy {
+        for hir_fn in hir_funcs_copy.values() {
             self.lower_func(hir_fn);
         }
     }
@@ -238,12 +261,10 @@ impl<'a> GirBuilder<'a> {
         let entry = BlockId(0);
 
         let mut blocks: HashMap<BlockId, Block> = HashMap::new();
-        blocks.insert(entry, Block {
-            id: entry,
-            nodes: Vec::new(),
-            terminator: None,
-            span: hir_fn.span,
-        });
+        blocks.insert(
+            entry,
+            Block { id: entry, nodes: Vec::new(), terminator: None, span: hir_fn.span },
+        );
 
         let mut params = Vec::new();
         let mut env: HashMap<LocalId, ValueId> = HashMap::new();
@@ -325,14 +346,16 @@ impl<'a> GirBuilder<'a> {
                     Literal::Float(f) => NodeKind::Constant(Constant::Float(*f)),
                     Literal::Bool(b) => NodeKind::Constant(Constant::Bool(*b)),
                     Literal::String(s) => NodeKind::Constant(Constant::String(s.clone())),
-                    Literal::Complex { re, im } => NodeKind::Constant(Constant::Complex { re: *re, im: *im }),
+                    Literal::Complex { re, im } => {
+                        NodeKind::Constant(Constant::Complex { re: *re, im: *im })
+                    }
                     Literal::Unit => NodeKind::Constant(Constant::Unit),
                 };
                 let block = blocks.get_mut(&current_block)?;
                 self.emit_node(block, kind, vec![], vec![val], Span::dummy());
                 Some(val)
             }
-            HirExpr::Ident(_, _) => {
+            HirExpr::Ident(_, _, _) => {
                 // For now, just return a fresh value
                 // In a full impl, we'd look up the value from env
                 Some(self.fresh_value_id())
@@ -363,11 +386,15 @@ impl<'a> GirBuilder<'a> {
             }
             HirExpr::Call(c) => {
                 // Check if it's a gate call
-                if let HirExpr::Ident(gate_name, _) = c.callee.as_ref() {
+                if let HirExpr::Ident(gate_name, _, _) = c.callee.as_ref() {
                     if let Some(gate) = Self::gate_kind_from_name(&gate_name.0) {
-                        let arg_vals: Vec<ValueId> = c.args.iter().filter_map(|a| {
-                            self.lower_expr(hir_fn, a, blocks, current_block, env, func_id)
-                        }).collect();
+                        let arg_vals: Vec<ValueId> = c
+                            .args
+                            .iter()
+                            .filter_map(|a| {
+                                self.lower_expr(hir_fn, a, blocks, current_block, env, func_id)
+                            })
+                            .collect();
                         let result = self.fresh_value_id();
                         let block = blocks.get_mut(&current_block)?;
                         self.emit_node(block, NodeKind::Gate(gate), arg_vals, vec![result], c.span);
@@ -376,33 +403,50 @@ impl<'a> GirBuilder<'a> {
                 }
                 // For non-gate calls, emit a call node
                 let result = self.fresh_value_id();
+                let arg_vals: Vec<ValueId> = c
+                    .args
+                    .iter()
+                    .filter_map(|a| self.lower_expr(hir_fn, a, blocks, current_block, env, func_id))
+                    .collect();
+                // TODO: map the callee's DefId to a FuncId; for now fall back to the
+                // current function for all call targets.
                 let block = blocks.get_mut(&current_block)?;
-                self.emit_node(block, NodeKind::Call { func: func_id, args: vec![] }, vec![], vec![result], c.span);
+                self.emit_node(
+                    block,
+                    NodeKind::Call { func: func_id, args: arg_vals.clone() },
+                    arg_vals,
+                    vec![result],
+                    c.span,
+                );
                 Some(result)
             }
-            HirExpr::Block(b) => {
-                self.lower_block(hir_fn, b, blocks, current_block, env, func_id)
-            }
+            HirExpr::Block(b) => self.lower_block(hir_fn, b, blocks, current_block, env, func_id),
             HirExpr::If(i) => {
-                let cond_val = self.lower_expr(hir_fn, &i.cond, blocks, current_block, env, func_id);
+                let cond_val =
+                    self.lower_expr(hir_fn, &i.cond, blocks, current_block, env, func_id);
                 let then_block = self.fresh_block_id();
                 let else_block = self.fresh_block_id();
                 let merge_block = self.fresh_block_id();
 
                 let cond = cond_val.unwrap_or(ValueId(0));
                 let block = blocks.get_mut(&current_block)?;
-                block.terminator = Some(Terminator::CondBranch {
-                    cond,
-                    then_bb: then_block,
-                    else_bb: else_block,
-                });
+                block.terminator =
+                    Some(Terminator::CondBranch { cond, then_bb: then_block, else_bb: else_block });
 
                 // Lower then branch
                 let mut then_blocks = HashMap::new();
-                then_blocks.insert(then_block, Block {
-                    id: then_block, nodes: Vec::new(), terminator: None, span: i.span,
-                });
-                self.lower_block(hir_fn, &i.then_branch, &mut then_blocks, then_block, env, func_id);
+                then_blocks.insert(
+                    then_block,
+                    Block { id: then_block, nodes: Vec::new(), terminator: None, span: i.span },
+                );
+                self.lower_block(
+                    hir_fn,
+                    &i.then_branch,
+                    &mut then_blocks,
+                    then_block,
+                    env,
+                    func_id,
+                );
                 if let Some(then_block_data) = then_blocks.get_mut(&then_block) {
                     then_block_data.terminator = Some(Terminator::Branch(merge_block));
                 }
@@ -411,9 +455,10 @@ impl<'a> GirBuilder<'a> {
                 // Lower else branch
                 if let Some(else_) = &i.else_branch {
                     let mut else_blocks = HashMap::new();
-                    else_blocks.insert(else_block, Block {
-                        id: else_block, nodes: Vec::new(), terminator: None, span: i.span,
-                    });
+                    else_blocks.insert(
+                        else_block,
+                        Block { id: else_block, nodes: Vec::new(), terminator: None, span: i.span },
+                    );
                     self.lower_expr(hir_fn, else_, &mut else_blocks, else_block, env, func_id);
                     if let Some(else_block_data) = else_blocks.get_mut(&else_block) {
                         else_block_data.terminator = Some(Terminator::Branch(merge_block));
@@ -422,9 +467,10 @@ impl<'a> GirBuilder<'a> {
                 }
 
                 // Merge block
-                blocks.insert(merge_block, Block {
-                    id: merge_block, nodes: Vec::new(), terminator: None, span: i.span,
-                });
+                blocks.insert(
+                    merge_block,
+                    Block { id: merge_block, nodes: Vec::new(), terminator: None, span: i.span },
+                );
 
                 Some(self.fresh_value_id())
             }
@@ -442,22 +488,23 @@ pub fn lower_hir_to_gir(
     let mut builder = GirBuilder::new(hir_funcs);
     builder.lower_all();
 
-    let gir = Gir {
-        funcs: builder.results,
-        types: HashMap::new(),
-        consts: HashMap::new(),
-    };
+    let gir = Gir { funcs: builder.results, types: HashMap::new(), consts: HashMap::new() };
 
-    if builder.diags.has_errors() { Err(builder.diags) } else { Ok(gir) }
+    if builder.diags.has_errors() {
+        Err(builder.diags)
+    } else {
+        Ok(gir)
+    }
 }
 
 impl GirFunc {
     pub fn new_test() -> Self {
         let mut blocks = HashMap::new();
         let entry = BlockId(0);
-        blocks.insert(entry, Block {
-            id: entry, nodes: Vec::new(), terminator: None, span: Span::dummy(),
-        });
+        blocks.insert(
+            entry,
+            Block { id: entry, nodes: Vec::new(), terminator: None, span: Span::dummy() },
+        );
         GirFunc {
             id: FuncId(0),
             name: gala_ast::Ident::new("test"),
@@ -485,8 +532,8 @@ impl serde::Serialize for Gir {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gala_span::{FileId, ByteSpan};
-    use gala_ast::{self, Literal, Ident};
+    use gala_ast::{self, Ident, Literal};
+    use gala_span::{ByteSpan, FileId};
 
     #[test]
     fn test_gir_default() {
@@ -507,15 +554,18 @@ mod tests {
     fn test_gir_func_block_insert() {
         let mut blocks = HashMap::new();
         let b0 = BlockId(0);
-        blocks.insert(b0, Block {
-            id: b0, nodes: Vec::new(), terminator: None, span: Span::dummy(),
-        });
+        blocks
+            .insert(b0, Block { id: b0, nodes: Vec::new(), terminator: None, span: Span::dummy() });
         let b1 = BlockId(1);
-        blocks.insert(b1, Block {
-            id: b1, nodes: Vec::new(),
-            terminator: Some(Terminator::Branch(b0)),
-            span: Span::dummy(),
-        });
+        blocks.insert(
+            b1,
+            Block {
+                id: b1,
+                nodes: Vec::new(),
+                terminator: Some(Terminator::Branch(b0)),
+                span: Span::dummy(),
+            },
+        );
         assert_eq!(blocks.len(), 2);
         assert!(matches!(blocks[&b1].terminator, Some(Terminator::Branch(_))));
     }
@@ -535,14 +585,14 @@ mod tests {
         let hir_fn = HirFnDef {
             def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
             ident: Ident::new("main"),
-            generics: Vec::new(), params: Vec::new(),
+            generics: Vec::new(),
+            params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
             body: HirBlock {
-                stmts: vec![
-                    HirStmt::Return(Some(Box::new(HirExpr::Literal(Literal::Int(42))))),
-                ],
-                tail: None, span: Span::dummy(),
+                stmts: vec![HirStmt::Return(Some(Box::new(HirExpr::Literal(Literal::Int(42)))))],
+                tail: None,
+                span: Span::dummy(),
             },
             span: Span::dummy(),
         };
@@ -559,7 +609,8 @@ mod tests {
         let hir_fn = HirFnDef {
             def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
             ident: Ident::new("add"),
-            generics: Vec::new(), params: Vec::new(),
+            generics: Vec::new(),
+            params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
             body: HirBlock {

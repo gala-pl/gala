@@ -1,12 +1,12 @@
 //! The `gala` CLI — user-facing entry point for the Gala toolchain.
 
 use clap::{Parser, Subcommand};
-use gala_driver::{compile_file, compile_source, check_file};
+use gala_diagnostics::Emitter;
+use gala_driver::check_file;
 use gala_fmt::{format_source, is_formatted};
 use gala_lsp::run as run_lsp;
-use gala_pkg::{init_project, add_dependency, remove_dependency, update_dependencies, publish_package, install_dependencies};
+use gala_pkg::{add_dependency, init_project};
 use gala_span::SourceMap;
-use gala_diagnostics::Emitter;
 use std::path::PathBuf;
 use std::process;
 
@@ -63,9 +63,7 @@ enum Commands {
         path: Option<PathBuf>,
     },
     /// Explain a diagnostic code
-    Explain {
-        code: String,
-    },
+    Explain { code: String },
     /// Run the language server
     Lsp,
 }

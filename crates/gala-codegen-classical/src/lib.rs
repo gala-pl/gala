@@ -1,7 +1,7 @@
 //! Classical codegen (Cranelift/LLVM) for Gala.
 
-use gala_gir::{Gir, GirFunc, BlockId};
-use gala_diagnostics::{Diagnostic, Diagnostics, codes};
+use gala_diagnostics::Diagnostics;
+use gala_gir::Gir;
 
 /// Target for classical codegen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

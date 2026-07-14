@@ -93,37 +93,40 @@ pub enum Token {
     Pipe,
     FatArrow,
 
-// End of file
+    // End of file
     Eof,
     Underscore,
 }
 
 impl Token {
     pub fn is_type_keyword(&self) -> bool {
-        matches!(self,
-            Token::TyBool | Token::TyInt | Token::TyFloat | Token::TyComplex |
-            Token::TyString | Token::TyUnit | Token::TyParams | Token::TyMeasured |
-            Token::TyQubit | Token::TyQubits | Token::TyVec
+        matches!(
+            self,
+            Token::TyBool
+                | Token::TyInt
+                | Token::TyFloat
+                | Token::TyComplex
+                | Token::TyString
+                | Token::TyUnit
+                | Token::TyParams
+                | Token::TyMeasured
+                | Token::TyQubit
+                | Token::TyQubits
+                | Token::TyVec
         )
     }
 }
 
 /// Hand-written lexer with source position tracking.
-pub struct Lexer<'a> {
-    source: &'a str,
+pub struct Lexer {
     chars: Vec<char>,
     pos: usize,
     file_id: FileId,
 }
 
-impl<'a> Lexer<'a> {
+impl<'a> Lexer {
     pub fn new(file_id: FileId, source: &'a str) -> Self {
-        Lexer {
-            source,
-            chars: source.chars().collect(),
-            pos: 0,
-            file_id,
-        }
+        Lexer { chars: source.chars().collect(), pos: 0, file_id }
     }
 
     fn peek(&self) -> Option<char> {
@@ -228,7 +231,7 @@ impl<'a> Lexer<'a> {
         let mut s = String::new();
         s.push(first);
         while let Some(c) = self.peek() {
-            if c.is_alphanumeric() || c == '_' || ('\u{0391}' <= c && c <= '\u{03C9}') {
+            if c.is_alphanumeric() || c == '_' || ('\u{0391}'..='\u{03C9}').contains(&c) {
                 s.push(c);
                 self.advance();
             } else {
@@ -318,7 +321,7 @@ impl<'a> Lexer<'a> {
             '"' => self.read_string(),
             '+' => Token::Plus,
             '-' => {
-                if self.peek() == Some('>') {
+                if matches!(self.peek(), Some('>')) {
                     self.advance();
                     Token::Arrow
                 } else {
@@ -327,17 +330,27 @@ impl<'a> Lexer<'a> {
             }
             '*' => Token::Star,
             '/' => {
-                if self.peek() == Some('/') {
+                if matches!(self.peek(), Some('/')) {
                     while self.advance().is_some() && self.peek() != Some('\n') {}
                     return self.next_token();
-                } else if self.peek() == Some('*') {
+                } else if matches!(self.peek(), Some('*')) {
                     self.advance();
                     let mut depth = 1;
                     while depth > 0 {
                         match (self.peek(), self.peek_n(1)) {
-                            (Some('/'), Some('*')) => { self.advance(); self.advance(); depth += 1; }
-                            (Some('*'), Some('/')) => { self.advance(); self.advance(); depth -= 1; }
-                            (Some(_), _) => { self.advance(); }
+                            (Some('/'), Some('*')) => {
+                                self.advance();
+                                self.advance();
+                                depth += 1;
+                            }
+                            (Some('*'), Some('/')) => {
+                                self.advance();
+                                self.advance();
+                                depth -= 1;
+                            }
+                            (Some(_), _) => {
+                                self.advance();
+                            }
                             (None, _) => break,
                         }
                     }
@@ -348,7 +361,7 @@ impl<'a> Lexer<'a> {
             }
             '%' => Token::Percent,
             '=' => {
-                if self.peek() == Some('=') {
+                if matches!(self.peek(), Some('=')) {
                     self.advance();
                     Token::EqEq
                 } else {
@@ -356,7 +369,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             '!' => {
-                if self.peek() == Some('=') {
+                if matches!(self.peek(), Some('=')) {
                     self.advance();
                     Token::BangEq
                 } else {
@@ -364,7 +377,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             '<' => {
-                if self.peek() == Some('=') {
+                if matches!(self.peek(), Some('=')) {
                     self.advance();
                     Token::Le
                 } else {
@@ -372,7 +385,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             '>' => {
-                if self.peek() == Some('=') {
+                if matches!(self.peek(), Some('=')) {
                     self.advance();
                     Token::Ge
                 } else {
@@ -380,7 +393,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             '&' => {
-                if self.peek() == Some('&') {
+                if matches!(self.peek(), Some('&')) {
                     self.advance();
                     Token::AndAnd
                 } else {
@@ -388,10 +401,10 @@ impl<'a> Lexer<'a> {
                 }
             }
             '|' => {
-                if self.peek() == Some('|') {
+                if matches!(self.peek(), Some('|')) {
                     self.advance();
                     Token::OrOr
-                } else if self.peek() == Some('>') {
+                } else if matches!(self.peek(), Some('>')) {
                     self.advance();
                     Token::FatArrow
                 } else {
@@ -406,7 +419,7 @@ impl<'a> Lexer<'a> {
             ';' => Token::Semicolon,
             ':' => Token::Colon,
             '.' => {
-                if self.peek() == Some('.') {
+                if matches!(self.peek(), Some('.')) {
                     self.advance();
                     Token::DotDot
                 } else {
@@ -419,10 +432,7 @@ impl<'a> Lexer<'a> {
         };
 
         let end = self.pos;
-        let byte_span = ByteSpan {
-            start: start as u32,
-            end: end as u32,
-        };
+        let byte_span = ByteSpan { start: start as u32, end: end as u32 };
         Some((token, Span::new(self.file_id, byte_span)))
     }
 
@@ -442,7 +452,8 @@ mod tests {
 
     #[test]
     fn test_lexer_keywords() {
-        let source = "fn let if else match for while return import as struct enum trait impl type const";
+        let source =
+            "fn let if else match for while return import as struct enum trait impl type const";
         let mut map = SourceMap::new();
         let fid = map.add_file("test.gala".into(), source.to_string());
         let mut lexer = Lexer::new(fid, source);
@@ -484,7 +495,13 @@ mod tests {
         let mut lexer = Lexer::new(fid, source);
         let tokens = lexer.collect_all();
 
-        assert_eq!(tokens.len(), 8, "expected 8 tokens but got {}: {:?}", tokens.len(), tokens.iter().map(|(t,_)| format!("{:?}", t)).collect::<Vec<_>>());
+        assert_eq!(
+            tokens.len(),
+            8,
+            "expected 8 tokens but got {}: {:?}",
+            tokens.len(),
+            tokens.iter().map(|(t, _)| format!("{:?}", t)).collect::<Vec<_>>()
+        );
         assert!(matches!(tokens[0].0, Token::Int(42)));
         assert!(matches!(tokens[1].0, Token::Float(f) if (f - 3.14).abs() < f64::EPSILON));
         assert!(matches!(tokens[2].0, Token::Int(2)));
