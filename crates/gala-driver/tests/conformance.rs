@@ -7,8 +7,8 @@
 //!
 //! Run: cargo test --test conformance
 
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 /// Get the workspace root directory (three levels up from the crate dir).
 fn workspace_root() -> PathBuf {
@@ -31,10 +31,7 @@ fn test_conformance_valid_sources() {
         if path.extension().map_or(false, |e| e == "gala") {
             let source = fs::read_to_string(&path).unwrap();
             let mut source_map = gala_span::SourceMap::new();
-            let file_id = source_map.add_file(
-                path.to_path_buf(),
-                source.clone(),
-            );
+            let file_id = source_map.add_file(path.to_path_buf(), source.clone());
 
             match gala_parser::parse_file(file_id, &source, &mut source_map) {
                 Ok(items) => {
@@ -61,8 +58,8 @@ fn test_conformance_valid_sources() {
 /// Test that error fixture files produce diagnostics.
 #[test]
 fn test_conformance_error_sources() {
-        let root = workspace_root();
-        let fixture_dir = root.join("tests/conformance/errors");
+    let root = workspace_root();
+    let fixture_dir = root.join("tests/conformance/errors");
     let mut detected = 0;
     let mut missed = 0;
 
@@ -72,10 +69,7 @@ fn test_conformance_error_sources() {
         if path.extension().map_or(false, |e| e == "gala") {
             let source = fs::read_to_string(&path).unwrap();
             let mut source_map = gala_span::SourceMap::new();
-            let file_id = source_map.add_file(
-                path.to_path_buf(),
-                source.clone(),
-            );
+            let file_id = source_map.add_file(path.to_path_buf(), source.clone());
 
             match gala_parser::parse_file(file_id, &source, &mut source_map) {
                 Ok(_items) => {
@@ -107,10 +101,7 @@ fn test_conformance_compile_pipeline() {
         if path.extension().map_or(false, |e| e == "gala") {
             let source = fs::read_to_string(&path).unwrap();
             let mut source_map = gala_span::SourceMap::new();
-            let file_id = source_map.add_file(
-                path.to_path_buf(),
-                source.clone(),
-            );
+            let file_id = source_map.add_file(path.to_path_buf(), source.clone());
 
             // Run through the driver's check_file which runs the full pipeline
             let diags = gala_driver::check_file(file_id, &source, &mut source_map);

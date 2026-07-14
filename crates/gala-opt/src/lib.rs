@@ -17,11 +17,21 @@ fn optimize_func(func: &mut GirFunc) {
     constant_folding(func);
 }
 
-fn fuse_single_qubit_gates(func: &mut GirFunc) { let _ = func; }
-fn cancel_adjacent_gates(func: &mut GirFunc) { let _ = func; }
-fn merge_rotations(func: &mut GirFunc) { let _ = func; }
-fn dead_code_elimination(func: &mut GirFunc) { let _ = func; }
-fn constant_folding(func: &mut GirFunc) { let _ = func; }
+fn fuse_single_qubit_gates(func: &mut GirFunc) {
+    let _ = func;
+}
+fn cancel_adjacent_gates(func: &mut GirFunc) {
+    let _ = func;
+}
+fn merge_rotations(func: &mut GirFunc) {
+    let _ = func;
+}
+fn dead_code_elimination(func: &mut GirFunc) {
+    let _ = func;
+}
+fn constant_folding(func: &mut GirFunc) {
+    let _ = func;
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,7 @@
 //! Source spans, file database, and string interning for Gala.
 
-pub use lasso::Spur;
 use lasso::Rodeo;
+pub use lasso::Spur;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -66,10 +66,7 @@ impl Span {
     }
 
     pub fn dummy() -> Self {
-        Span {
-            file_id: FileId(0),
-            byte_span: ByteSpan { start: 0, end: 0 },
-        }
+        Span { file_id: FileId(0), byte_span: ByteSpan { start: 0, end: 0 } }
     }
 }
 
@@ -100,11 +97,7 @@ impl SourceMap {
 
     pub fn add_file(&mut self, path: PathBuf, content: String) -> FileId {
         let id = FileId(self.files.len() as u32);
-        let file = SourceFile {
-            id,
-            path,
-            content: content.into(),
-        };
+        let file = SourceFile { id, path, content: content.into() };
         self.files.push(file);
         id
     }
@@ -145,9 +138,7 @@ pub struct Interner {
 
 impl Interner {
     pub fn new() -> Self {
-        Interner {
-            inner: Rodeo::default(),
-        }
+        Interner { inner: Rodeo::default() }
     }
 
     pub fn get_or_intern(&mut self, s: &str) -> Spur {
