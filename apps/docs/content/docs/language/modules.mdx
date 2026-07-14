@@ -1,0 +1,59 @@
+---
+title: Modules & Imports
+description: Organizing code, packages, and the import system
+---
+
+Gala organizes code into **packages** and **modules**, with a standard import system.
+
+## Packages
+
+A package is a directory with a `gala.toml` manifest:
+
+```toml
+[package]
+name = "my-vqa"
+version = "0.1.0"
+
+[dependencies]
+gala = "0.1.0"
+```
+
+The standard library (`gala.core`, `gala.gates`, `gala.vqa`, etc.) is versioned with the
+toolchain and available by default.
+
+## Imports
+
+```
+import gala.core.*
+import gala.vqa.{ angle_encode, layered_ansatz }
+import mypkg.foo as f
+```
+
+- `import gala.core.*` — import everything from `gala.core`
+- `import gala.vqa.{ angle_encode, Params }` — import specific items
+- `import mypkg.foo as f` — import with an alias
+
+## Module paths
+
+Module paths mirror directory structure. A file at `src/utils/encoding.gala` defines the module
+`utils.encoding`.
+
+## Project layout
+
+```
+myproject/
+├── gala.toml              # package manifest
+├── gala.lock              # lockfile for reproducible builds
+├── src/
+│   ├── main.gala          # entry point (or lib.gala for libraries)
+│   └── ...
+└── tests/
+    └── ...
+```
+
+Use `gala new <name>` to scaffold this layout automatically.
+
+## See also
+
+- [Toolchain & CLI](/docs/toolchain/cli) — `gala new`, `gala add`, package management
+- [Standard Library](/docs/stdlib) — the layered stdlib hierarchy

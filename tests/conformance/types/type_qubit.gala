@@ -1,0 +1,3 @@
+fn f(q: Qubit) -> Qubit {
+    return q;
+}

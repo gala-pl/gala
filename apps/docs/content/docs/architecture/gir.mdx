@@ -1,0 +1,58 @@
+---
+title: GIR (Gala IR)
+description: The typed, effect-annotated intermediate representation
+---
+
+**GIR** (Gala IR) is the typed, effect-annotated operation graph that combines classical and
+quantum operations in one representation. It is the **stable contract** between the frontend
+and all backends.
+
+## Why GIR exists
+
+Everything above lowering targets GIR; everything below consumes it. No backend imports the
+frontend. This is what makes adding a backend a contained task — you only need to consume GIR,
+not understand the type system or parser.
+
+## Structure
+
+GIR is a **graph** (backed by `petgraph`) where:
+
+- **Nodes** are classical or quantum operations (gate applications, measurements, allocations,
+  arithmetic, control flow)
+- **Edges** carry two kinds of information:
+  - **Linear-value ownership** — tracks which qubit flows where
+  - **Classical data dependencies** — tracks which values feed into which operations
+- **Every node is typed and effect-annotated** — the type system's guarantees are preserved
+  into the IR
+
+## Dumping GIR
+
+Inspect the GIR your program compiles to:
+
+```bash
+gala build --emit gir src/main.gala
+```
+
+This outputs the full typed, effect-annotated graph — useful for understanding what the
+compiler produces before optimization and backend lowering.
+
+## After GIR
+
+Once GIR is produced, three passes can run:
+
+1. **Differentiation** (`gala-diff`): `grad(...)` calls become parameter-shift or autodiff nodes
+2. **Optimization** (`gala-opt`): gate fusion, cancellation, classical DCE
+3. **Target lowering**: the specific backend consumes the optimized GIR
+
+See [Compiler Pipeline](/docs/architecture/compiler-pipeline) for the full pass-by-pass flow.
+
+## GIR and the type system
+
+GIR preserves the type system's guarantees:
+
+- **Linear types** are tracked as ownership edges — a qubit can only flow to one consumer
+- **Effects** are annotated on every node — `quantum` nodes are unitary, `prob` nodes involve
+  measurement
+- **Const generics** (`Qubits<N>`) are resolved — register sizes are concrete
+
+This means backend authors can trust the GIR without re-checking the type system.

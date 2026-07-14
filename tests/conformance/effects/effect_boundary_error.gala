@@ -1,0 +1,9 @@
+// A pure function cannot call a non-pure function
+// Expected: E0301 (EFFECT_MISMATCH) or E0303 (QUANTUM_CALLS_PROB)
+fn outer() pure {
+    return inner();
+}
+
+fn inner() prob {
+    return 42;
+}

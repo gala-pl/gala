@@ -1,0 +1,6 @@
+---
+source: crates/gala-fmt/tests/snapshot_tests.rs
+assertion_line: 49
+expression: formatted
+---
+"\nenum Option<T> {\n    Some(T),\n    None,\n}\n"

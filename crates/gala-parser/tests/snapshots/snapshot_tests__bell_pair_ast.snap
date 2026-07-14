@@ -1,0 +1,195 @@
+---
+source: crates/gala-parser/tests/snapshot_tests.rs
+assertion_line: 25
+expression: items
+---
+[
+    FnDef(
+        FnDef {
+            ident: Ident(
+                "bell_pair",
+            ),
+            generics: [],
+            params: [],
+            ret_ty: Some(
+                Qubit,
+            ),
+            effect: Some(
+                Quantum,
+            ),
+            body: Block {
+                stmts: [
+                    Let(
+                        LetStmt {
+                            mutable: false,
+                            pattern: Ident(
+                                Ident(
+                                    "q",
+                                ),
+                            ),
+                            ty: None,
+                            init: Some(
+                                Call(
+                                    CallExpr {
+                                        callee: Ident(
+                                            Ident(
+                                                "qubit",
+                                            ),
+                                        ),
+                                        args: [],
+                                        span: Span {
+                                            file_id: FileId(
+                                                0,
+                                            ),
+                                            byte_span: ByteSpan {
+                                                start: 0,
+                                                end: 0,
+                                            },
+                                        },
+                                    },
+                                ),
+                            ),
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    Let(
+                        LetStmt {
+                            mutable: false,
+                            pattern: Ident(
+                                Ident(
+                                    "r",
+                                ),
+                            ),
+                            ty: None,
+                            init: Some(
+                                Call(
+                                    CallExpr {
+                                        callee: Ident(
+                                            Ident(
+                                                "qubit",
+                                            ),
+                                        ),
+                                        args: [],
+                                        span: Span {
+                                            file_id: FileId(
+                                                0,
+                                            ),
+                                            byte_span: ByteSpan {
+                                                start: 0,
+                                                end: 0,
+                                            },
+                                        },
+                                    },
+                                ),
+                            ),
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    Expr(
+                        Call(
+                            CallExpr {
+                                callee: Ident(
+                                    Ident(
+                                        "h",
+                                    ),
+                                ),
+                                args: [
+                                    Ident(
+                                        Ident(
+                                            "q",
+                                        ),
+                                    ),
+                                ],
+                                span: Span {
+                                    file_id: FileId(
+                                        0,
+                                    ),
+                                    byte_span: ByteSpan {
+                                        start: 0,
+                                        end: 0,
+                                    },
+                                },
+                            },
+                        ),
+                    ),
+                    Expr(
+                        Call(
+                            CallExpr {
+                                callee: Ident(
+                                    Ident(
+                                        "cx",
+                                    ),
+                                ),
+                                args: [
+                                    Ident(
+                                        Ident(
+                                            "q",
+                                        ),
+                                    ),
+                                    Ident(
+                                        Ident(
+                                            "r",
+                                        ),
+                                    ),
+                                ],
+                                span: Span {
+                                    file_id: FileId(
+                                        0,
+                                    ),
+                                    byte_span: ByteSpan {
+                                        start: 0,
+                                        end: 0,
+                                    },
+                                },
+                            },
+                        ),
+                    ),
+                    Return(
+                        Some(
+                            Ident(
+                                Ident(
+                                    "q",
+                                ),
+                            ),
+                        ),
+                    ),
+                ],
+                tail: None,
+                span: Span {
+                    file_id: FileId(
+                        0,
+                    ),
+                    byte_span: ByteSpan {
+                        start: 0,
+                        end: 0,
+                    },
+                },
+            },
+            span: Span {
+                file_id: FileId(
+                    0,
+                ),
+                byte_span: ByteSpan {
+                    start: 0,
+                    end: 0,
+                },
+            },
+        },
+    ),
+]

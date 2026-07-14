@@ -13,11 +13,16 @@ Session.vim
 ## Build artifacts
 /target/
 **/*.rs.bk
+**/*.bak
+**/coverage/
+**/__pycache__/
 
 ## Node
 node_modules/
 .next/
 *.tsbuildinfo
+.pnp/
+.pnp.js
 
 ## Fumadocs
 .source/
@@ -29,3 +34,18 @@ fuzz/coverage/
 ## OS
 .DS_Store
 Thumbs.db
+
+## IDE
+.kilo/
+.opencode/
+skills/
+
+## Temporary files
+# Single character filenames
+?
+
+# Test cache
+.pytest_cache/
+
+# Python cache
+__pycache__/

@@ -1,0 +1,4 @@
+{
+  "title": "Language",
+  "pages": ["index", "syntax", "effects", "control-flow", "modules", "type-system", "glossary"]
+}

@@ -1,0 +1,6 @@
+---
+source: crates/gala-fmt/tests/snapshot_tests.rs
+assertion_line: 61
+expression: reformatted
+---
+"fn add(a: Int, b: Int) -> Int pure {\n    return (a + b);\n}\n"

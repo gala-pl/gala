@@ -1,0 +1,109 @@
+---
+title: Language
+description: Everything about writing Gala — syntax, types, effects, and language features
+---
+
+Gala is a **classical language whose compiler enforces the laws of quantum mechanics**. Its syntax
+is deliberately familiar — expression-oriented, braces, `fn`, `let`, type inference — so a
+Python/Rust/Swift engineer is productive on day one. The quantum-specific machinery lives in
+**type annotations and effects**, not in exotic syntax.
+
+## Design of the surface syntax
+
+Everything is an expression where reasonable; blocks return their trailing expression. The language
+is designed so that simple programs look simple and advanced power is available but not in the way.
+
+- **Expression-oriented:** `if`, `match`, `for`, blocks all return values.
+- **Braces and semicolons:** familiar C-family structure.
+- **Type inference:** most types are inferred; annotations are optional except on public API boundaries.
+- **Greek identifiers:** `θ`, `φ`, `ψ` are legal identifiers — a nod to the domain.
+
+## Language reference
+
+- [Syntax](/docs/language/syntax) — lexical structure, grammar, keywords, literals
+- [Effects](/docs/language/effects) — the three-world model (`pure` / `quantum` / `prob`)
+- [Control Flow](/docs/language/control-flow) — `if`, `match`, `for`, `while`, blocks
+- [Modules & Imports](/docs/language/modules) — organizing code, packages, `gala.toml`
+- [Type System](/docs/language/type-system) — linear types, uncomputation, reversibility, differentiation
+- [Glossary](/docs/language/glossary) — quantum, PL, and compiler terms
+
+## Quick taste
+
+Here is a complete Gala program — a Bell pair — that demonstrates the core ideas:
+
+```
+fn main() -> Measured<Bool> prob {
+    let q = qubit()     // allocate |0⟩
+    h(q)                // put into superposition
+    measure(q)          // consume q; function is `prob`
+}
+```
+
+The function is annotated `prob` because it performs measurement. A function that only applies
+gates (no measurement) would be `quantum` — guaranteed reversible and measurement-free.
+See [Effects](/docs/language/effects) for the full model.
+
+## Worked examples
+
+### Bell pair (full form)
+
+```
+fn bell() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)   // ownership threaded explicitly
+    (a, b)
+}
+```
+
+### Variational classifier (hybrid, differentiable)
+
+```
+import gala.vqa.{ angle_encode, Params }
+
+fn encode(x: Vec<Float>) -> Qubits<4> quantum {
+    let q = qubits<4>()
+    angle_encode(q, x)
+    q
+}
+
+fn ansatz(q: Qubits<4>, θ: Params) -> Qubits<4> quantum {
+    for layer in 0..θ.depth {
+        for i in 0..4 { ry(q[i], θ[layer][i]) }
+        for i in 0..3 { cx(q[i], q[i+1]) }
+    }
+    q
+}
+
+fn classify(x: Vec<Float>, θ: Params) -> Measured<Bool> prob {
+    let q = ansatz(encode(x), θ)
+    measure(q[0])
+}
+
+let dθ = grad(classify, wrt: θ)   // parameter-shift synthesized by compiler
+```
+
+### In-place sugar
+
+Threading ownership by hand is verbose, so gates that take and return the same qubit(s) may be
+written as statements; the compiler rebinds the name:
+
+```
+fn bell() -> Qubits<2> quantum {
+    let a = qubit();  let b = qubit()
+    h(a)                    // sugar for: let a = h(a)
+    cx(a, b)                // sugar for: let (a, b) = cx(a, b)
+    (a, b)
+}
+```
+
+The desugared, explicit form is always valid and is what the checker reasons about.
+
+## Open syntactic questions
+
+- Whether to make the in-place sugar the default and require explicit threading only in ambiguous cases.
+- Whether `Measured<T>` should auto-coerce to `T` in classical contexts or always require an explicit `.value()` / `.sample()`.
+- Exact surface for controlled/adjoint application (`control(f)(...)` vs a `ctrl { ... }` block).
+
+These are tracked in [Roadmap](/docs/roadmap) under "language RFCs."

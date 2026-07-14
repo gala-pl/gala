@@ -1,0 +1,89 @@
+---
+title: Syntax
+description: Lexical structure, grammar, keywords, and literals
+---
+
+The surface-language reference: lexical structure, grammar, and the concrete syntax of Gala.
+
+## Lexical structure
+
+- **Identifiers:** `[A-Za-z_][A-Za-z0-9_]*`. Greek letters are permitted in identifiers
+  (`θ`, `φ`, `ψ`) as a nod to the domain; ASCII aliases (`theta`) always exist.
+- **Comments:** `//` line, `/* ... */` block (nestable), `///` doc comment.
+- **Literals:** integers (`42`, `0xFF`, `0b1010`), floats (`3.14`, `1e-3`), complex
+  (`2+3i`), bool (`true`/`false`), strings (`"..."`), unit (`()`).
+- **Keywords:** `fn let mut if else match for in while return import type struct enum trait
+  impl pure quantum prob const true false`.
+- **Reserved for quantum:** `qubit qubits measure reverse adjoint control grad drop`.
+
+## Grammar (EBNF, non-normative)
+
+```
+program      := item*
+item         := fn_def | struct_def | enum_def | trait_def | impl_block | import | type_alias | const_def
+
+fn_def       := "fn" ident generics? "(" params? ")" ("->" type)? effect? where_clause? block
+generics     := "<" generic_param ("," generic_param)* ">"
+generic_param:= ident (":" bound)? | "const" ident ":" type
+effect       := "pure" | "quantum" | "prob" | effect_var
+params       := param ("," param)*
+param        := "mut"? pattern ":" type
+where_clause := "where" (bound ("," bound)*)
+
+type         := path type_args?
+              | "Qubits" "<" const_expr ">"
+              | "Qubit"
+              | "Measured" "<" type ">"
+              | "(" (type ("," type)*)? ")"          // tuple / unit
+              | "[" type ";" const_expr "]"          // array
+              | "&" type                              // borrow (classical only)
+              | fn_type
+fn_type      := "fn" "(" (type ("," type)*)? ")" ("->" type)? effect?
+type_args    := "<" (type | const_expr) ("," (type | const_expr))* ">"
+
+block        := "{" stmt* expr? "}"
+stmt         := let_stmt | expr ";" | item
+let_stmt     := "let" "mut"? pattern (":" type)? "=" expr ";"
+
+expr         := literal | path | call | method_call | binop | unop
+              | if_expr | match_expr | for_expr | while_expr | block | tuple | array | lambda
+call         := path "(" args? ")"
+method_call  := expr "." ident "(" args? ")"
+lambda       := "|" params? "|" ("->" type)? effect? (expr | block)
+if_expr      := "if" expr block ("else" (if_expr | block))?
+match_expr   := "match" expr "{" (pattern "=>" expr ",")* "}"
+for_expr     := "for" pattern "in" expr block
+args         := (arg ("," arg)*)
+arg          := (ident ":")? expr                     // optional named args
+```
+
+## Types
+
+| Type | Meaning | Copy? |
+|------|---------|-------|
+| `Qubit` | A single linear qubit resource | **No** (linear) |
+| `Qubits<N>` | A register of `N` qubits; `N` is a const generic | **No** (linear) |
+| `Measured<T>` | A classical `T` produced by measurement, carrying its distribution | Yes |
+| `Bool`, `Int`, `Float`, `Complex` | Classical scalars | Yes |
+| `Vec<T>`, `[T; N]`, tuples, `struct`, `enum` | Classical composites | If `T` is |
+| `Params` | Trainable parameter bundle for variational circuits | Yes |
+| `fn(...) -> T eff` | Function type carrying an effect | Yes |
+
+Linear types (`Qubit`, `Qubits<N>`, and any struct containing them) may not be duplicated,
+implicitly dropped, or used after being consumed. See [Type System](/docs/language/type-system).
+
+## Core operations
+
+```
+qubit() -> Qubit quantum                 // allocate |0>
+qubits<N>() -> Qubits<N> quantum         // allocate N x |0>
+h(q: Qubit) -> Qubit quantum             // Hadamard, in place (consumes+returns q)
+x, y, z, s, t (q: Qubit) -> Qubit quantum
+rx, ry, rz (q: Qubit, θ: Float) -> Qubit quantum
+cx(control: Qubit, target: Qubit) -> (Qubit, Qubit) quantum   // CNOT
+measure(q: Qubit) -> Measured<Bool> prob
+drop(q: Qubit) quantum                   // safe release; compiler synthesizes uncompute
+reverse(f) / adjoint(f)                  // compiler-derived inverse of a reversible fn
+control(f)                               // compiler-derived controlled version
+grad(f, wrt: p)                          // native gradient operator
+```

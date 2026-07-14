@@ -1,0 +1,289 @@
+---
+source: crates/gala-parser/tests/snapshot_tests.rs
+assertion_line: 43
+expression: items
+---
+[
+    FnDef(
+        FnDef {
+            ident: Ident(
+                "add",
+            ),
+            generics: [],
+            params: [
+                Param {
+                    mutable: false,
+                    pattern: Ident(
+                        Ident(
+                            "a",
+                        ),
+                    ),
+                    ty: Path(
+                        Path {
+                            segments: [
+                                PathSegment {
+                                    ident: Ident(
+                                        "Int",
+                                    ),
+                                    type_args: [],
+                                },
+                            ],
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    span: Span {
+                        file_id: FileId(
+                            0,
+                        ),
+                        byte_span: ByteSpan {
+                            start: 0,
+                            end: 0,
+                        },
+                    },
+                },
+                Param {
+                    mutable: false,
+                    pattern: Ident(
+                        Ident(
+                            "b",
+                        ),
+                    ),
+                    ty: Path(
+                        Path {
+                            segments: [
+                                PathSegment {
+                                    ident: Ident(
+                                        "Int",
+                                    ),
+                                    type_args: [],
+                                },
+                            ],
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    span: Span {
+                        file_id: FileId(
+                            0,
+                        ),
+                        byte_span: ByteSpan {
+                            start: 0,
+                            end: 0,
+                        },
+                    },
+                },
+            ],
+            ret_ty: Some(
+                Path(
+                    Path {
+                        segments: [
+                            PathSegment {
+                                ident: Ident(
+                                    "Int",
+                                ),
+                                type_args: [],
+                            },
+                        ],
+                        span: Span {
+                            file_id: FileId(
+                                0,
+                            ),
+                            byte_span: ByteSpan {
+                                start: 0,
+                                end: 0,
+                            },
+                        },
+                    },
+                ),
+            ),
+            effect: Some(
+                Pure,
+            ),
+            body: Block {
+                stmts: [
+                    Return(
+                        Some(
+                            Binary(
+                                BinaryExpr {
+                                    lhs: Ident(
+                                        Ident(
+                                            "a",
+                                        ),
+                                    ),
+                                    op: Add,
+                                    rhs: Ident(
+                                        Ident(
+                                            "b",
+                                        ),
+                                    ),
+                                    span: Span {
+                                        file_id: FileId(
+                                            0,
+                                        ),
+                                        byte_span: ByteSpan {
+                                            start: 0,
+                                            end: 0,
+                                        },
+                                    },
+                                },
+                            ),
+                        ),
+                    ),
+                ],
+                tail: None,
+                span: Span {
+                    file_id: FileId(
+                        0,
+                    ),
+                    byte_span: ByteSpan {
+                        start: 0,
+                        end: 0,
+                    },
+                },
+            },
+            span: Span {
+                file_id: FileId(
+                    0,
+                ),
+                byte_span: ByteSpan {
+                    start: 0,
+                    end: 0,
+                },
+            },
+        },
+    ),
+    FnDef(
+        FnDef {
+            ident: Ident(
+                "main",
+            ),
+            generics: [],
+            params: [],
+            ret_ty: Some(
+                Path(
+                    Path {
+                        segments: [
+                            PathSegment {
+                                ident: Ident(
+                                    "Int",
+                                ),
+                                type_args: [],
+                            },
+                        ],
+                        span: Span {
+                            file_id: FileId(
+                                0,
+                            ),
+                            byte_span: ByteSpan {
+                                start: 0,
+                                end: 0,
+                            },
+                        },
+                    },
+                ),
+            ),
+            effect: Some(
+                Pure,
+            ),
+            body: Block {
+                stmts: [
+                    Let(
+                        LetStmt {
+                            mutable: false,
+                            pattern: Ident(
+                                Ident(
+                                    "x",
+                                ),
+                            ),
+                            ty: None,
+                            init: Some(
+                                Call(
+                                    CallExpr {
+                                        callee: Ident(
+                                            Ident(
+                                                "add",
+                                            ),
+                                        ),
+                                        args: [
+                                            Literal(
+                                                Int(
+                                                    1,
+                                                ),
+                                            ),
+                                            Literal(
+                                                Int(
+                                                    2,
+                                                ),
+                                            ),
+                                        ],
+                                        span: Span {
+                                            file_id: FileId(
+                                                0,
+                                            ),
+                                            byte_span: ByteSpan {
+                                                start: 0,
+                                                end: 0,
+                                            },
+                                        },
+                                    },
+                                ),
+                            ),
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    Return(
+                        Some(
+                            Ident(
+                                Ident(
+                                    "x",
+                                ),
+                            ),
+                        ),
+                    ),
+                ],
+                tail: None,
+                span: Span {
+                    file_id: FileId(
+                        0,
+                    ),
+                    byte_span: ByteSpan {
+                        start: 0,
+                        end: 0,
+                    },
+                },
+            },
+            span: Span {
+                file_id: FileId(
+                    0,
+                ),
+                byte_span: ByteSpan {
+                    start: 0,
+                    end: 0,
+                },
+            },
+        },
+    ),
+]

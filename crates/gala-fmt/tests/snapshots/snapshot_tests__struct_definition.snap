@@ -1,0 +1,6 @@
+---
+source: crates/gala-fmt/tests/snapshot_tests.rs
+assertion_line: 37
+expression: formatted
+---
+"struct Point {\n        x: Float,\n        y: Float,\n}\n"

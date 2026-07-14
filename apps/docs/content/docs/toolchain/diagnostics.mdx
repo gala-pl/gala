@@ -1,0 +1,67 @@
+---
+title: Diagnostics
+description: Error codes, teaching-grade messages, and the `gala explain` system
+---
+
+Gala's diagnostics are designed to teach, not just report. Every diagnostic has a stable code,
+a labeled source span, and a `help:` message that explains the physics or the rule it enforces.
+
+## Error code ranges
+
+| Range | Category | Example |
+|-------|----------|---------|
+| `E01xx` | Syntax | Unexpected token, missing semicolon |
+| `E02xx` | Types | Type mismatch, unknown type |
+| `E03xx` | Effects | Effect boundary violation (`prob` called from `quantum`) |
+| `E04xx` | Linearity | No-cloning violations, use-after-consume |
+| `E05xx` | Uncomputation | Cannot auto-uncompute (`E0530`) |
+| `E06xx` | Backend/capability | Incompatible backend, unsupported feature |
+
+## `gala explain`
+
+Every diagnostic has a long-form explanation accessible via:
+
+```bash
+gala explain E0530
+```
+
+This provides:
+- What the error means
+- Why the rule exists (the physics it encodes)
+- Examples of the mistake
+- How to fix it
+
+## Teaching-grade diagnostics
+
+When a diagnostic encodes a physical law, the message explains the physics. Example:
+
+```
+error[E0412]: qubit `a` used after measurement
+  ┌─ classifier.gala:8:5
+6 │     let r = measure(a)
+  │             ---------- `a` is consumed here (measurement is destructive)
+8 │     cx(a, b)
+  │        ^ `a` used here after it was consumed
+  = help: a qubit is a linear resource — measuring it ends its life.
+          If you need its value afterward, use the classical result `r`.
+```
+
+The diagnostic:
+1. Shows the exact location of the error
+2. Points to where the qubit was consumed
+3. Explains *why* this is an error (measurement is destructive)
+4. Suggests the fix (use the classical result)
+
+## No early abort on recoverable errors
+
+Each compiler stage produces a **best-effort result + diagnostics**. This means:
+- Syntax errors don't prevent type checking
+- Type errors don't prevent optimization
+- The LSP stays functional even in broken files
+
+You see **all** the errors in your file, not just the first one.
+
+## Rendering
+
+Diagnostics are rendered with `ariadne` — the natural pair for a `chumsky` frontend. They use
+color-coded spans, source context, and clear hierarchy (error → label → help).

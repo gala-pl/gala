@@ -1,0 +1,107 @@
+---
+title: CLI Reference
+description: The gala command-line interface
+---
+
+One entry point for everything — built with `clap`.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `gala new <name>` | Scaffold a new project (`gala.toml`, `src/main.gala`) |
+| `gala run [file]` | Compile + run on the built-in simulator (zero config) |
+| `gala build` | Compile; `--emit gir\|qir\|llvm\|native`; `--target <backend>` |
+| `gala test` | Run tests including quantum property tests |
+| `gala fmt` | Canonical formatter (`--check` for CI) |
+| `gala repl` | Interactive REPL with live visualization |
+| `gala add <pkg>` | Add a dependency |
+| `gala explain <code>` | Long-form explanation of a diagnostic code (e.g. `E0530`) |
+| `gala lsp` | Run the language server (usually launched by the editor) |
+| `gala doc` | Generate API docs from `///` comments |
+
+## `gala run`
+
+The critical first-five-minutes experience. Works with no configuration because the simulator
+is built in:
+
+```bash
+gala new hello-bell
+cd hello-bell
+gala run
+```
+
+## `gala build`
+
+Compile with selectable output:
+
+```bash
+gala build                              # default: binary
+gala build --emit gir                   # dump GIR (Gala IR)
+gala build --emit qir                   # emit QIR (LLVM IR)
+gala build --emit native                # native classical codegen
+gala build --emit llvm-ir               # LLVM IR
+gala build --emit object                # object file
+```
+
+## `gala test`
+
+Runs example-based tests **and** quantum-aware property tests (unitarity, reversibility,
+uncomputation). See [Testing & QA](/docs/toolchain/testing).
+
+## `gala explain`
+
+Every diagnostic has a stable code. `gala explain` gives the long-form writeup:
+
+```bash
+gala explain E0530
+```
+
+See [Diagnostics](/docs/toolchain/diagnostics) for the full error code catalog.
+
+## `gala fmt`
+
+One canonical style, no options (Go/gofmt philosophy):
+
+```bash
+gala fmt src/main.gala       # format in place
+gala fmt --check src/        # check only (for CI)
+```
+
+## `gala repl`
+
+Evaluate expressions incrementally and **see quantum state update live**: state-vector amplitudes,
+Bloch-sphere for single qubits, and measurement histograms. Backed by `gala-sim`. Great for
+teaching and exploration.
+
+## Feature flags
+
+The compiler supports feature flags to control which backends are available:
+
+| Flag | What it enables |
+|------|-----------------|
+| `default` | `frontend-only` — no LLVM/QuEST |
+| `qir` | QIR emission via inkwell |
+| `sim` | Simulator via roqoqo/QuEST |
+| `cranelift` | Classical codegen via cranelift |
+| `llvm` | Classical codegen via LLVM |
+| `full` | All backends |
+
+## Project layout
+
+```
+myproject/
+├── gala.toml
+├── gala.lock
+├── src/
+│   ├── main.gala          # or lib.gala
+│   └── ...
+└── tests/
+    └── ...
+```
+
+## The DX north star
+
+A newcomer runs `gala new demo && cd demo && gala run`, sees a Bell pair simulate and its circuit
+render, then introduces a no-cloning bug and gets a diagnostic that *teaches them the physics and
+points at the fix*. That loop — instant, visual, educational — is the adoption engine.

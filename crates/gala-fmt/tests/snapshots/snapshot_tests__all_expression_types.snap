@@ -1,0 +1,6 @@
+---
+source: crates/gala-fmt/tests/snapshot_tests.rs
+assertion_line: 25
+expression: formatted
+---
+"\nfn expressions(x: Int, y: Bool, z: Int) -> Int pure {\n    let a = if y { 1 } else { 0 };\n    let b = match a { 0 => 42, _ => 0 };\n    let c = for i in 0..10 { let _ = i; };\n    let d = while x > 0 { let _ = x; };\n    let e = |a: Int, b: Int| a + b;\n    let f = (x, y, z);\n    let g = x + y * z - 1;\n    return g;\n}\n"

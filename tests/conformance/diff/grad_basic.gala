@@ -1,0 +1,4 @@
+// Gradient of a simple function
+fn f(x: Float) -> Float {
+    return x;
+}

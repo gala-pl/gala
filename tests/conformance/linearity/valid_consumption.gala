@@ -1,0 +1,4 @@
+// Valid linear usage: qubit used exactly once
+fn f(q: Qubit) -> Qubit {
+    return q;
+}

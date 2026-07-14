@@ -1,0 +1,4 @@
+// Bell pair: expected simulated output
+fn f(q: Qubit) -> Qubit {
+    return q;
+}

@@ -1,0 +1,82 @@
+---
+title: Gate Reference
+description: Standard quantum gates, adjoint forms, and controlled variants
+---
+
+The standard quantum gate set provided by `gala.gates`. Because gates are unitary (reversible),
+their **adjoint and controlled forms are compiler-derived** — you get them for free.
+
+## Single-qubit gates
+
+| Gate | Description | Matrix |
+|------|-------------|--------|
+| `h(q)` | Hadamard | `1/√2 [[1,1],[1,-1]]` |
+| `x(q)` | Pauli-X (NOT) | `[[0,1],[1,0]]` |
+| `y(q)` | Pauli-Y | `[[0,-i],[i,0]]` |
+| `z(q)` | Pauli-Z | `[[1,0],[0,-1]]` |
+| `s(q)` | Phase gate (S) | `[[1,0],[0,i]]` |
+| `t(q)` | π/8 gate (T) | `[[1,0],[0,e^(iπ/4)]]` |
+
+All single-qubit gates consume and return the qubit:
+
+```
+let q = h(q)        // explicit form
+h(q)                 // in-place sugar (compiler rebinds)
+```
+
+## Rotation gates
+
+Parameterized single-qubit rotations around the X, Y, and Z axes:
+
+| Gate | Description |
+|------|-------------|
+| `rx(q, θ)` | Rotation around X-axis by angle θ |
+| `ry(q, θ)` | Rotation around Y-axis by angle θ |
+| `rz(q, θ)` | Rotation around Z-axis by angle θ |
+
+## Two-qubit gates
+
+| Gate | Description |
+|------|-------------|
+| `cx(c, t)` | Controlled-NOT (CNOT) — flips target if control is \|1⟩ |
+| `cz(c, t)` | Controlled-Z — applies Z if control is \|1⟩ |
+| `swap(a, b)` | Swaps two qubits |
+
+All two-qubit gates consume and return both qubits:
+
+```
+let (a, b) = cx(a, b)       // explicit form
+cx(a, b)                     // in-place sugar
+```
+
+## Parameterized multi-qubit gates
+
+| Gate | Description |
+|------|-------------|
+| `crz(c, t, θ)` | Controlled rotation around Z |
+| `crx(c, t, θ)` | Controlled rotation around X |
+| `cry(c, t, θ)` | Controlled rotation around Y |
+
+## Adjoint and controlled forms
+
+For any `quantum` function (measurement-free), the compiler automatically derives:
+
+- **`adjoint(f)`** — the inverse operation. For gates, this is the conjugate transpose.
+- **`control(f)`** — the controlled version. Adds a control qubit.
+- **`adjoint(control(f))`** — these compose.
+
+These are not library functions — they are **compiler passes** that analyze the function and
+generate the correct inverse or controlled circuit. No hand-written inverses.
+
+```
+// All equivalent — compiler derives the inverse
+let q2 = adjoint(h)(q1)
+let q2 = adjoint(h)(q1)      // h is self-adjoint, so h = adjoint(h)
+let q2 = control(h)(c, q1)   // controlled Hadamard (CH gate)
+```
+
+## See also
+
+- [Effects](/docs/language/effects) — why gates are `quantum` (reversible)
+- [Type System](/docs/language/type-system) — compiler-derived reversibility
+- [Standard Library](/docs/stdlib) — the full stdlib hierarchy

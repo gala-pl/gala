@@ -1,0 +1,48 @@
+---
+title: Formatter
+description: Canonical code style with gala fmt
+---
+
+One canonical style, no options — the Go/gofmt philosophy applied to quantum programming.
+
+## Usage
+
+```bash
+gala fmt src/main.gala       # format in place
+gala fmt --check src/        # check only (for CI)
+```
+
+## Design
+
+- **No configuration.** There are no style options to argue about. The formatter produces
+  one canonical output.
+- **Lossless CST.** The formatter operates on the concrete syntax tree, so comments and layout
+  intent are preserved. It never removes or rearranges your comments.
+- **Deterministic.** The same source always produces the same output.
+- **Fast.** Built on the same CST as the parser; no re-parsing required.
+
+## What it does
+
+- Consistent indentation (4 spaces)
+- Consistent brace placement
+- Consistent spacing around operators and keywords
+- Import organization
+- Trailing comma normalization
+
+## What it doesn't do
+
+- It doesn't reorder declarations or imports semantically
+- It doesn't add or remove code
+- It doesn't change your algorithm or logic
+
+## CI integration
+
+```bash
+gala fmt --check .
+```
+
+This exits with a non-zero status if any file would be reformatted. Add this to your CI pipeline
+alongside `cargo fmt --check` for Rust code.
+
+The formatter is enforced by the [Definition of Done](/docs/contributing) — all `.gala` code
+must be formatted before merge.

@@ -1,0 +1,5 @@
+// Value whose provenance depends on measurement cannot be auto-uncomputed
+// Expected: E0501 (CANNOT_UNCOMPUTE) or E0502 (UNCOMPUTE_DEPENDS_ON_MEASUREMENT)
+fn f(q: Qubit) -> Qubit {
+    return q;
+}

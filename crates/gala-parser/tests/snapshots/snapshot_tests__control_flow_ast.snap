@@ -1,0 +1,409 @@
+---
+source: crates/gala-parser/tests/snapshot_tests.rs
+assertion_line: 66
+expression: items
+---
+[
+    FnDef(
+        FnDef {
+            ident: Ident(
+                "classify",
+            ),
+            generics: [],
+            params: [
+                Param {
+                    mutable: false,
+                    pattern: Ident(
+                        Ident(
+                            "x",
+                        ),
+                    ),
+                    ty: Path(
+                        Path {
+                            segments: [
+                                PathSegment {
+                                    ident: Ident(
+                                        "Bool",
+                                    ),
+                                    type_args: [],
+                                },
+                            ],
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    span: Span {
+                        file_id: FileId(
+                            0,
+                        ),
+                        byte_span: ByteSpan {
+                            start: 0,
+                            end: 0,
+                        },
+                    },
+                },
+            ],
+            ret_ty: Some(
+                Path(
+                    Path {
+                        segments: [
+                            PathSegment {
+                                ident: Ident(
+                                    "String",
+                                ),
+                                type_args: [],
+                            },
+                        ],
+                        span: Span {
+                            file_id: FileId(
+                                0,
+                            ),
+                            byte_span: ByteSpan {
+                                start: 0,
+                                end: 0,
+                            },
+                        },
+                    },
+                ),
+            ),
+            effect: Some(
+                Pure,
+            ),
+            body: Block {
+                stmts: [
+                    Let(
+                        LetStmt {
+                            mutable: false,
+                            pattern: Ident(
+                                Ident(
+                                    "result",
+                                ),
+                            ),
+                            ty: None,
+                            init: Some(
+                                If(
+                                    IfExpr {
+                                        cond: Ident(
+                                            Ident(
+                                                "x",
+                                            ),
+                                        ),
+                                        then_branch: Block {
+                                            stmts: [],
+                                            tail: Some(
+                                                Literal(
+                                                    String(
+                                                        "yes",
+                                                    ),
+                                                ),
+                                            ),
+                                            span: Span {
+                                                file_id: FileId(
+                                                    0,
+                                                ),
+                                                byte_span: ByteSpan {
+                                                    start: 0,
+                                                    end: 0,
+                                                },
+                                            },
+                                        },
+                                        else_branch: Some(
+                                            Block(
+                                                Block {
+                                                    stmts: [],
+                                                    tail: Some(
+                                                        Literal(
+                                                            String(
+                                                                "no",
+                                                            ),
+                                                        ),
+                                                    ),
+                                                    span: Span {
+                                                        file_id: FileId(
+                                                            0,
+                                                        ),
+                                                        byte_span: ByteSpan {
+                                                            start: 0,
+                                                            end: 0,
+                                                        },
+                                                    },
+                                                },
+                                            ),
+                                        ),
+                                        span: Span {
+                                            file_id: FileId(
+                                                0,
+                                            ),
+                                            byte_span: ByteSpan {
+                                                start: 0,
+                                                end: 0,
+                                            },
+                                        },
+                                    },
+                                ),
+                            ),
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    Return(
+                        Some(
+                            Ident(
+                                Ident(
+                                    "result",
+                                ),
+                            ),
+                        ),
+                    ),
+                ],
+                tail: None,
+                span: Span {
+                    file_id: FileId(
+                        0,
+                    ),
+                    byte_span: ByteSpan {
+                        start: 0,
+                        end: 0,
+                    },
+                },
+            },
+            span: Span {
+                file_id: FileId(
+                    0,
+                ),
+                byte_span: ByteSpan {
+                    start: 0,
+                    end: 0,
+                },
+            },
+        },
+    ),
+    FnDef(
+        FnDef {
+            ident: Ident(
+                "pick",
+            ),
+            generics: [],
+            params: [
+                Param {
+                    mutable: false,
+                    pattern: Ident(
+                        Ident(
+                            "n",
+                        ),
+                    ),
+                    ty: Path(
+                        Path {
+                            segments: [
+                                PathSegment {
+                                    ident: Ident(
+                                        "Int",
+                                    ),
+                                    type_args: [],
+                                },
+                            ],
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    span: Span {
+                        file_id: FileId(
+                            0,
+                        ),
+                        byte_span: ByteSpan {
+                            start: 0,
+                            end: 0,
+                        },
+                    },
+                },
+            ],
+            ret_ty: Some(
+                Path(
+                    Path {
+                        segments: [
+                            PathSegment {
+                                ident: Ident(
+                                    "String",
+                                ),
+                                type_args: [],
+                            },
+                        ],
+                        span: Span {
+                            file_id: FileId(
+                                0,
+                            ),
+                            byte_span: ByteSpan {
+                                start: 0,
+                                end: 0,
+                            },
+                        },
+                    },
+                ),
+            ),
+            effect: Some(
+                Pure,
+            ),
+            body: Block {
+                stmts: [
+                    Let(
+                        LetStmt {
+                            mutable: false,
+                            pattern: Ident(
+                                Ident(
+                                    "result",
+                                ),
+                            ),
+                            ty: None,
+                            init: Some(
+                                Match(
+                                    MatchExpr {
+                                        scrutinee: Ident(
+                                            Ident(
+                                                "n",
+                                            ),
+                                        ),
+                                        arms: [
+                                            MatchArm {
+                                                pattern: Literal(
+                                                    Int(
+                                                        0,
+                                                    ),
+                                                ),
+                                                guard: None,
+                                                body: Literal(
+                                                    String(
+                                                        "zero",
+                                                    ),
+                                                ),
+                                                span: Span {
+                                                    file_id: FileId(
+                                                        0,
+                                                    ),
+                                                    byte_span: ByteSpan {
+                                                        start: 0,
+                                                        end: 0,
+                                                    },
+                                                },
+                                            },
+                                            MatchArm {
+                                                pattern: Literal(
+                                                    Int(
+                                                        1,
+                                                    ),
+                                                ),
+                                                guard: None,
+                                                body: Literal(
+                                                    String(
+                                                        "one",
+                                                    ),
+                                                ),
+                                                span: Span {
+                                                    file_id: FileId(
+                                                        0,
+                                                    ),
+                                                    byte_span: ByteSpan {
+                                                        start: 0,
+                                                        end: 0,
+                                                    },
+                                                },
+                                            },
+                                            MatchArm {
+                                                pattern: Ident(
+                                                    Ident(
+                                                        "_",
+                                                    ),
+                                                ),
+                                                guard: None,
+                                                body: Literal(
+                                                    String(
+                                                        "other",
+                                                    ),
+                                                ),
+                                                span: Span {
+                                                    file_id: FileId(
+                                                        0,
+                                                    ),
+                                                    byte_span: ByteSpan {
+                                                        start: 0,
+                                                        end: 0,
+                                                    },
+                                                },
+                                            },
+                                        ],
+                                        span: Span {
+                                            file_id: FileId(
+                                                0,
+                                            ),
+                                            byte_span: ByteSpan {
+                                                start: 0,
+                                                end: 0,
+                                            },
+                                        },
+                                    },
+                                ),
+                            ),
+                            span: Span {
+                                file_id: FileId(
+                                    0,
+                                ),
+                                byte_span: ByteSpan {
+                                    start: 0,
+                                    end: 0,
+                                },
+                            },
+                        },
+                    ),
+                    Return(
+                        Some(
+                            Ident(
+                                Ident(
+                                    "result",
+                                ),
+                            ),
+                        ),
+                    ),
+                ],
+                tail: None,
+                span: Span {
+                    file_id: FileId(
+                        0,
+                    ),
+                    byte_span: ByteSpan {
+                        start: 0,
+                        end: 0,
+                    },
+                },
+            },
+            span: Span {
+                file_id: FileId(
+                    0,
+                ),
+                byte_span: ByteSpan {
+                    start: 0,
+                    end: 0,
+                },
+            },
+        },
+    ),
+]

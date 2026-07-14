@@ -1,0 +1,6 @@
+// Use qubit after it was consumed: should produce E0401 (USE_AFTER_CONSUME)
+fn f(q: Qubit) -> Qubit {
+    let a = q;
+    let b = q;
+    return b;
+}
