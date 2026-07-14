@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gala": {
+      "command": "bun",
+      "args": ["dist/server.js"],
+      "cwd": "tools/gala-mcp",
+      "env": {}
+    }
+  }
+}

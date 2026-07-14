@@ -1,0 +1,54 @@
+# Gala monorepo — Bun configuration
+# Applies to the root and all sub-packages (bun walks up the tree).
+# Sub-packages may override sections in their own bunfig.toml.
+
+logLevel = "warn"
+
+# ── Package manager ──────────────────────────────────────────────────
+[install]
+cache = true
+frozenLockfile = false          # set true in CI
+saveTextLockfile = true
+exact = false                   # keep semver ranges from package.json
+optional = true
+dev = true
+peer = true
+linkWorkspacePackages = true
+linker = "hoisted"
+
+# ── Test runner (bun test) ──────────────────────────────────────────
+[test]
+coverage = true
+coverageReporter = ["text", "lcov"]
+coverageDir = "coverage"
+randomize = true
+
+[test.reporter]
+dots = false
+
+# ── Script runner (bun run) ──────────────────────────────────────────
+[run]
+shell = "bun"
+bun = true
+silent = false
+
+# ── Trusted lifecycle scripts ────────────────────────────────────────
+[trusted-dependencies]
+"@biomejs/biome" = true
+"@modelcontextprotocol/sdk" = true
+"esbuild" = true
+"tree-sitter-cli" = true
+"vitest" = true
+"vite" = true
+
+# ── Console ──────────────────────────────────────────────────────────
+[console]
+depth = 4
+
+# ── Dev server ──────────────────────────────────────────────────────
+[serve]
+port = 3000
+
+# ── Environment ──────────────────────────────────────────────────────
+[env]
+file = true
