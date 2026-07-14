@@ -134,7 +134,7 @@ fn coin() -> Measured<Bool> prob {
 ### 7.3 Variational classifier (hybrid, differentiable)
 
 ```gala
-import gala.ml.{ angle_encode, Params }
+import gala.vqa.{ angle_encode, Params }
 
 fn encode(x: Vec<Float>) -> Qubits<4> quantum {
     let q = qubits<4>()
@@ -178,7 +178,7 @@ The desugared, explicit form is always valid and is what the checker reasons abo
 
 ```gala
 import gala.core.*
-import gala.ml.{ angle_encode, layered_ansatz }
+import gala.vqa.{ angle_encode, layered_ansatz }
 import mypkg.foo as f
 ```
 

@@ -13,10 +13,9 @@ cargo run --release --bin gala -- hello.gala
 ## Project Structure
 
 ```
-├── compiler/          # Gala compiler (lexer, parser, IR, codegen)
-├── library/
-│   ├── core/          # Core runtime (no_std primitives)
-│   └── std/           # Standard library (I/O, collections, strings)
+├── compiler/          # Gala compiler (lexer, parser, AST, IR, codegen)
+├── library/           # Gala language libraries:
+│   └── std/           # Standard library (intrinsics, gates, algorithms, ML, noise, hardware)
 ├── tools/
 │   ├── gala-lsp/      # Language server protocol implementation
 │   └── gala-fmt/      # Code formatter

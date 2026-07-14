@@ -26,10 +26,8 @@ cargo test --workspace
 | Directory | Contents |
 |-----------|----------|
 | `compiler/` | Core compiler: lexer, parser, AST, IR, codegen, diagnostics |
-| `library/core/` | `no_std` core runtime (Int, Float, Bool, Tuple) |
-| `library/std/` | Standard library umbrella |
-| `library/stdlib/` | Standard library crates (string, io, collections) |
-| `library/runtime/` | Runtime crates (channels, regions, async, GC, Python bridge) |
+| `library/` | Gala language libraries |
+| `library/std/` | Standard library (intrinsics, gates, algorithms, ML, noise, hardware) |
 | `tools/gala-cli/` | Unified CLI |
 | `tools/gala-fmt/` | Code formatter |
 | `tools/gala-lint/` | Linter |

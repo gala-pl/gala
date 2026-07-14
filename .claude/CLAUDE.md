@@ -31,8 +31,7 @@ Gala is a hybrid quantum-classical programming language. Its compiler enforces t
 ## Repository Structure
 
 - `compiler/` — compiler binary crate with lexer, parser, AST, IR, codegen
-- `library/core/` — no_std core runtime (gala-core)
-- `library/std/` — standard library (gala-std)
+- `library/std/` — Gala-language standard library (compiler intrinsics, gates, algorithms, ML, noise, hardware)
 - `tools/gala-fmt/` — code formatter
 - `tools/gala-lsp/` — language server protocol
 - `apps/docs/` — documentation website (Next.js + Fumadocs via Bun)

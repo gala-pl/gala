@@ -7,7 +7,7 @@ primitives that cannot be expressed in-language (qubit allocation, gate applicat
 ## Layering
 
 ```
-gala.ml        (encoders, ansätze, optimizers, grad utilities)   ← highest level
+gala.vqa        (encoders, ansätze, optimizers, grad utilities)   ← highest level
 gala.algorithms(QFT, phase estimation, Grover, Trotter)
 gala.gates     (standard gate set + derived adjoint/controlled)
 gala.core      (qubit, measure, registers, effects)              ← intrinsics live here
@@ -36,7 +36,7 @@ Batteries-included, well-tested building blocks:
 
 These double as the flagship correctness tests for uncomputation and reversibility.
 
-## `gala.ml` (the AI layer — the beachhead)
+## `gala.vqa` (the AI layer — the beachhead)
 The reason Gala exists for its primary persona:
 - **Encoders:** `angle_encode`, `amplitude_encode`, `basis_encode`.
 - **Ansatz zoo:** `layered_ansatz`, hardware-efficient ansatz, problem-specific templates.

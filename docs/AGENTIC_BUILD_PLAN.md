@@ -201,7 +201,7 @@ WP-000 ─▶ WP-001 ─▶ WP-010 ─▶ WP-011 ─▶ WP-012 ─▶ WP-013 ─
 - DoD: `grad_matches` vs finite-difference within tolerance on a suite of circuits; conformance
   `diff/` passes.
 
-**WP-031 — `gala.ml`**
+**WP-031 — `gala.vqa`**
 - Goal: encoders, ansatz zoo, QAOA/VQE templates, optimizers (GD/Adam/SPSA), grad utilities.
 - Deps: WP-030.
 - DoD: a variational classifier trains to target accuracy on the simulator (M3 gate).
