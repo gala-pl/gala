@@ -1,3 +1,5 @@
+import gala_std.io.{ print };
+
 fn main() -> Int {
     let msg = "Hello, Gala!";
     print(msg);

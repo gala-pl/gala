@@ -1,4 +1,4 @@
-import gala.ml.{ angle_encode, Params }
+import gala.vqa.{ angle_encode, Params }
 
 fn encode(x: Vec<Float>) -> Qubits<4> quantum {
     let q = qubits<4>()
