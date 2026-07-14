@@ -32,7 +32,8 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/gala-lang/gala"
+repository = "https://github.com/kilo-org/kilocode/gala"
+documentation = "https://docs.rs/gala"
 
 [workspace.dependencies]
 thiserror = "1"
@@ -89,12 +90,3 @@ gala-lsp = { path = "crates/gala-lsp" }
 gala-lint = { path = "crates/gala-lint" }
 gala-std = { path = "crates/gala-std" }
 gala-fuzz = { path = "crates/gala-fuzz" }
-
-[workspace.features]
-default = ["frontend-only"]
-
-frontend-only = []
-qir = ["gala-qir/qir"]
-classical = ["gala-codegen-classical/classical"]
-sim = ["gala-sim/sim"]
-full = ["qir", "classical", "sim"]

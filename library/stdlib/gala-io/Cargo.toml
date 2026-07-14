@@ -1,9 +1,0 @@
-[package]
-name = "gala-io"
-version = "0.1.0"
-edition = "2021"
-description = "I/O operations for the Gala standard library"
-
-[dependencies]
-gala-core.workspace = true
-gala-string = { path = "../gala-string" }

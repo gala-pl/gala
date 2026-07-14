@@ -1,4 +1,4 @@
-// Gala machine learning library.
+// Gala variational quantum algorithms (VQA) library.
 //
 // Hybrid quantum-classical ML primitives: encoders, ansätze,
 // optimizers, and gradient utilities.

@@ -1,8 +1,0 @@
-[package]
-name = "gala-string"
-version = "0.1.0"
-edition = "2021"
-description = "UTF-8 string type and operations for the Gala standard library"
-
-[dependencies]
-gala-core.workspace = true

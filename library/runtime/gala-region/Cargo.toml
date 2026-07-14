@@ -1,8 +1,0 @@
-[package]
-name = "gala-region"
-version = "0.1.0"
-edition = "2021"
-description = "Region-based memory allocation for the Gala runtime"
-
-[dependencies]
-gala-core.workspace = true
