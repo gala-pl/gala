@@ -1,0 +1,29 @@
+{
+  "$schema": "https://context7.com/schema.json",
+  "name": "gala-project",
+  "description": "Gala quantum-classical programming language project",
+  "version": "0.1.0",
+  "context7": {
+    "mcpServer": {
+      "url": "https://mcp.context7.com/mcp",
+      "timeout": 5000
+    },
+    "preferredLibraries": [
+      {
+        "name": "react",
+        "id": "/reactjs/react.dev",
+        "version": "v18.2.0"
+      },
+      {
+        "name": "next.js",
+        "id": "/vercel/next.js",
+        "version": "v14.2.0"
+      }
+    ],
+    "settings": {
+      "autoResolveLibraries": true,
+      "preferOfficialSources": true,
+      "maxCodeSnippets": 5
+    }
+  }
+}
