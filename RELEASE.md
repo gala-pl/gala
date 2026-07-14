@@ -8,8 +8,8 @@ Initial release.
 
 - First working version of the Gala compiler pipeline: lexer → parser → AST → IR → codegen
 - Core runtime (`gala-core`): `Int`, `Float`, `Bool`, `Tuple` primitives
-- Standard library scaffolding: `gala-string`, `gala-io`, `gala-collections`
-- Runtime components: channels, region-based allocation, async executor, GC, Python bridge
+- Standard library runtime: `crates/gala-std` with `io`, `vec`, and `str` modules
+- Language stdlib sources: `library/std/` with `core`, `gates`, `algorithms`, `ml`, `noise`, `hardware`, `classical`
 - Toolchain: CLI (`gala-cli`), formatter (`gala-fmt`), linter (`gala-lint`), LSP (`gala-lsp`), package manager (`gala-pkg`)
 - Documentation site powered by Next.js 16 + Fumadocs with MDX content, full-text search, and dark mode
 - Editor extensions for VS Code, Vim, Helix, Zed, IntelliJ, Sublime Text, and more

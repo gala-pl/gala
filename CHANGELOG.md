@@ -14,7 +14,8 @@ All notable changes to the Gala programming language are documented here.
 - **Diagnostics** — structured error reporting with spans and notes
 - **CLI** — `gala` binary with `--input`, `--output`, and `--emit` flags
 - **Core library** — `gala-core` with `Int`, `Float`, `Bool`, and tuple primitives (no_std)
-- **Standard library** — `gala-std` with `io`, `vec`, and `str` modules
+- **Standard library** — `crates/gala-std` with `io`, `vec`, and `str` modules (Rust runtime backing)
+- **Gala stdlib sources** — `library/std/` with `core`, `gates`, `algorithms`, `ml`, `noise`, `hardware`, `classical`
 - **gala-fmt** — basic code formatter
 - **gala-lsp** — language server scaffolding
 - **Example programs** — `hello_world.gala` and `fib.gala`
