@@ -1,0 +1,4 @@
+// Qubit not consumed: should produce E0403 (IMPLICIT_DROP) or E0501
+fn f(q: Qubit) -> Int {
+    return 42;
+}

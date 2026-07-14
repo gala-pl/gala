@@ -1,0 +1,4 @@
+// Bell pair circuit: expected QIR profile
+fn f(q: Qubit) -> Qubit {
+    return q;
+}

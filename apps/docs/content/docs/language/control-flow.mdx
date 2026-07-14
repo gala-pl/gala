@@ -1,0 +1,92 @@
+---
+title: Control Flow
+description: Expressions for branching, pattern matching, and iteration
+---
+
+All control flow in Gala is **expression-oriented** — every construct returns a value. There are
+no statements that only have side effects; everything produces a result.
+
+## `if` / `else`
+
+```
+let x = if condition { 42 } else { 0 }
+```
+
+`if` is an expression, not a statement. The branches must have the same type. The `else` branch
+is required when the result is used as a value.
+
+## `match`
+
+Pattern matching with exhaustive checking:
+
+```
+match noise_kind {
+    Depolarizing => "depolarizing",
+    AmplitudeDamping => "amplitude damping",
+    PhaseDamping => "phase damping",
+    _ => "unknown",
+}
+```
+
+Patterns can include guards:
+
+```
+match qubit_count {
+    n if n > 10 => "large register",
+    n if n > 0 => "small register",
+    _ => "empty",
+}
+```
+
+## `for`
+
+Iteration over ranges and collections:
+
+```
+// Range iteration
+for i in 0..4 {
+    ry(q[i], theta[i])
+}
+
+// Collection iteration
+for layer in params.layers {
+    apply_layer(q, layer)
+}
+```
+
+`for` is an expression — it returns the value of the last iteration (or unit `()` if the body
+returns unit).
+
+## `while`
+
+Conditional looping:
+
+```
+while error > tolerance {
+    step(&mut params)
+    error = evaluate(params)
+}
+```
+
+## Blocks as expressions
+
+Blocks return their trailing expression:
+
+```
+let result = {
+    let a = qubit()
+    h(a)
+    measure(a)
+}
+```
+
+Semicolons separate statements; the final expression (without a semicolon) is the block's value.
+
+## Pattern matching in `let`
+
+Destructuring is supported for tuples and structs:
+
+```
+let (a, b) = cx(control, target)
+let QubitPair { control, target } = pair
+```

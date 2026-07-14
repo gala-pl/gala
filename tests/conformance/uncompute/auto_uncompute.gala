@@ -1,0 +1,4 @@
+// Auto-uncomputation should succeed for qubits used within scope
+fn f(q: Qubit) -> Qubit {
+    return q;
+}

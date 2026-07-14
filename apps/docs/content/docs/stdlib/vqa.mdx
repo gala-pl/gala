@@ -1,0 +1,98 @@
+---
+title: VQA Reference
+description: Quantum machine learning — encoders, ansätze, optimizers, and grad utilities
+---
+
+The `gala.vqa` module is the beachhead application layer — hybrid quantum machine learning
+made ergonomic end to end.
+
+## Encoders
+
+Data encoding maps classical data into quantum states:
+
+| Function | Description |
+|----------|-------------|
+| `angle_encode(q, x)` | Encode `x[i]` as rotation angles on qubit `i` |
+| `amplitude_encode(q, x)` | Encode `x` as amplitudes of a quantum state |
+| `basis_encode(q, x)` | Encode `x` in the computational basis |
+
+## Ansatze
+
+Parameterized quantum circuits for variational algorithms:
+
+| Function | Description |
+|----------|-------------|
+| `layered_ansatz(q, θ)` | Hardware-efficient layered ansatz |
+| `hardware_efficient(q, θ)` | Native-gate-set-efficient ansatz |
+| `problem_specific(...)` | Templates for specific problem classes |
+
+## Templates
+
+Pre-built variational algorithm templates:
+
+| Template | Description |
+|----------|-------------|
+| `qaoa(cost, mixer, θ)` | Quantum Approximate Optimization Algorithm |
+| `vqe(hamiltonian, ansatz, θ)` | Variational Quantum Eigensolver |
+| `quantum_kernel(x, y, circuit)` | Quantum kernel for SVM-style classification |
+
+## Optimizers
+
+Classical optimizers operating on `Params`:
+
+| Optimizer | Description |
+|-----------|-------------|
+| `gradient_descent(θ, lr)` | Basic gradient descent |
+| `adam(θ, lr, β1, β2)` | Adam optimizer |
+| `spsa(θ, lr)` | Simultaneous Perturbation Stochastic Approximation |
+
+These are plain classical `pure` Gala code — they operate on `Params` and return updated `Params`.
+
+## `grad` utilities
+
+Helpers around the native `grad` operator:
+
+| Function | Description |
+|----------|-------------|
+| `grad(f, wrt: p)` | Compute gradient of `f` with respect to parameters `p` |
+| `param_shift(f, p)` | Explicit parameter-shift evaluation |
+| `batch_gradients(grad_fn, data, ...)` | Batch gradient evaluations for hardware efficiency |
+
+The native `grad` operator handles the quantum/classical boundary automatically:
+- Quantum parameters use the **parameter-shift rule**
+- Classical parameters use **reverse-mode autodiff**
+- The two compose via the **chain rule** at the boundary
+
+## Example: Variational classifier
+
+```
+import gala.vqa.{ angle_encode, Params }
+
+fn encode(x: Vec<Float>) -> Qubits<4> quantum {
+    let q = qubits<4>()
+    angle_encode(q, x)
+    q
+}
+
+fn ansatz(q: Qubits<4>, θ: Params) -> Qubits<4> quantum {
+    for layer in 0..θ.depth {
+        for i in 0..4 { ry(q[i], θ[layer][i]) }
+        for i in 0..3 { cx(q[i], q[i+1]) }
+    }
+    q
+}
+
+fn classify(x: Vec<Float>, θ: Params) -> Measured<Bool> prob {
+    let q = ansatz(encode(x), θ)
+    measure(q[0])
+}
+
+// Compiler synthesizes parameter-shift for quantum parameters
+let dθ = grad(classify, wrt: θ)
+```
+
+## See also
+
+- [Standard Library](/docs/stdlib) — the full stdlib hierarchy
+- [Type System](/docs/language/type-system) — native differentiation deep-dive
+- [Cookbook](/docs/cookbook/hybrid) — hybrid ML recipes

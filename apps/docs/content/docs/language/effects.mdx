@@ -1,0 +1,95 @@
+---
+title: Effects
+description: The three-world model — pure, quantum, and prob
+---
+
+Every function in Gala carries one of three **effect rows**. The effect is part of the type and
+part of the contract — it determines what the function may do and what it may call.
+
+## The three worlds
+
+| Effect | Meaning | Can call |
+|--------|---------|----------|
+| `pure` | Deterministic classical computation | `pure` only |
+| `quantum` | Unitary evolution of quantum state; reversible; **no measurement** | `pure`, `quantum` |
+| `prob` | Has performed measurement; carries classical randomness | all three |
+
+## Subsumption
+
+The ordering `pure ⊑ quantum ⊑ prob` governs what a function may call:
+
+- A `quantum` function may call `pure` functions (they produce no side effects).
+- A `prob` function may call anything (it has already crossed the measurement boundary).
+- Calling a `prob` function from a `quantum` context is a **type error** — you have crossed the
+  measurement boundary and must acknowledge it by being `prob` yourself.
+
+This is the classical/quantum interface: **visible and checked**.
+
+## Effect inference
+
+Effects are inferred bottom-up; annotations are checked, not required (except on public API
+boundaries, where they are recommended for documentation). If you omit the effect, the compiler
+infers the narrowest one that fits.
+
+```
+// Compiler infers `quantum` — this function applies gates but doesn't measure
+fn hadamard_pair() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+```
+
+## Effect polymorphism
+
+Higher-order functions may be generic over an effect variable `E`:
+
+```
+fn map<E>(xs: Qubits<N>, f: fn(Qubit) -> Qubit E) -> Qubits<N> E
+```
+
+This lets you write functions that work whether or not measurement occurs, while still being
+type-checked at the call site.
+
+## Examples
+
+### Pure function
+
+```
+fn add_one(x: Int) -> Int pure {
+    x + 1
+}
+```
+
+### Quantum function (reversible, no measurement)
+
+```
+fn bell() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+```
+
+### Prob function (performs measurement)
+
+```
+fn coin() -> Measured<Bool> prob {
+    let q = qubit()
+    h(q)
+    measure(q)              // consumes q; function becomes `prob`
+}
+```
+
+## Why this matters
+
+The effect system prevents the most dangerous class of quantum bugs: **silently crossing the
+measurement boundary**. A function typed `quantum` is guaranteed measurement-free and therefore
+reversible as a whole. You never have to wonder whether a function you're calling might measure
+its qubits — the type tells you.
+
+For the full type-system deep-dive, see [Type System](/docs/language/type-system).

@@ -1,0 +1,6 @@
+// Alias a qubit (direct assignment): should produce E0404 (ALIASING_QUBIT)
+fn f(q: Qubit) -> Qubit {
+    let r = q;
+    let s = q;
+    return s;
+}

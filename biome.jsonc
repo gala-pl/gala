@@ -14,7 +14,6 @@
       "!**/.next",
       "!**/target",
       "!**/coverage",
-      "!**/*.config.*",
       "!**/*.lock",
       "!*.tsbuildinfo",
       "!.source",

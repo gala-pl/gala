@@ -1,0 +1,23 @@
+// Test: quantum gate operations
+fn test_h_gate() -> Qubit quantum {
+    let q = qubit();
+    h(q)
+}
+
+fn test_cx_gate() -> Qubit quantum {
+    let a = qubit();
+    let b = qubit();
+    cx(a, b);
+    b
+}
+
+fn test_x_gate() -> Qubit quantum {
+    let q = qubit();
+    x(q)
+}
+
+fn test_z_gate() -> Qubit quantum {
+    let q = qubit();
+    z(q)
+}
+

@@ -1,0 +1,14 @@
+// Test: basic pure function operations
+fn arithmetic() -> Int {
+    2 + 3
+}
+
+fn comparison() -> Bool {
+    5 > 3
+}
+
+fn chained() -> Int {
+    let x = 7;
+    let y = x + 3;
+    y * 2
+}

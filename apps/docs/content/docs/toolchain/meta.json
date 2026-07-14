@@ -1,0 +1,4 @@
+{
+  "title": "Toolchain",
+  "pages": ["cli", "lsp", "testing", "formatter", "diagnostics"]
+}

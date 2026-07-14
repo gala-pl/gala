@@ -1,0 +1,52 @@
+---
+title: Glossary
+description: Quantum, programming-language, and compiler terms used across the documentation
+---
+
+## Quantum computing
+
+- **Adjoint** — the inverse (dagger, †) of a unitary operation. In Gala, compiler-derived for any `quantum` (measurement-free) function.
+- **Ancilla** — a temporary "scratch" qubit used mid-computation and then released. Must be uncomputed before release (see *Uncomputation*).
+- **Bloch sphere** — geometric representation of a single qubit's state; used in the REPL.
+- **Controlled operation** — a gate applied conditionally on a control qubit (e.g. CNOT). Gala derives controlled variants of unitaries.
+- **Decoherence / noise** — loss of quantum information to the environment; modeled by `gala.noise`.
+- **Entanglement** — correlation between qubits with no classical analogue; the reason discarding an ancilla naively corrupts a computation.
+- **Fault tolerance** — computing reliably despite errors, via error correction; the regime Gala is designed to scale into.
+- **Logical qubit** — an error-corrected qubit built from many physical qubits.
+- **Measurement** — reading a qubit, collapsing it to a classical value; irreversible; Gala's classical/quantum boundary. Produces `Measured<T>`.
+- **Mid-circuit measurement** — measuring during (not only at the end of) a computation, enabling measurement-conditioned control flow; requires the QIR *adaptive* profile.
+- **NISQ** — Noisy Intermediate-Scale Quantum; today's pre-fault-tolerant, error-prone devices.
+- **No-cloning theorem** — an arbitrary unknown qubit cannot be copied. Enforced in Gala by linear types.
+- **Parameter-shift rule** — a method to compute exact gradients of quantum circuits by evaluating them at shifted parameter values; used by native `grad` for quantum parameters.
+- **QIR (Quantum Intermediate Representation)** — an LLVM-based, vendor-neutral IR for quantum programs; Gala's lowering target for hardware.
+- **Surface code** — a leading quantum error-correcting code; its below-threshold behavior signaled the recent hardware inflection.
+- **Uncomputation** — reversibly returning an ancilla to |0⟩ so it can be released without corrupting entangled data. Synthesized automatically in Gala for *liftable* values.
+- **Unitary** — a reversible, norm-preserving quantum operation; every quantum gate is unitary.
+- **Variational circuit** — a parameterized quantum circuit trained by a classical optimizer; the backbone of quantum machine learning.
+- **VQE / QAOA** — Variational Quantum Eigensolver / Quantum Approximate Optimization Algorithm; flagship hybrid algorithms for chemistry and optimization.
+
+## Programming languages / type theory
+
+- **Affine type** — a value usable *at most* once (may be dropped). Contrast *linear*.
+- **Effect / effect system** — a type-level description of what a computation does (here: `pure`/`quantum`/`prob`); checked at compile time.
+- **Const generic** — a type parameter that is a value (e.g. `N` in `Qubits<N>`), enabling size-checked registers.
+- **Linear type** — a value that must be used *exactly* once; Gala's mechanism for no-cloning.
+- **Liftable / qfree** — a value computable by reversible operations from known inputs; the condition enabling automatic uncomputation.
+- **Progressive disclosure** — design where simple use is simple and advanced power is available but not in the way.
+
+## Compiler / implementation
+
+- **AST** — Abstract Syntax Tree; mirrors surface syntax (used by `fmt`/LSP).
+- **CST** — Concrete Syntax Tree; lossless, retains trivia (comments/whitespace) for the formatter.
+- **HIR** — High-level IR; desugared and name-resolved, input to type checking.
+- **GIR (Gala IR)** — Gala's typed, effect-annotated op-graph combining classical and quantum operations; the stable contract between frontend and backends. See [GIR](/docs/architecture/gir).
+- **Provenance** — the recorded reversible op-graph that produced a value; drives uncomputation synthesis.
+- **salsa** — Rust incremental-computation framework (also behind rust-analyzer); powers Gala's query graph and LSP.
+- **Target lowering** — mapping the logical qubit model to a device's connectivity and native gate set (routing, decomposition, scheduling).
+
+## Key Rust crates used
+
+`chumsky` (parser) · `logos` (lexer) · `ariadne` (diagnostics) · `salsa` (incremental) · `ena`
+(union-find) · `petgraph` (graphs) · `inkwell` (LLVM) · `cranelift` (fast codegen) · `roqoqo` +
+`roqoqo-quest` (simulation) · `qoqo_qir` (QIR/vendor bridge) · `tower-lsp` (language server) ·
+`clap` (CLI) · `lasso` (interning) · `proptest` (property tests) · `insta` (snapshots).

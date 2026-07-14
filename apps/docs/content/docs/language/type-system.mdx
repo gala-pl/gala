@@ -1,0 +1,147 @@
+---
+title: Type System
+description: The core innovation — linear types, effects, reversibility, and native differentiation
+---
+
+The type system is where Gala earns its identity. Four ideas combine: **linear types** for
+no-cloning, **safe automatic uncomputation**, an **effect system** for the classical/quantum
+boundary, and **compiler-derived reversibility** feeding a **native differentiation** operator.
+
+## Linear types for qubits — no-cloning by construction
+
+The no-cloning theorem — you cannot copy an arbitrary qubit — maps exactly onto linear typing,
+where a value must be used **exactly once**.
+
+Rules for linear types (`Qubit`, `Qubits<N>`, and any aggregate containing them):
+
+1. **No duplication.** Binding or passing a linear value *moves* it. Using the old binding
+   afterward is an error.
+2. **No implicit drop.** A linear value must be explicitly consumed: measured, returned, or
+   `drop`ped (which triggers uncomputation synthesis).
+3. **No aliasing.** You cannot take two references to the same qubit. (Classical values may be
+   borrowed with `&`; qubits may not.)
+
+Because the compiler is written in Rust, the checker implements this as an explicit
+ownership/liveness analysis over the IR — conceptually the same discipline Rust's borrow checker
+applies to `!Copy` values, re-derived for Gala's IR so diagnostics can speak in quantum terms.
+
+**Error example:**
+
+```
+error[E0412]: qubit `a` used after measurement
+  ┌─ classifier.gala:8:5
+6 │     let r = measure(a)
+  │             ---------- `a` is consumed here (measurement is destructive)
+8 │     cx(a, b)
+  │        ^ `a` used here after it was consumed
+  = help: a qubit is a linear resource — measuring it ends its life.
+          If you need its value afterward, use the classical result `r`.
+```
+
+## Safe automatic uncomputation
+
+Ancilla qubits entangled with your data cannot simply be discarded — doing so corrupts the
+computation via leaked entanglement. Forcing programmers to hand-write the reverse circuit is the
+assembly era of quantum programming.
+
+Gala classifies values as **liftable** (a.k.a. *qfree*/reversible-derivable) when they are
+computed purely by reversible operations from known inputs. When a liftable ancilla goes out of
+scope or is `drop`ped, the compiler **synthesizes the uncompute sequence** (the adjoint of the
+computation that produced it) and inserts it automatically, returning the qubit to |0⟩ before
+release.
+
+When automatic synthesis is *not* possible — e.g., the value depends on a measurement, or on a
+non-reversible classical input — the compiler refuses and emits a diagnostic explaining why,
+asking for an explicit strategy (`uncompute_with(...)` or manual reverse). It never silently
+produces a wrong program. This is a generalization of Silq's safe-uncomputation model with
+first-class diagnostics.
+
+**Analysis sketch:**
+
+- Track, per linear value, a *provenance*: the reversible op-graph that produced it.
+- On scope exit / `drop`, if provenance is fully reversible and inputs are still live, emit
+  `adjoint(provenance)`.
+- Otherwise, error `E0530: cannot auto-uncompute` with the specific blocking reason.
+
+## Effect system — the three worlds
+
+Functions carry an effect row: `pure`, `quantum`, or `prob` (see [Language](/docs/language) for reference). The effect is part of the type and part of the contract.
+
+- **Subsumption for calls:** a function may call any function whose effect is `⊑` its own in the
+  lattice `pure ⊑ quantum ⊑ prob`.
+- **Measurement is the boundary.** `measure` has effect `prob`. Any function that (transitively)
+  measures is `prob`. A `quantum` function is guaranteed measurement-free and therefore reversible
+  as a whole.
+- **Effect inference.** Effects are inferred bottom-up; annotations are checked, not required
+  (except on public API boundaries, where they are recommended for documentation).
+- **Effect polymorphism.** Higher-order functions may be generic over an effect variable
+  `E`, e.g. `fn map<E>(xs: [Qubit; N], f: fn(Qubit) -> Qubit E) -> [Qubit; N] E`.
+
+The payoff: the classical/quantum interface — historically the most bug-prone seam — is *visible
+and checked*.
+
+## Reversibility, adjoints, and controlled variants — for free
+
+Every `quantum` function (measurement-free, built from unitary ops) is reversible, and the
+compiler knows it. Therefore:
+
+- `reverse(f)` / `adjoint(f)` is **compiler-derived** and type-checked — no hand-written inverse.
+- `control(f)` derives the controlled version of a unitary `f`, threading an extra control qubit.
+- These compose: `adjoint(control(f))` is well-defined and derived.
+
+Q# exposes `Adjoint`/`Controlled` as functors with ceremony; Gala derives them by analysis and
+keeps them seamless. A `prob` function is **not** reversible; asking for its adjoint is a type
+error with an explanatory message.
+
+## Native differentiation
+
+A parameterized quantum circuit is, from the classical side, a function from parameters to a
+(probabilistic) output. `grad` is a native operator over such functions.
+
+- For **quantum parameters** (rotation angles feeding gates), the compiler emits the
+  **parameter-shift rule**: evaluate the circuit at shifted parameter values and combine.
+- For **classical parameters** (pre/post-processing), the compiler uses ordinary reverse-mode
+  **autodiff** over the classical op-graph.
+- At the boundary, the two are **composed** by the chain rule, so `grad` works end to end across a
+  hybrid function.
+
+```
+let dθ = grad(classify, wrt: θ)   // returns fn(Vec<Float>, Params) -> Params
+```
+
+Differentiation is a lowering pass over GIR (see [Compiler Pipeline](/docs/architecture/compiler-pipeline) and [GIR](/docs/architecture/gir)),
+not a runtime library, so gradients are visible to the optimizer and to hardware lowering.
+
+## Dependent-ish sizing (`Qubits<N>`) and uncertainty (`Measured<T>`)
+
+- **`Qubits<N>`** carries register size as a **const generic** (bounded, inferred — not full
+  dependent types). This catches mismatched register sizes, invalid entanglement structure, and
+  hardware-fit problems at compile time. `N` may be a generic const parameter of a function.
+- **`Measured<T>`** models a measured result as a value carrying its probability distribution, not
+  a bare scalar. It exposes `.sample()`, `.expectation()`, `.distribution()`, nudging users toward
+  statistically honest handling of stochastic output. Classical control flow on a `Measured<Bool>`
+  is allowed (mid-circuit measurement) and lowers to hardware measurement-conditioned branching.
+
+## Formalization plan
+
+For confidence (and publishability), the quantum fragment gets a small-step operational semantics
+and a soundness argument:
+
+- **Progress & preservation** for the classical + effect core.
+- **Linearity soundness:** a well-typed program never duplicates or drops a qubit implicitly.
+- **Uncomputation correctness:** synthesized uncompute restores ancillae to |0⟩ for liftable
+  values (proved against a denotational density-matrix model for a core subset).
+
+The formal core is intentionally a *subset*; the full language is defined by the reference
+implementation + conformance suite ([Testing & QA](/docs/toolchain/testing)).
+
+## Summary table
+
+| Guarantee | Mechanism | Failure mode prevented |
+|-----------|-----------|------------------------|
+| No-cloning | Linear types (move semantics, no `Copy`) | Copying a qubit |
+| No leaked entanglement | Auto-uncomputation on `drop` | Discarding an entangled ancilla |
+| Boundary safety | Effect system | Silent measurement inside "unitary" code |
+| Correct inverses | Compiler-derived adjoint/control | Hand-written, wrong reverse circuits |
+| Correct gradients | Native `grad` (param-shift + autodiff) | Mis-wired hybrid gradients |
+| Size/topology fit | `Qubits<N>` const generics | Register-size and connectivity mismatches |
