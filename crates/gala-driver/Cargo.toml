@@ -22,3 +22,7 @@ gala-diff.workspace = true
 gala-opt.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+insta.workspace = true
