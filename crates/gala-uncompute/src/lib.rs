@@ -223,7 +223,7 @@ pub fn insert_uncompute(hir_fn: &HirFnDef, plan: UncomputePlan) -> HirFnDef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gala_ast::{self, Ident, Item};
+    use gala_ast::{self, Ident};
     use gala_span::{FileId, Span};
 
     #[test]
@@ -278,10 +278,11 @@ mod tests {
             }],
             ret_ty: None,
             effect: gala_ast::Effect::Quantum,
+            is_extern: false,
             body: HirBlock {
                 stmts: vec![HirStmt::Expr(HirExpr::Call(HirCallExpr {
-                    callee: Box::new(HirExpr::Ident(Ident::new("h"), dq.clone())),
-                    args: vec![HirExpr::Ident(Ident::new("q"), dq.clone())],
+                    callee: Box::new(HirExpr::Ident(Ident::new("h"), dq.clone(), false)),
+                    args: vec![HirExpr::Ident(Ident::new("q"), dq.clone(), false)],
                     span: Span::dummy(),
                 }))],
                 tail: None,
@@ -304,6 +305,7 @@ mod tests {
             params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
+            is_extern: false,
             body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
             span: Span::dummy(),
         };
@@ -320,6 +322,7 @@ mod tests {
             params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
+            is_extern: false,
             body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
             span: Span::dummy(),
         };
@@ -360,6 +363,7 @@ mod tests {
             }],
             ret_ty: None,
             effect: gala_ast::Effect::Quantum,
+            is_extern: false,
             body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
             span: Span::dummy(),
         };

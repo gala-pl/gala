@@ -440,7 +440,7 @@ mod tests {
     fn test_ast_construction() {
         let span = Span::new(FileId(0), ByteSpan::new(0, 10));
 
-        let expr = Expr::Literal(Literal::Int(42));
+        let _expr = Expr::Literal(Literal::Int(42));
         let item = Item::FnDef(FnDef {
             ident: Ident::new("main"),
             generics: vec![],
