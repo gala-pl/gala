@@ -1170,7 +1170,6 @@ pub fn build_module_graph(files: &[(FileId, &HirFile)]) -> ModuleGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gala_span::SourceMap;
 
     #[test]
     fn test_desugar_simple_fn_def() {

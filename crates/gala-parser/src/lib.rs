@@ -266,7 +266,6 @@ impl<'a> Parser<'a> {
             if l_bp < min_bp {
                 break;
             }
-            self.advance_token();
             let rhs = self.parse_binary(r_bp)?;
             lhs = gala_ast::Expr::Binary(gala_ast::BinaryExpr {
                 lhs: Box::new(lhs),
@@ -305,17 +304,25 @@ impl<'a> Parser<'a> {
         if self.match_token(&Token::False) {
             return Ok(gala_ast::Expr::Literal(gala_ast::Literal::Bool(false)));
         }
-        if let Some((Token::Int(i), _)) = self.advance_token() {
-            return Ok(gala_ast::Expr::Literal(gala_ast::Literal::Int(i)));
+        if self.check(&Token::Int(0)) {
+            if let Some((Token::Int(i), _)) = self.advance_token() {
+                return Ok(gala_ast::Expr::Literal(gala_ast::Literal::Int(i)));
+            }
         }
-        if let Some((Token::Float(f), _)) = self.advance_token() {
-            return Ok(gala_ast::Expr::Literal(gala_ast::Literal::Float(f)));
+        if self.check(&Token::Float(0.0)) {
+            if let Some((Token::Float(f), _)) = self.advance_token() {
+                return Ok(gala_ast::Expr::Literal(gala_ast::Literal::Float(f)));
+            }
         }
-        if let Some((Token::Complex(c), _)) = self.advance_token() {
-            return Ok(gala_ast::Expr::Literal(gala_ast::Literal::Complex { re: 0.0, im: c }));
+        if self.check(&Token::Complex(0.0)) {
+            if let Some((Token::Complex(c), _)) = self.advance_token() {
+                return Ok(gala_ast::Expr::Literal(gala_ast::Literal::Complex { re: 0.0, im: c }));
+            }
         }
-        if let Some((Token::String(s), _)) = self.advance_token() {
-            return Ok(gala_ast::Expr::Literal(gala_ast::Literal::String(s)));
+        if self.check(&Token::String(String::new())) {
+            if let Some((Token::String(s), _)) = self.advance_token() {
+                return Ok(gala_ast::Expr::Literal(gala_ast::Literal::String(s)));
+            }
         }
         if self.match_token(&Token::LParen) {
             let expr = self.parse_expr()?;
@@ -329,7 +336,13 @@ impl<'a> Parser<'a> {
             let cond = self.parse_expr()?;
             let then_branch = self.parse_block()?;
             let else_branch = if self.match_token(&Token::KwElse) {
-                Some(Box::new(self.parse_expr()?))
+                // `else { ... }` is a block; `else if ...` is an expression.
+                let branch = if self.check(&Token::LBrace) {
+                    gala_ast::Expr::Block(self.parse_block()?)
+                } else {
+                    self.parse_expr()?
+                };
+                Some(Box::new(branch))
             } else {
                 None
             };
@@ -376,10 +389,28 @@ impl<'a> Parser<'a> {
                 span: Span::dummy(),
             }));
         }
+        if self.match_token(&Token::KwMatch) {
+            return self.parse_match_expr();
+        }
 
-        // Identifier / path
-        if let Some((Token::Ident(s), _span)) = self.advance_token() {
-            let ident = Ident::new(s);
+        // Identifier / path, including quantum keywords usable as expressions
+        // (e.g. `qubit()`, `measure q`, `h(q)`). These are lexed as keywords but
+        // act as ordinary identifiers in expression position.
+        let ident_name: Option<String> = match self.current_token() {
+            Some((Token::Ident(s), _)) => Some(s.clone()),
+            Some((Token::KwQubit, _)) => Some("qubit".to_string()),
+            Some((Token::KwQubits, _)) => Some("qubits".to_string()),
+            Some((Token::KwMeasure, _)) => Some("measure".to_string()),
+            Some((Token::KwReverse, _)) => Some("reverse".to_string()),
+            Some((Token::KwAdjoint, _)) => Some("adjoint".to_string()),
+            Some((Token::KwControl, _)) => Some("control".to_string()),
+            Some((Token::KwGrad, _)) => Some("grad".to_string()),
+            Some((Token::KwDrop, _)) => Some("drop".to_string()),
+            _ => None,
+        };
+        if let Some(name) = ident_name {
+            self.advance_token();
+            let ident = Ident::new(name);
             // Check for function call
             if self.check(&Token::LParen) {
                 self.advance_token();
@@ -402,6 +433,30 @@ impl<'a> Parser<'a> {
 
         self.error("expected expression");
         Err(())
+    }
+
+    fn parse_match_expr(&mut self) -> Result<gala_ast::Expr, ()> {
+        let scrutinee = self.parse_expr()?;
+        self.expect(&Token::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            let pattern = self.parse_pattern()?;
+            let guard =
+                if self.match_token(&Token::KwIf) { Some(self.parse_expr()?) } else { None };
+            self.expect(&Token::FatArrow)?;
+            let body = self.parse_expr()?;
+            arms.push(gala_ast::MatchArm { pattern, guard, body, span: Span::dummy() });
+            // Optional trailing comma between arms.
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+        }
+        self.expect(&Token::RBrace)?;
+        Ok(gala_ast::Expr::Match(gala_ast::MatchExpr {
+            scrutinee: Box::new(scrutinee),
+            arms,
+            span: Span::dummy(),
+        }))
     }
 
     fn parse_type(&mut self) -> Result<gala_ast::Type, ()> {
@@ -618,6 +673,19 @@ impl<'a> Parser<'a> {
     fn parse_pattern(&mut self) -> Result<Pattern, ()> {
         if self.match_token(&Token::Underscore) {
             Ok(Pattern::Wildcard)
+        } else if let Some((Token::Int(i), _)) = self.current_token().cloned() {
+            self.advance_token();
+            Ok(Pattern::Literal(gala_ast::Literal::Int(i)))
+        } else if let Some((Token::Float(f), _)) = self.current_token().cloned() {
+            self.advance_token();
+            Ok(Pattern::Literal(gala_ast::Literal::Float(f)))
+        } else if let Some((Token::String(s), _)) = self.current_token().cloned() {
+            self.advance_token();
+            Ok(Pattern::Literal(gala_ast::Literal::String(s)))
+        } else if self.match_token(&Token::True) {
+            Ok(Pattern::Literal(gala_ast::Literal::Bool(true)))
+        } else if self.match_token(&Token::False) {
+            Ok(Pattern::Literal(gala_ast::Literal::Bool(false)))
         } else {
             let ident = self.parse_ident()?;
             Ok(Pattern::Ident(ident))

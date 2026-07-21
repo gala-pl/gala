@@ -20,3 +20,7 @@ gala-parser.workspace = true
 gala-ast.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+insta.workspace = true

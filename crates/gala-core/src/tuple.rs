@@ -23,7 +23,7 @@ mod tests {
         let t = Tuple3(1, 2.5, true);
         assert_eq!(t.0, 1);
         assert!((t.1 - 2.5f64).abs() < 1e-10);
-        assert_eq!(t.2, true);
+        assert!(t.2);
     }
 
     #[test]

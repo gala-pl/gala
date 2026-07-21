@@ -1,11 +1,9 @@
 ---
 source: crates/gala-driver/tests/snapshot_tests.rs
-assertion_line: 32
 expression: gir
 ---
 {
   "num_funcs": 1,
-  "num_nodes": 0,
-  "num_types": 1,
+  "num_types": 0,
   "num_consts": 0
 }

@@ -360,14 +360,17 @@ impl<'a> Lexer {
                 }
             }
             '%' => Token::Percent,
-            '=' => {
-                if matches!(self.peek(), Some('=')) {
+            '=' => match self.peek() {
+                Some('=') => {
                     self.advance();
                     Token::EqEq
-                } else {
-                    Token::Eq
                 }
-            }
+                Some('>') => {
+                    self.advance();
+                    Token::FatArrow
+                }
+                _ => Token::Eq,
+            },
             '!' => {
                 if matches!(self.peek(), Some('=')) {
                     self.advance();
@@ -456,7 +459,7 @@ mod tests {
             "fn let if else match for while return import as struct enum trait impl type const";
         let mut map = SourceMap::new();
         let fid = map.add_file("test.gala".into(), source.to_string());
-        let mut lexer = Lexer::new(fid, source);
+        let lexer = Lexer::new(fid, source);
         let tokens = lexer.collect_all();
 
         assert_eq!(tokens.len(), 16);
@@ -470,7 +473,7 @@ mod tests {
         let source = "pure quantum prob qubit qubits measure reverse adjoint control grad drop";
         let mut map = SourceMap::new();
         let fid = map.add_file("test.gala".into(), source.to_string());
-        let mut lexer = Lexer::new(fid, source);
+        let lexer = Lexer::new(fid, source);
         let tokens = lexer.collect_all();
 
         assert_eq!(tokens.len(), 11);
@@ -489,10 +492,10 @@ mod tests {
 
     #[test]
     fn test_lexer_literals() {
-        let source = "42 3.14 2+3i true false \"hello\"";
+        let source = "42 2.5 2+3i true false \"hello\"";
         let mut map = SourceMap::new();
         let fid = map.add_file("test.gala".into(), source.to_string());
-        let mut lexer = Lexer::new(fid, source);
+        let lexer = Lexer::new(fid, source);
         let tokens = lexer.collect_all();
 
         assert_eq!(
@@ -503,7 +506,7 @@ mod tests {
             tokens.iter().map(|(t, _)| format!("{:?}", t)).collect::<Vec<_>>()
         );
         assert!(matches!(tokens[0].0, Token::Int(42)));
-        assert!(matches!(tokens[1].0, Token::Float(f) if (f - 3.14).abs() < f64::EPSILON));
+        assert!(matches!(tokens[1].0, Token::Float(f) if (f - 2.5).abs() < f64::EPSILON));
         assert!(matches!(tokens[2].0, Token::Int(2)));
         assert!(matches!(tokens[3].0, Token::Plus));
         assert!(matches!(tokens[4].0, Token::Complex(c) if (c - 3.0).abs() < f64::EPSILON));
@@ -517,7 +520,7 @@ mod tests {
         let source = "θ φ ψ Θ Φ Ψ α β γ";
         let mut map = SourceMap::new();
         let fid = map.add_file("test.gala".into(), source.to_string());
-        let mut lexer = Lexer::new(fid, source);
+        let lexer = Lexer::new(fid, source);
         let tokens = lexer.collect_all();
 
         assert_eq!(tokens.len(), 9);
@@ -531,7 +534,7 @@ mod tests {
         let source = "/* outer /* inner */ comment */ fn main() {}";
         let mut map = SourceMap::new();
         let fid = map.add_file("test.gala".into(), source.to_string());
-        let mut lexer = Lexer::new(fid, source);
+        let lexer = Lexer::new(fid, source);
         let tokens = lexer.collect_all();
 
         // Should skip the entire nested comment

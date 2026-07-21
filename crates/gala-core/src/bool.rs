@@ -24,29 +24,29 @@ mod tests {
 
     #[test]
     fn test_and() {
-        assert_eq!(and(true, true), true);
-        assert_eq!(and(true, false), false);
-        assert_eq!(and(false, true), false);
-        assert_eq!(and(false, false), false);
+        assert!(and(true, true));
+        assert!(!and(true, false));
+        assert!(!and(false, true));
+        assert!(!and(false, false));
     }
 
     #[test]
     fn test_or() {
-        assert_eq!(or(true, true), true);
-        assert_eq!(or(true, false), true);
-        assert_eq!(or(false, true), true);
-        assert_eq!(or(false, false), false);
+        assert!(or(true, true));
+        assert!(or(true, false));
+        assert!(or(false, true));
+        assert!(!or(false, false));
     }
 
     #[test]
     fn test_not() {
-        assert_eq!(not(true), false);
-        assert_eq!(not(false), true);
+        assert!(!not(true));
+        assert!(not(false));
     }
 
     #[test]
     fn test_constants() {
-        assert_eq!(TRUE, true);
-        assert_eq!(FALSE, false);
+        assert_eq!(TRUE, not(FALSE));
+        assert_eq!(FALSE, not(TRUE));
     }
 }

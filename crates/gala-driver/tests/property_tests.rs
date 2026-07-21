@@ -92,8 +92,18 @@ proptest! {
             (Ok(gir1), Ok(gir2)) => {
                 prop_assert_eq!(gir1.funcs.len(), gir2.funcs.len(),
                     "determinism: different number of functions");
-                prop_assert_eq!(gir1.nodes.len(), gir2.nodes.len(),
-                    "determinism: different number of nodes");
+                let node_counts = |gir: &gala_gir::Gir| -> Vec<usize> {
+                    gir.funcs
+                        .values()
+                        .map(|f| f.blocks.values().map(|b| b.nodes.len()).sum())
+                        .collect()
+                };
+                let mut nodes1 = node_counts(gir1);
+                let mut nodes2 = node_counts(gir2);
+                nodes1.sort_unstable();
+                nodes2.sort_unstable();
+                prop_assert_eq!(nodes1, nodes2,
+                    "determinism: different number of nodes across functions");
             }
             (Err(diags1), Err(diags2)) => {
                 let errors1 = diags1.has_errors();
