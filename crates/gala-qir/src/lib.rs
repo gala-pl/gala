@@ -32,6 +32,7 @@ pub fn emit_qir(gir: &Gir, profile: QirProfile) -> Result<String, Diagnostics> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gala_gir::GirFunc;
 
     #[test]
     fn test_qir_emission_basic() {

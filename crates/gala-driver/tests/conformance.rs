@@ -28,7 +28,7 @@ fn test_conformance_valid_sources() {
     for entry in fs::read_dir(fixture_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "gala") {
+        if path.extension().is_some_and(|e| e == "gala") {
             let source = fs::read_to_string(&path).unwrap();
             let mut source_map = gala_span::SourceMap::new();
             let file_id = source_map.add_file(path.to_path_buf(), source.clone());
@@ -66,7 +66,7 @@ fn test_conformance_error_sources() {
     for entry in fs::read_dir(fixture_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "gala") {
+        if path.extension().is_some_and(|e| e == "gala") {
             let source = fs::read_to_string(&path).unwrap();
             let mut source_map = gala_span::SourceMap::new();
             let file_id = source_map.add_file(path.to_path_buf(), source.clone());
@@ -86,7 +86,7 @@ fn test_conformance_error_sources() {
     }
 
     println!("\nError sources: {detected} detected, {missed} missed");
-    assert!(detected == 0 || detected > 0, "All error fixtures produced diagnostics");
+    assert!(detected > 0, "expected at least one error fixture to produce diagnostics");
 }
 
 /// Test the full compilation pipeline on valid sources.
@@ -98,7 +98,7 @@ fn test_conformance_compile_pipeline() {
     for entry in fs::read_dir(fixture_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "gala") {
+        if path.extension().is_some_and(|e| e == "gala") {
             let source = fs::read_to_string(&path).unwrap();
             let mut source_map = gala_span::SourceMap::new();
             let file_id = source_map.add_file(path.to_path_buf(), source.clone());
@@ -140,7 +140,7 @@ fn count_gala_files(dir: &Path) -> usize {
         .map(|entries| {
             entries
                 .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().map_or(false, |ext| ext == "gala"))
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "gala"))
                 .count()
         })
         .unwrap_or(0)

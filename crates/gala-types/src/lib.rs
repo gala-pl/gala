@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn test_literal_types() {
         assert_eq!(literal_type(&Literal::Int(42)), Ty::Int);
-        assert_eq!(literal_type(&Literal::Float(3.14)), Ty::Float);
+        assert_eq!(literal_type(&Literal::Float(2.5)), Ty::Float);
         assert_eq!(literal_type(&Literal::Bool(true)), Ty::Bool);
         assert_eq!(literal_type(&Literal::String("hi".into())), Ty::String);
         assert_eq!(literal_type(&Literal::Unit), Ty::Unit);
@@ -690,6 +690,7 @@ mod tests {
                 span: Span::dummy(),
             })),
             effect: gala_ast::Effect::Pure,
+            is_extern: false,
             body: gala_hir::HirBlock {
                 stmts: vec![gala_hir::HirStmt::Return(Some(Box::new(gala_hir::HirExpr::Literal(
                     Literal::Int(42),
@@ -714,6 +715,7 @@ mod tests {
             params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
+            is_extern: false,
             body: gala_hir::HirBlock {
                 stmts: Vec::new(),
                 tail: Some(Box::new(gala_hir::HirExpr::Binary(gala_hir::HirBinaryExpr {
@@ -761,10 +763,19 @@ mod tests {
             }],
             ret_ty: None,
             effect: gala_ast::Effect::Quantum,
+            is_extern: false,
             body: gala_hir::HirBlock {
                 stmts: vec![
-                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone())),
-                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone())),
+                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(
+                        Ident::new("q"),
+                        dq.clone(),
+                        false,
+                    )),
+                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(
+                        Ident::new("q"),
+                        dq.clone(),
+                        false,
+                    )),
                 ],
                 tail: None,
                 span: Span::dummy(),
@@ -799,10 +810,19 @@ mod tests {
             }],
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
+            is_extern: false,
             body: gala_hir::HirBlock {
                 stmts: vec![
-                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("x"), dx.clone())),
-                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("x"), dx.clone())),
+                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(
+                        Ident::new("x"),
+                        dx.clone(),
+                        false,
+                    )),
+                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(
+                        Ident::new("x"),
+                        dx.clone(),
+                        false,
+                    )),
                 ],
                 tail: None,
                 span: Span::dummy(),
@@ -832,14 +852,19 @@ mod tests {
             }],
             ret_ty: None,
             effect: gala_ast::Effect::Quantum,
+            is_extern: false,
             body: gala_hir::HirBlock {
                 stmts: vec![
                     gala_hir::HirStmt::Expr(gala_hir::HirExpr::Call(gala_hir::HirCallExpr {
-                        callee: Box::new(gala_hir::HirExpr::Ident(Ident::new("h"), dh)),
-                        args: vec![gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone())],
+                        callee: Box::new(gala_hir::HirExpr::Ident(Ident::new("h"), dh, false)),
+                        args: vec![gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone(), false)],
                         span: Span::dummy(),
                     })),
-                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(Ident::new("q"), dq.clone())),
+                    gala_hir::HirStmt::Expr(gala_hir::HirExpr::Ident(
+                        Ident::new("q"),
+                        dq.clone(),
+                        false,
+                    )),
                 ],
                 tail: None,
                 span: Span::dummy(),

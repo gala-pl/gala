@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn test_param_shift_gradient_returns_copy() {
-        let mut func = GirFunc::new_test();
+        let func = GirFunc::new_test();
         let shifted = param_shift_gradient(&func, 0, 0.5);
         assert_eq!(shifted.name.0, func.name.0);
     }

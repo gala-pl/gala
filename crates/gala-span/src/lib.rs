@@ -151,7 +151,6 @@ impl Interner {
 }
 
 /// Re-export Spur for convenience
-
 #[cfg(test)]
 mod tests {
     use super::*;

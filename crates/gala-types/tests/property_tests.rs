@@ -26,6 +26,7 @@ fn gen_well_typed_fn() -> impl Strategy<Value = HirFnDef> {
         params: Vec::new(),
         ret_ty: Some(ret_ty),
         effect: AstEffect::Pure,
+        is_extern: false,
         body: HirBlock {
             stmts: vec![],
             tail: Some(Box::new(HirExpr::Literal(lit))),
@@ -44,6 +45,7 @@ fn gen_potentially_mismatched_fn() -> impl Strategy<Value = HirFnDef> {
             params: Vec::new(),
             ret_ty: Some(declared_ret_ty),
             effect: AstEffect::Pure,
+            is_extern: false,
             body: HirBlock {
                 stmts: vec![],
                 tail: Some(Box::new(HirExpr::Literal(lit))),

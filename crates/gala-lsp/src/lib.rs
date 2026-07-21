@@ -11,14 +11,13 @@ mod tests {
 
     #[test]
     fn test_lsp_stub_runs() {
-        // Just verify the function exists and compiles
-        assert!(true);
+        // Verify the LSP entrypoint exists, is reachable, and does not panic.
+        run();
     }
 
     #[test]
     fn test_run_does_not_panic() {
         // run() just prints to stderr, shouldn't panic
-        // We don't call it here since it would output to stderr
-        assert!(true);
+        run();
     }
 }

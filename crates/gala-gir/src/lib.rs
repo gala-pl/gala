@@ -533,7 +533,7 @@ impl serde::Serialize for Gir {
 mod tests {
     use super::*;
     use gala_ast::{self, Ident, Literal};
-    use gala_span::{ByteSpan, FileId};
+    use gala_span::FileId;
 
     #[test]
     fn test_gir_default() {
@@ -589,6 +589,7 @@ mod tests {
             params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
+            is_extern: false,
             body: HirBlock {
                 stmts: vec![HirStmt::Return(Some(Box::new(HirExpr::Literal(Literal::Int(42)))))],
                 tail: None,
@@ -613,6 +614,7 @@ mod tests {
             params: Vec::new(),
             ret_ty: None,
             effect: gala_ast::Effect::Pure,
+            is_extern: false,
             body: HirBlock {
                 stmts: Vec::new(),
                 tail: Some(Box::new(HirExpr::Binary(HirBinaryExpr {

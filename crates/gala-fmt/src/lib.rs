@@ -32,6 +32,26 @@ fn format_items(items: &[Item]) -> String {
     out
 }
 
+fn pattern_to_string(pat: &gala_ast::Pattern) -> String {
+    match pat {
+        gala_ast::Pattern::Ident(i) => i.0.clone(),
+        gala_ast::Pattern::Wildcard => "_".to_string(),
+        gala_ast::Pattern::Tuple(elems) => {
+            let inner = elems.iter().map(pattern_to_string).collect::<Vec<_>>().join(", ");
+            format!("({inner})")
+        }
+        gala_ast::Pattern::Struct { path, fields } => {
+            let inner = fields
+                .iter()
+                .map(|(name, fp)| format!("{}: {}", name.0, pattern_to_string(fp)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{} {{ {} }}", path_to_string(path), inner)
+        }
+        gala_ast::Pattern::Literal(lit) => literal_to_string(lit),
+    }
+}
+
 fn format_item(item: &Item, out: &mut String, indent: usize) {
     let pad = "    ".repeat(indent);
     match item {
@@ -41,7 +61,11 @@ fn format_item(item: &Item, out: &mut String, indent: usize) {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&format!("{:?}: {}", p.pattern, type_to_string(&p.ty)));
+                out.push_str(&format!(
+                    "{}: {}",
+                    pattern_to_string(&p.pattern),
+                    type_to_string(&p.ty)
+                ));
             }
             out.push(')');
             if let Some(ty) = &f.ret_ty {
@@ -95,7 +119,13 @@ fn format_stmt(stmt: &Stmt, out: &mut String, indent: usize) {
                     s
                 })
                 .unwrap_or_default();
-            out.push_str(&format!("{}let {:?}: {} = {};\n", pad, l.pattern, ty_str, init_str));
+            out.push_str(&format!(
+                "{}let {}: {} = {};\n",
+                pad,
+                pattern_to_string(&l.pattern),
+                ty_str,
+                init_str
+            ));
         }
         Stmt::Expr(e) => {
             format_expr(e, out, indent);
