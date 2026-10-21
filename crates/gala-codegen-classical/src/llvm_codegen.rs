@@ -58,6 +58,8 @@ struct LlvmCodegen<'a> {
     block_labels: HashMap<BlockId, String>,
     /// QIR intrinsic names already declared in the module.
     declared_intrinsics: std::collections::HashSet<String>,
+    /// Tuple aliases are lowered to SSA aliases in textual LLVM.
+    tuple_elements: HashMap<ValueId, Vec<ValueId>>,
     next_reg: u32,
     out: String,
 }
@@ -78,6 +80,7 @@ impl<'a> LlvmCodegen<'a> {
             func_sigs: HashMap::new(),
             block_labels: HashMap::new(),
             declared_intrinsics: std::collections::HashSet::new(),
+            tuple_elements: HashMap::new(),
             next_reg: 0,
             out: String::new(),
         }
@@ -220,13 +223,31 @@ impl<'a> LlvmCodegen<'a> {
 
     fn compute_func_sig(&self, func: &GirFunc) -> FuncSig {
         let ret_ty = self.compute_ret_ty(func);
-        let params = func.params.iter().map(|p| self.ty_of(*p)).collect::<Vec<_>>();
+        let params = func
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, p)| {
+                func.param_tys
+                    .get(index)
+                    .map(|type_id| self.map_type(*type_id))
+                    .unwrap_or_else(|| self.ty_of(*p))
+            })
+            .collect::<Vec<_>>();
         FuncSig { name: func.name.0.clone(), ret_ty, params }
     }
 
     // ── Value type seeding ─────────────────────────────────────────────────────
 
     fn seed_value_types(&mut self) {
+        for func in self.gir.funcs.values() {
+            for (index, value) in func.params.iter().enumerate() {
+                let ty = func.param_tys.get(index).map(|type_id| self.map_type(*type_id));
+                if let Some(ty) = ty {
+                    self.set_ty(*value, &ty);
+                }
+            }
+        }
         for node in self.gir.nodes.values() {
             match &node.kind {
                 NodeKind::Constant(c) => {
@@ -250,6 +271,13 @@ impl<'a> LlvmCodegen<'a> {
                         self.set_ty(*r, "i64");
                     }
                 }
+                NodeKind::Free { .. } => {}
+                NodeKind::Tuple { elements } => {
+                    if let Some(result) = node.results.first() {
+                        self.tuple_elements.insert(*result, elements.clone());
+                    }
+                }
+                NodeKind::Extract { .. } => {}
                 NodeKind::Gate(g) => {
                     // Operands are qubits; results (post-gate qubits) are qubits too.
                     for op in &node.operands {
@@ -341,6 +369,9 @@ impl<'a> LlvmCodegen<'a> {
                             | NodeKind::Alloc(AllocKind::Qubits(_)) => {
                                 names.push("__quantum__qis__qubit__allocate".to_string())
                             }
+                            NodeKind::Free { .. } => {
+                                names.push("__quantum__rt__qubit_release".to_string())
+                            }
                             _ => {}
                         }
                     }
@@ -412,6 +443,24 @@ impl<'a> LlvmCodegen<'a> {
             NodeKind::Gate(g) => self.emit_gate(node, *g),
             NodeKind::Measure { target } => self.emit_measure(node, *target),
             NodeKind::Alloc(kind) => self.emit_alloc(node, kind),
+            NodeKind::Free { target } => self.emit_free(*target),
+            NodeKind::Tuple { elements } => {
+                if let Some(result) = node.results.first() {
+                    self.tuple_elements.insert(*result, elements.clone());
+                }
+            }
+            NodeKind::Extract { tuple, index } => {
+                if let (Some(result), Some(elements)) =
+                    (node.results.first(), self.tuple_elements.get(tuple))
+                {
+                    if let Some(element) = elements.get(*index) {
+                        if let Some(register) = self.regs.get(element).cloned() {
+                            self.regs.insert(*result, register);
+                            self.value_tys.insert(*result, self.ty_of(*element));
+                        }
+                    }
+                }
+            }
             NodeKind::Call { func, args } => self.emit_call(node, *func, args),
             NodeKind::Phi { incoming } => self.emit_phi(node, incoming),
         }
@@ -623,6 +672,12 @@ impl<'a> LlvmCodegen<'a> {
         }
     }
 
+    fn emit_free(&mut self, target: ValueId) {
+        self.declare_intrinsic("__quantum__rt__qubit_release");
+        let qubit = self.regs[&target].clone();
+        writeln!(self.out, "  call void @__quantum__rt__qubit_release(%Qubit* {})", qubit).unwrap();
+    }
+
     fn emit_call(&mut self, node: &GirNode, func: FuncId, args: &[ValueId]) {
         let sig = self.func_sigs.get(&func).cloned();
         let (callee_name, ret_ty, param_tys) = match sig {
@@ -723,6 +778,7 @@ fn intrinsic_sig(name: &str) -> (&'static str, Vec<&'static str>) {
         "__quantum__qis__rx__body" | "__quantum__qis__ry__body" | "__quantum__qis__rz__body" => {
             ("void", vec!["%Qubit*", "double"])
         }
+        "__quantum__rt__qubit_release" => ("void", vec!["%Qubit*"]),
         "__quantum__qis__cx__body" | "__quantum__qis__cz__body" | "__quantum__qis__swap__body" => {
             ("void", vec!["%Qubit*", "%Qubit*"])
         }

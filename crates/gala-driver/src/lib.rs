@@ -3,11 +3,13 @@
 use gala_ast::Effect as HirEffect;
 use gala_diagnostics::Diagnostics;
 use gala_gir::{lower_hir_to_gir, Gir};
-use gala_hir::{desugar_file, CrateId, DefId, HirFnDef};
+use gala_hir::{desugar_file, DefId, HirFnDef, Resolver};
 use gala_parser::parse_file;
 use gala_span::{FileId, SourceMap};
-use gala_types::{check_linearity, type_check_fn, Effect as TyEffect};
-use gala_uncompute::{analyze_provenance, synthesize_uncompute};
+use gala_types::{
+    check_linearity, function_type, type_check_fn_with_functions, Effect as TyEffect, Ty,
+};
+use gala_uncompute::{analyze_provenance, insert_uncompute, synthesize_uncompute};
 use std::collections::HashMap;
 
 /// Compile a single source file through the entire pipeline.
@@ -32,22 +34,24 @@ pub fn compile_file(
     };
 
     let hir_file = desugar_file(&items, file_id);
+    let mut resolver = Resolver::new();
+    let hir_file = resolver.build_and_resolve(&hir_file);
+    diags.extend(resolver.diagnostics);
 
     let mut hir_funcs: HashMap<DefId, HirFnDef> = HashMap::new();
-    let mut def_id_counter = 0u32;
     for item in &hir_file.items {
         if let gala_hir::HirItem::FnDef(f) = item {
-            let def_id = DefId { crate_id: CrateId(file_id), index: def_id_counter };
-            def_id_counter += 1;
-            hir_funcs.insert(def_id, f.clone());
+            hir_funcs.insert(f.def_id.clone(), f.clone());
         }
     }
 
     let mut type_of: HashMap<DefId, gala_types::Ty> = HashMap::new();
     let mut effect_of: HashMap<DefId, TyEffect> = HashMap::new();
+    let function_types: HashMap<DefId, Ty> =
+        hir_funcs.iter().map(|(def_id, hir_fn)| (def_id.clone(), function_type(hir_fn))).collect();
 
     for (def_id, hir_fn) in &hir_funcs {
-        match type_check_fn(hir_fn) {
+        match type_check_fn_with_functions(hir_fn, &function_types) {
             Ok(ty) => {
                 type_of.insert(def_id.clone(), ty);
             }
@@ -68,9 +72,15 @@ pub fn compile_file(
         }
     }
 
-    for hir_fn in hir_funcs.values() {
+    for hir_fn in hir_funcs.values_mut() {
         let provenance = analyze_provenance(hir_fn);
-        let _ = synthesize_uncompute(hir_fn, &provenance).map_err(|e| diags.extend(e));
+        match synthesize_uncompute(hir_fn, &provenance) {
+            Ok(plan) => {
+                let lowered = insert_uncompute(hir_fn, plan);
+                *hir_fn = lowered;
+            }
+            Err(e) => diags.extend(e),
+        }
     }
 
     let gir = match lower_hir_to_gir(&hir_funcs, &type_of, &effect_of) {

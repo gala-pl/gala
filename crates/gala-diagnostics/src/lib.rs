@@ -241,6 +241,7 @@ pub mod codes {
     pub const BACKEND_CAPABILITY_MISMATCH: DiagnosticCode = DiagnosticCode(601);
     pub const QIR_EMISSION_FAILED: DiagnosticCode = DiagnosticCode(602);
     pub const HARDWARE_UNAVAILABLE: DiagnosticCode = DiagnosticCode(603);
+    pub const NATIVE_EMISSION_FAILED: DiagnosticCode = DiagnosticCode(604);
 }
 
 #[cfg(test)]

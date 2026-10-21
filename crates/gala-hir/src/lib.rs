@@ -69,6 +69,26 @@ pub enum BuiltinDef {
     SwapGate,
 }
 
+/// Stable IDs used when builtins are represented in resolved HIR.  Keeping
+/// builtins distinct from user definitions prevents them from colliding with
+/// the first function in a file (the old resolver used index 0 for both).
+pub fn builtin_def_id(file_id: FileId, builtin: BuiltinDef) -> DefId {
+    DefId { crate_id: CrateId(file_id), index: 10_000 + builtin as u32 }
+}
+
+/// Definition-ID range reserved for locals after name resolution. Function
+/// definitions use the low IDs allocated by the resolver, so locals must not
+/// share that namespace.
+pub const LOCAL_DEF_ID_BASE: u32 = 1_000_000;
+
+pub fn local_def_id(file_id: FileId, local_id: LocalId) -> DefId {
+    DefId { crate_id: CrateId(file_id), index: LOCAL_DEF_ID_BASE + local_id.0 }
+}
+
+pub fn local_id_from_def_id(def_id: &DefId) -> Option<LocalId> {
+    def_id.index.checked_sub(LOCAL_DEF_ID_BASE).map(LocalId)
+}
+
 /// HIR file with desugared AST.
 #[derive(Debug, Clone)]
 pub struct HirFile {
@@ -134,6 +154,10 @@ pub enum HirStmt {
 #[derive(Debug, Clone)]
 pub struct HirLetStmt {
     pub local_id: LocalId,
+    /// Local IDs for each identifier leaf in `pattern`, in source order.
+    /// `local_id` remains the first binding for compatibility with older
+    /// consumers that only understand a single binding.
+    pub local_ids: Vec<LocalId>,
     pub mutable: bool,
     pub pattern: Pattern,
     pub ty: Option<Type>,
@@ -346,10 +370,20 @@ impl Desugarer {
     }
 
     fn desugar_let_stmt(&mut self, l: &LetStmt) -> HirLetStmt {
-        let local_id = self.fresh_local();
-        let init = l.init.as_ref().map(|e| self.desugar_expr(e)).unwrap();
+        let mut local_ids = Vec::new();
+        collect_pattern_local_ids(&l.pattern, self, &mut local_ids);
+        if local_ids.is_empty() {
+            local_ids.push(self.fresh_local());
+        }
+        let local_id = local_ids[0];
+        let init = l
+            .init
+            .as_ref()
+            .map(|e| self.desugar_expr(e))
+            .unwrap_or_else(|| HirExpr::Literal(Literal::Unit));
         HirLetStmt {
             local_id,
+            local_ids,
             mutable: l.mutable,
             pattern: l.pattern.clone(),
             ty: l.ty.clone(),
@@ -363,11 +397,7 @@ impl Desugarer {
             Expr::Literal(l) => HirExpr::Literal(l.clone()),
             Expr::Ident(ident) => {
                 if let Some(local_id) = self.in_place_vars.get(ident) {
-                    HirExpr::Ident(
-                        ident.clone(),
-                        DefId { crate_id: CrateId(self.file_id), index: local_id.0 },
-                        false,
-                    )
+                    HirExpr::Ident(ident.clone(), local_def_id(self.file_id, *local_id), false)
                 } else {
                     HirExpr::Ident(
                         ident.clone(),
@@ -585,6 +615,23 @@ impl Desugarer {
             glob: i.glob,
             span: i.span,
         }
+    }
+}
+
+fn collect_pattern_local_ids(pattern: &Pattern, desugarer: &mut Desugarer, ids: &mut Vec<LocalId>) {
+    match pattern {
+        Pattern::Ident(_) => ids.push(desugarer.fresh_local()),
+        Pattern::Tuple(patterns) => {
+            for pattern in patterns {
+                collect_pattern_local_ids(pattern, desugarer, ids);
+            }
+        }
+        Pattern::Struct { fields, .. } => {
+            for (_, pattern) in fields {
+                collect_pattern_local_ids(pattern, desugarer, ids);
+            }
+        }
+        Pattern::Wildcard | Pattern::Literal(_) => {}
     }
 }
 
@@ -822,7 +869,10 @@ impl Resolver {
     fn resolve_item(&mut self, item: &HirItem, file_id: FileId) -> HirItem {
         match item {
             HirItem::FnDef(f) => {
-                let def_id = self.fresh_def_id(file_id);
+                let def_id = match self.scopes[0].bindings.get(&f.ident.0) {
+                    Some(ScopeEntry::Def(def_id)) => def_id.clone(),
+                    _ => self.fresh_def_id(file_id),
+                };
                 self.scopes[0].bindings.insert(f.ident.0.clone(), ScopeEntry::Def(def_id.clone()));
                 let resolved = self.resolve_fn_def(f, def_id, file_id);
                 HirItem::FnDef(resolved)
@@ -990,9 +1040,11 @@ impl Resolver {
             match stmt {
                 HirStmt::Let(l) => {
                     let resolved_init = self.resolve_expr(&l.init, file_id);
-                    self.insert_local(&pattern_name(&l.pattern), l.local_id);
+                    let mut cursor = 0;
+                    bind_pattern_locals(&l.pattern, &l.local_ids, &mut cursor, self);
                     resolved_stmts.push(HirStmt::Let(HirLetStmt {
                         local_id: l.local_id,
+                        local_ids: l.local_ids.clone(),
                         mutable: l.mutable,
                         pattern: l.pattern.clone(),
                         ty: l.ty.clone(),
@@ -1023,11 +1075,9 @@ impl Resolver {
             HirExpr::Ident(name, _, _) => {
                 let resolved_def = match self.resolve_name(&name.0) {
                     Some(entry) => match entry {
-                        ScopeEntry::Local(local_id) => {
-                            DefId { crate_id: CrateId(file_id), index: local_id.0 }
-                        }
+                        ScopeEntry::Local(local_id) => local_def_id(file_id, local_id),
                         ScopeEntry::Def(def_id) => def_id,
-                        ScopeEntry::Builtin(_) => DefId { crate_id: CrateId(file_id), index: 0 },
+                        ScopeEntry::Builtin(builtin) => builtin_def_id(file_id, builtin),
                     },
                     None => {
                         let msg = format!("unresolved name: {}", name.0);
@@ -1054,6 +1104,12 @@ impl Resolver {
                 args: c.args.iter().map(|a| self.resolve_expr(a, file_id)).collect(),
                 span: c.span,
             }),
+            HirExpr::Tuple(items) => {
+                HirExpr::Tuple(items.iter().map(|item| self.resolve_expr(item, file_id)).collect())
+            }
+            HirExpr::Array(items) => {
+                HirExpr::Array(items.iter().map(|item| self.resolve_expr(item, file_id)).collect())
+            }
             HirExpr::If(i) => HirExpr::If(HirIfExpr {
                 cond: Box::new(self.resolve_expr(&i.cond, file_id)),
                 then_branch: self.resolve_block(&i.then_branch, file_id),
@@ -1113,11 +1169,30 @@ impl Resolver {
     }
 }
 
-fn pattern_name(pattern: &Pattern) -> String {
+fn bind_pattern_locals(
+    pattern: &Pattern,
+    local_ids: &[LocalId],
+    cursor: &mut usize,
+    resolver: &mut Resolver,
+) {
     match pattern {
-        Pattern::Ident(i) => i.0.clone(),
-        Pattern::Wildcard => "_".to_string(),
-        _ => "_".to_string(),
+        Pattern::Ident(name) => {
+            if let Some(local_id) = local_ids.get(*cursor).copied() {
+                resolver.insert_local(&name.0, local_id);
+            }
+            *cursor += 1;
+        }
+        Pattern::Tuple(patterns) => {
+            for pattern in patterns {
+                bind_pattern_locals(pattern, local_ids, cursor, resolver);
+            }
+        }
+        Pattern::Struct { fields, .. } => {
+            for (_, pattern) in fields {
+                bind_pattern_locals(pattern, local_ids, cursor, resolver);
+            }
+        }
+        Pattern::Wildcard | Pattern::Literal(_) => {}
     }
 }
 

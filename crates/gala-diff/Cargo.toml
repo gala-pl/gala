@@ -11,6 +11,8 @@ name = "gala_diff"
 path = "src/lib.rs"
 
 [dependencies]
+gala-ast.workspace = true
 gala-gir.workspace = true
+gala-types.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true

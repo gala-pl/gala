@@ -119,11 +119,19 @@ impl InferCtxt {
     }
 
     fn lookup(&self, def_id: &DefId) -> Option<Ty> {
-        if let Some(ty) = self.env.get(def_id) {
+        if let Some(ty) = builtin_type(def_id.index) {
+            return Some(ty);
+        }
+        if let Some(local_id) = local_id_from_def_id(def_id) {
+            if let Some(ty) = self.local_env.get(&local_id) {
+                return Some(ty.clone());
+            }
+        } else if let Some(ty) = self.local_env.get(&LocalId(def_id.index)) {
+            // Keep direct unit-test HIR construction working even when it has
+            // not passed through the resolver's local-ID encoding.
             return Some(ty.clone());
         }
-        let local_id = LocalId(def_id.index);
-        if let Some(ty) = self.local_env.get(&local_id) {
+        if let Some(ty) = self.env.get(def_id) {
             return Some(ty.clone());
         }
         None
@@ -147,12 +155,11 @@ impl InferCtxt {
 
     pub fn solve(&mut self) -> Result<(), Vec<TypeError>> {
         let mut errors = Vec::new();
+        let mut substitutions = HashMap::new();
         for constraint in self.constraints.drain(..) {
             match constraint {
                 Constraint::Equate(a, b) => {
-                    if a != b {
-                        errors.push(TypeError::Mismatch(a, b));
-                    }
+                    unify_types(a, b, &mut substitutions, &mut errors);
                 }
                 Constraint::SubEffect(actual, expected) => {
                     if !actual.subsumes(expected) {
@@ -167,6 +174,110 @@ impl InferCtxt {
             Err(errors)
         }
     }
+}
+
+fn resolve_type(ty: Ty, substitutions: &HashMap<TyVar, Ty>) -> Ty {
+    match ty {
+        Ty::Var(var) => substitutions
+            .get(&var)
+            .cloned()
+            .map(|resolved| resolve_type(resolved, substitutions))
+            .unwrap_or(Ty::Var(var)),
+        other => other,
+    }
+}
+
+fn occurs_in(var: TyVar, ty: &Ty, substitutions: &HashMap<TyVar, Ty>) -> bool {
+    match resolve_type(ty.clone(), substitutions) {
+        Ty::Var(other) => var == other,
+        Ty::Measured(inner) => occurs_in(var, &inner, substitutions),
+        Ty::Tuple(items) => items.iter().any(|item| occurs_in(var, item, substitutions)),
+        Ty::Array(inner, _) => occurs_in(var, &inner, substitutions),
+        Ty::Fn { params, ret, .. } => {
+            params.iter().any(|param| occurs_in(var, param, substitutions))
+                || occurs_in(var, &ret, substitutions)
+        }
+        Ty::Named(_, args) => args.iter().any(|arg| occurs_in(var, arg, substitutions)),
+        _ => false,
+    }
+}
+
+fn unify_types(
+    lhs: Ty,
+    rhs: Ty,
+    substitutions: &mut HashMap<TyVar, Ty>,
+    errors: &mut Vec<TypeError>,
+) {
+    let lhs = resolve_type(lhs, substitutions);
+    let rhs = resolve_type(rhs, substitutions);
+    if lhs == rhs || matches!(&lhs, Ty::TyError) || matches!(&rhs, Ty::TyError) {
+        return;
+    }
+
+    match (lhs, rhs) {
+        (Ty::Var(var), ty) | (ty, Ty::Var(var)) => {
+            if occurs_in(var, &ty, substitutions) {
+                errors.push(TypeError::OccursCheck(var, ty));
+            } else {
+                substitutions.insert(var, ty);
+            }
+        }
+        (Ty::Measured(lhs), Ty::Measured(rhs)) => {
+            unify_types(*lhs, *rhs, substitutions, errors);
+        }
+        (Ty::Tuple(lhs), Ty::Tuple(rhs)) if lhs.len() == rhs.len() => {
+            for (lhs, rhs) in lhs.into_iter().zip(rhs) {
+                unify_types(lhs, rhs, substitutions, errors);
+            }
+        }
+        (Ty::Qubits(size), Ty::Tuple(items)) | (Ty::Tuple(items), Ty::Qubits(size))
+            if size as usize == items.len() =>
+        {
+            for item in items {
+                unify_types(Ty::Qubit, item, substitutions, errors);
+            }
+        }
+        (Ty::Array(lhs, lhs_len), Ty::Array(rhs, rhs_len)) if lhs_len == rhs_len => {
+            unify_types(*lhs, *rhs, substitutions, errors);
+        }
+        (
+            Ty::Fn { params: lhs_params, ret: lhs_ret, effect: lhs_effect },
+            Ty::Fn { params: rhs_params, ret: rhs_ret, effect: rhs_effect },
+        ) if lhs_params.len() == rhs_params.len() && lhs_effect == rhs_effect => {
+            for (lhs, rhs) in lhs_params.into_iter().zip(rhs_params) {
+                unify_types(lhs, rhs, substitutions, errors);
+            }
+            unify_types(*lhs_ret, *rhs_ret, substitutions, errors);
+        }
+        (Ty::Named(lhs_id, lhs_args), Ty::Named(rhs_id, rhs_args))
+            if lhs_id == rhs_id && lhs_args.len() == rhs_args.len() =>
+        {
+            for (lhs, rhs) in lhs_args.into_iter().zip(rhs_args) {
+                unify_types(lhs, rhs, substitutions, errors);
+            }
+        }
+        (lhs, rhs) => errors.push(TypeError::Mismatch(lhs, rhs)),
+    }
+}
+
+/// Types of compiler-provided quantum operations.  Builtins are represented
+/// by reserved definition IDs by name resolution, so they can participate in
+/// ordinary call checking without being special-cased by every caller.
+fn builtin_type(index: u32) -> Option<Ty> {
+    let builtin = index.checked_sub(10_000)?;
+    let (params, ret, effect) = match builtin {
+        0 => (vec![], Ty::Qubit, Effect::Quantum),
+        1 => (vec![Ty::Int], Ty::Qubits(1), Effect::Quantum),
+        2 => (vec![Ty::Qubit], Ty::Measured(Box::new(Ty::Bool)), Effect::Prob),
+        3 => (vec![Ty::Qubit], Ty::Unit, Effect::Quantum),
+        4..=8 => (vec![Ty::Qubit], Ty::Qubit, Effect::Quantum),
+        9..=11 => (vec![Ty::Qubit, Ty::Float], Ty::Qubit, Effect::Quantum),
+        12..=14 => {
+            (vec![Ty::Qubit, Ty::Qubit], Ty::Tuple(vec![Ty::Qubit, Ty::Qubit]), Effect::Quantum)
+        }
+        _ => return None,
+    };
+    Some(Ty::Fn { params, ret: Box::new(ret), effect })
 }
 
 /// Check effect boundary: a function with effect `fn_eff` calls a callee
@@ -194,9 +305,21 @@ pub fn check_effect_boundary(
 
 /// Type-check a function definition.
 pub fn type_check_fn(hir_fn: &HirFnDef) -> Result<Ty, Diagnostics> {
+    type_check_fn_with_functions(hir_fn, &HashMap::new())
+}
+
+/// Type-check a function with the signatures visible in its module.
+pub fn type_check_fn_with_functions(
+    hir_fn: &HirFnDef,
+    functions: &HashMap<DefId, Ty>,
+) -> Result<Ty, Diagnostics> {
     let mut cx = InferCtxt::new();
     let mut diags = Diagnostics::new();
     let fn_eff = effect_to_ty_effect(&hir_fn.effect);
+
+    for (def_id, ty) in functions {
+        cx.bind_var(def_id.clone(), ty.clone());
+    }
 
     for param in &hir_fn.params {
         let param_ty = ast_type_to_ty(&param.ty);
@@ -226,6 +349,16 @@ pub fn type_check_fn(hir_fn: &HirFnDef) -> Result<Ty, Diagnostics> {
     }
 }
 
+/// Construct the callable type of a HIR function for module-level call
+/// checking.
+pub fn function_type(hir_fn: &HirFnDef) -> Ty {
+    Ty::Fn {
+        params: hir_fn.params.iter().map(|param| ast_type_to_ty(&param.ty)).collect(),
+        ret: Box::new(hir_fn.ret_ty.as_ref().map(ast_type_to_ty).unwrap_or(Ty::Unit)),
+        effect: effect_to_ty_effect(&hir_fn.effect),
+    }
+}
+
 fn effect_to_ty_effect(e: &gala_ast::Effect) -> Effect {
     match e {
         gala_ast::Effect::Pure => Effect::Pure,
@@ -245,7 +378,8 @@ fn check_block(
         match stmt {
             HirStmt::Let(let_stmt) => {
                 let init_ty = check_hir_expr(cx, &let_stmt.init, fn_eff, diags);
-                cx.bind_local(let_stmt.local_id, init_ty);
+                let mut cursor = 0;
+                bind_pattern_type(cx, &let_stmt.pattern, &let_stmt.local_ids, &mut cursor, init_ty);
             }
             HirStmt::Expr(e) => {
                 last_ty = check_hir_expr(cx, e, fn_eff, diags);
@@ -318,15 +452,58 @@ fn check_hir_expr(
             }
         }
         HirExpr::Block(b) => check_block(cx, b, fn_eff, diags),
+        HirExpr::Tuple(items) => {
+            Ty::Tuple(items.iter().map(|item| check_hir_expr(cx, item, fn_eff, diags)).collect())
+        }
+        HirExpr::Array(items) => {
+            let item_tys: Vec<_> =
+                items.iter().map(|item| check_hir_expr(cx, item, fn_eff, diags)).collect();
+            let Some(first) = item_tys.first().cloned() else { return Ty::TyError };
+            for item_ty in item_tys.iter().skip(1) {
+                cx.equate(first.clone(), item_ty.clone());
+            }
+            Ty::Array(Box::new(first), items.len() as u64)
+        }
         HirExpr::Call(c) => {
-            let _callee_ty = check_hir_expr(cx, &c.callee, fn_eff, diags);
+            let callee_ty = check_hir_expr(cx, &c.callee, fn_eff, diags);
             let arg_tys: Vec<Ty> =
                 c.args.iter().map(|a| check_hir_expr(cx, a, fn_eff, diags)).collect();
-            let ret_ty = cx.fresh_var();
-            let fn_ty =
-                Ty::Fn { params: arg_tys, ret: Box::new(ret_ty.clone()), effect: Effect::Pure };
-            cx.equate(_callee_ty, fn_ty);
-            ret_ty
+            match callee_ty {
+                Ty::Fn { params, ret, effect } => {
+                    if params.len() != arg_tys.len() {
+                        diags.push(Diagnostic::error(
+                            codes::TYPE_MISMATCH,
+                            format!(
+                                "function expects {} argument(s), found {}",
+                                params.len(),
+                                arg_tys.len()
+                            ),
+                        ));
+                    }
+                    for (expected, actual) in params.into_iter().zip(arg_tys) {
+                        cx.equate(expected, actual);
+                    }
+                    if !fn_eff.subsumes(effect) {
+                        diags.push(Diagnostic::error(
+                            codes::EFFECT_MISMATCH,
+                            "effectful operation is not allowed in this function",
+                        ));
+                    }
+                    *ret
+                }
+                other => {
+                    let ret_ty = cx.fresh_var();
+                    cx.equate(
+                        other,
+                        Ty::Fn {
+                            params: arg_tys,
+                            ret: Box::new(ret_ty.clone()),
+                            effect: Effect::Pure,
+                        },
+                    );
+                    ret_ty
+                }
+            }
         }
         HirExpr::If(i) => {
             let cond_ty = check_hir_expr(cx, &i.cond, fn_eff, diags);
@@ -375,6 +552,17 @@ pub fn ast_type_to_ty(ty: &Type) -> Ty {
             "String" => Ty::String,
             "Unit" => Ty::Unit,
             "Params" => Ty::Params,
+            "Vec" => Ty::Named(
+                DefId { crate_id: CrateId(FileId(0)), index: 1 },
+                p.segments[0]
+                    .type_args
+                    .iter()
+                    .filter_map(|arg| match arg {
+                        gala_ast::TypeArg::Type(ty) => Some(ast_type_to_ty(ty)),
+                        gala_ast::TypeArg::Const(_) => None,
+                    })
+                    .collect(),
+            ),
             _ => Ty::TyError,
         },
         Type::Qubit => Ty::Qubit,
@@ -447,18 +635,55 @@ pub fn check_linearity(hir_fn: &HirFnDef) -> Diagnostics {
 
     // Build the type env from parameter types (inferred types would come from type checker)
     let mut type_env: HashMap<LocalId, Ty> = HashMap::new();
+    let mut state: HashMap<(bool, u32), LinearState> = HashMap::new();
     for param in &hir_fn.params {
         let param_ty = ast_type_to_ty(&param.ty);
-        type_env.insert(param.local_id, param_ty);
+        type_env.insert(param.local_id, param_ty.clone());
+        if is_linear_type(&param_ty) {
+            state.insert((true, param.local_id.0), LinearState::Available);
+        }
     }
 
-    let mut state: HashMap<(bool, u32), LinearState> = HashMap::new();
     // bool: true = DefId, false = LocalId
     // u32: the index
 
-    check_block_linearity(&hir_fn.body, &mut state, &type_env, &mut diags);
+    check_block_linearity(&hir_fn.body, &mut state, &mut type_env, &mut diags);
+
+    for ((_, local_id), status) in state {
+        if status == LinearState::Available {
+            diags.push(
+                Diagnostic::error(
+                    codes::QUBIT_NOT_CONSUMED,
+                    format!("linear value {:?} is not consumed", local_id),
+                )
+                .with_help("return, measure, or explicitly drop every linear value"),
+            );
+        }
+    }
 
     diags
+}
+
+fn rebind_in_place_linearity(call: &HirCallExpr, state: &mut HashMap<(bool, u32), LinearState>) {
+    let HirExpr::Ident(name, def_id, _) = call.callee.as_ref() else { return };
+    // Only compiler-resolved gate builtins have in-place linear semantics.
+    // A user function named `h` still consumes its argument and may return a
+    // distinct value.
+    if !(10_004..=10_014).contains(&def_id.index) {
+        return;
+    }
+    if !matches!(
+        name.0.as_str(),
+        "h" | "x" | "y" | "z" | "s" | "t" | "rx" | "ry" | "rz" | "cx" | "cz" | "swap"
+    ) {
+        return;
+    }
+    for argument in &call.args {
+        if let HirExpr::Ident(_, def_id, _) = argument {
+            let local_id = local_id_from_def_id(def_id).unwrap_or(LocalId(def_id.index));
+            state.insert((true, local_id.0), LinearState::Available);
+        }
+    }
 }
 
 fn track_id(state: &HashMap<(bool, u32), LinearState>, is_def: bool, idx: u32) -> LinearState {
@@ -469,28 +694,76 @@ fn mark_consumed(state: &mut HashMap<(bool, u32), LinearState>, is_def: bool, id
     state.insert((is_def, idx), LinearState::Consumed);
 }
 
-fn is_quantum_type(ty: &Ty) -> bool {
-    matches!(ty, Ty::Qubit | Ty::Qubits(_))
+fn bind_pattern_type(
+    cx: &mut InferCtxt,
+    pattern: &gala_ast::Pattern,
+    local_ids: &[LocalId],
+    cursor: &mut usize,
+    ty: Ty,
+) {
+    match pattern {
+        gala_ast::Pattern::Ident(_) => {
+            if let Some(local_id) = local_ids.get(*cursor).copied() {
+                cx.bind_local(local_id, ty);
+            }
+            *cursor += 1;
+        }
+        gala_ast::Pattern::Tuple(patterns) => {
+            let mut element_tys = Vec::with_capacity(patterns.len());
+            for pattern in patterns {
+                let element_ty = cx.fresh_var();
+                bind_pattern_type(cx, pattern, local_ids, cursor, element_ty.clone());
+                element_tys.push(element_ty);
+            }
+            cx.equate(ty, Ty::Tuple(element_tys));
+        }
+        gala_ast::Pattern::Struct { fields, .. } => {
+            for (_, pattern) in fields {
+                let field_ty = cx.fresh_var();
+                bind_pattern_type(cx, pattern, local_ids, cursor, field_ty);
+            }
+        }
+        gala_ast::Pattern::Wildcard | gala_ast::Pattern::Literal(_) => {}
+    }
 }
 
 fn check_block_linearity(
     block: &HirBlock,
     state: &mut HashMap<(bool, u32), LinearState>,
-    type_env: &HashMap<LocalId, Ty>,
+    type_env: &mut HashMap<LocalId, Ty>,
     diags: &mut Diagnostics,
 ) {
     for stmt in &block.stmts {
         match stmt {
             HirStmt::Let(l) => {
                 check_expr_linearity(&l.init, state, type_env, diags);
-                // The let binding makes the value available (it's fresh)
-                if let Some(ty) = type_env.get(&l.local_id) {
-                    if is_quantum_type(ty) {
-                        state.insert((false, l.local_id.0), LinearState::Available);
+                let ty =
+                    l.ty.as_ref()
+                        .map(ast_type_to_ty)
+                        .or_else(|| inferred_expr_type(&l.init, type_env))
+                        .unwrap_or(Ty::TyError);
+                let local_ids =
+                    if l.local_ids.is_empty() { vec![l.local_id] } else { l.local_ids.clone() };
+                let leaf_tys = match ty {
+                    Ty::Tuple(items) => items,
+                    other => vec![other],
+                };
+                for (index, local_id) in local_ids.into_iter().enumerate() {
+                    let leaf_ty = leaf_tys.get(index).cloned().unwrap_or(Ty::TyError);
+                    type_env.insert(local_id, leaf_ty.clone());
+                    // The let binding makes the value available (it's fresh).
+                    if is_linear_type(&leaf_ty) {
+                        state.insert((true, local_id.0), LinearState::Available);
                     }
                 }
             }
             HirStmt::Expr(e) => {
+                check_expr_linearity(e, state, type_env, diags);
+                if let HirExpr::Call(call) = e {
+                    rebind_in_place_linearity(call, state);
+                }
+            }
+            HirStmt::Return(Some(e)) => {
                 check_expr_linearity(e, state, type_env, diags);
             }
             _ => {}
@@ -504,13 +777,13 @@ fn check_block_linearity(
 fn check_expr_linearity(
     expr: &HirExpr,
     state: &mut HashMap<(bool, u32), LinearState>,
-    type_env: &HashMap<LocalId, Ty>,
+    type_env: &mut HashMap<LocalId, Ty>,
     diags: &mut Diagnostics,
 ) {
     match expr {
         HirExpr::Ident(_, def_id, _) => {
-            let _key = (true, def_id.index);
-            let lin_state = track_id(state, true, def_id.index);
+            let local_id = local_id_from_def_id(def_id).unwrap_or(LocalId(def_id.index));
+            let lin_state = track_id(state, true, local_id.0);
             if lin_state == LinearState::Consumed {
                 diags.push(
                     Diagnostic::error(
@@ -522,16 +795,20 @@ fn check_expr_linearity(
                 );
             }
             // Check if this is a quantum type by looking up in local env
-            let local_id = LocalId(def_id.index);
             if let Some(ty) = type_env.get(&local_id) {
-                if is_quantum_type(ty) {
-                    mark_consumed(state, true, def_id.index);
+                if is_linear_type(ty) {
+                    mark_consumed(state, true, local_id.0);
                 }
             }
         }
         HirExpr::Binary(b) => {
             check_expr_linearity(&b.lhs, state, type_env, diags);
             check_expr_linearity(&b.rhs, state, type_env, diags);
+        }
+        HirExpr::Tuple(items) | HirExpr::Array(items) => {
+            for item in items {
+                check_expr_linearity(item, state, type_env, diags);
+            }
         }
         HirExpr::Block(b) => {
             check_block_linearity(b, state, type_env, diags);
@@ -546,28 +823,92 @@ fn check_expr_linearity(
             check_expr_linearity(&i.cond, state, type_env, diags);
             // Save state before branches
             let saved_state = state.clone();
+            let saved_types = type_env.clone();
             check_block_linearity(&i.then_branch, state, type_env, diags);
+            let then_state = state.clone();
+            reject_branch_leaks(&saved_state, &then_state, diags);
+
+            let mut else_state = saved_state.clone();
+            let mut else_types = saved_types.clone();
             if let Some(else_) = &i.else_branch {
-                // For simplicity, use the saved state for the else branch
-                let mut else_state = saved_state.clone();
-                check_expr_linearity(else_, &mut else_state, type_env, diags);
-                // Merge: a value is available only if available in both branches
-                for (k, v) in &saved_state {
-                    if *v == LinearState::Available
-                        && else_state.get(k).copied().unwrap_or(LinearState::Consumed)
-                            == LinearState::Available
-                    {
-                        state.insert(*k, LinearState::Available);
-                    } else {
-                        state.insert(*k, LinearState::Consumed);
-                    }
+                check_expr_linearity(else_, &mut else_state, &mut else_types, diags);
+                reject_branch_leaks(&saved_state, &else_state, diags);
+            }
+
+            for key in saved_state.keys() {
+                let then_status = then_state.get(key).copied().unwrap_or(LinearState::Consumed);
+                let else_status = else_state.get(key).copied().unwrap_or(LinearState::Consumed);
+                if then_status != else_status {
+                    diags.push(
+                        Diagnostic::error(
+                            codes::QUBIT_NOT_CONSUMED,
+                            format!("linear value {:?} is consumed in only one branch", key.1),
+                        )
+                        .with_help("consume the value exactly once on every control-flow path"),
+                    );
                 }
+            }
+
+            state.clear();
+            for key in saved_state.keys().chain(then_state.keys()).chain(else_state.keys()) {
+                let before = saved_state.get(key).copied().unwrap_or(LinearState::Consumed);
+                let then_status = then_state.get(key).copied().unwrap_or(before);
+                let else_status = else_state.get(key).copied().unwrap_or(before);
+                let merged = if then_status == LinearState::Available
+                    && else_status == LinearState::Available
+                {
+                    LinearState::Available
+                } else {
+                    LinearState::Consumed
+                };
+                state.insert(*key, merged);
             }
         }
         HirExpr::Return(Some(e)) => {
             check_expr_linearity(e, state, type_env, diags);
         }
         _ => {}
+    }
+}
+
+fn reject_branch_leaks(
+    before: &HashMap<(bool, u32), LinearState>,
+    branch: &HashMap<(bool, u32), LinearState>,
+    diags: &mut Diagnostics,
+) {
+    for (key, status) in branch {
+        if !before.contains_key(key) && *status == LinearState::Available {
+            diags.push(Diagnostic::error(
+                codes::QUBIT_NOT_CONSUMED,
+                format!("linear value {:?} does not leave its branch consumed", key.1),
+            ));
+        }
+    }
+}
+
+fn inferred_expr_type(expr: &HirExpr, type_env: &HashMap<LocalId, Ty>) -> Option<Ty> {
+    match expr {
+        HirExpr::Ident(_, def_id, _) => {
+            let local_id = local_id_from_def_id(def_id).unwrap_or(LocalId(def_id.index));
+            type_env.get(&local_id).cloned()
+        }
+        HirExpr::Call(call) => match call.callee.as_ref() {
+            HirExpr::Ident(name, _, _) => match name.0.as_str() {
+                "qubit" => Some(Ty::Qubit),
+                "qubits" => Some(Ty::Qubits(1)),
+                "measure" => Some(Ty::Measured(Box::new(Ty::Bool))),
+                "h" | "x" | "y" | "z" | "s" | "t" | "rx" | "ry" | "rz" | "cx" | "cz" | "swap" => {
+                    if matches!(name.0.as_str(), "cx" | "cz" | "swap") {
+                        Some(Ty::Tuple(vec![Ty::Qubit, Ty::Qubit]))
+                    } else {
+                        Some(Ty::Qubit)
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
     }
 }
 
