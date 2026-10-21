@@ -1,0 +1,21 @@
+---
+title: Getting started
+description: Install the repository toolchain, compile a first Gala file, and understand the current limits.
+---
+
+This guide is for contributors and language explorers working from the Gala repository. Gala does
+not yet publish a stable binary distribution, so the reliable path today is building the workspace
+with Cargo.
+
+## Choose your path
+
+- [Installation](/docs/getting-started/installation) covers Rust, the pinned toolchain, and the
+  workspace checks.
+- [Quickstart](/docs/getting-started/quickstart) walks through a small classical and quantum
+  source file.
+- [Workflow](/docs/getting-started/workflow) explains how to iterate on compiler code and
+  conformance fixtures.
+
+> **Important.** `gala run` currently validates and prints source, `gala test` reports a simulated
+> success, and the simulator backend returns an empty diagnostic error. Use the quickstart to
+> learn the language and compiler pipeline, not as a claim that hardware execution is complete.

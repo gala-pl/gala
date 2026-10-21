@@ -1,0 +1,35 @@
+---
+title: Formatter and language server
+description: Source formatting and editor integration as implemented today.
+---
+
+## Formatter
+
+`gala-fmt` lexes and parses a source file, then renders supported AST nodes in a canonical style.
+The public library exposes:
+
+- `format_source(source) -> String`;
+- `is_formatted(source) -> bool`.
+
+The CLI prints formatted output and supports `--check`. Parse failures leave the original source
+unchanged rather than guessing at a rewrite. The formatter is covered by unit, property, and
+snapshot tests, but it does not yet preserve every source comment or format every AST variant
+perfectly.
+
+## Language server
+
+The architecture reserves a shared incremental Salsa database for batch compilation and editor
+features. The current `gala-lsp` crate only exposes `run()` and reports that the server is a stub;
+it does not yet implement the LSP protocol, diagnostics, hover, completion, or rename.
+
+## Planned editor experience
+
+The project’s design calls for:
+
+- live type, effect, linearity, and uncomputation diagnostics;
+- hover information for types and effects;
+- definition, references, rename, and completion;
+- GIR/circuit inspection;
+- inlay hints for inferred register sizes and effects.
+
+Treat these as roadmap items until a protocol implementation and editor integration tests land.

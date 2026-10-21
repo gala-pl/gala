@@ -1,107 +1,58 @@
 ---
-title: CLI Reference
-description: The gala command-line interface
+title: CLI reference
+description: The commands and flags implemented by crates/gala-cli.
 ---
 
-One entry point for everything — built with `clap`.
+Run the CLI from the repository with:
+
+```bash
+cargo run --bin gala -- <command> ...
+```
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `gala new <name>` | Scaffold a new project (`gala.toml`, `src/main.gala`) |
-| `gala run [file]` | Compile + run on the built-in simulator (zero config) |
-| `gala build` | Compile; `--emit gir\|qir\|llvm\|native`; `--target <backend>` |
-| `gala test` | Run tests including quantum property tests |
-| `gala fmt` | Canonical formatter (`--check` for CI) |
-| `gala repl` | Interactive REPL with live visualization |
-| `gala add <pkg>` | Add a dependency |
-| `gala explain <code>` | Long-form explanation of a diagnostic code (e.g. `E0530`) |
-| `gala lsp` | Run the language server (usually launched by the editor) |
-| `gala doc` | Generate API docs from `///` comments |
+| Command | Current interface |
+| --- | --- |
+| `gala run <file> [--shots N]` | Read and compile a file; current output is a simulated run placeholder. |
+| `gala build <file> [--emit KIND] [--output PATH]` | Compile and emit source or a labeled representation. |
+| `gala test [--file FILE]` | Check an optional file and print the current simulated test result. |
+| `gala fmt <file> [--check]` | Print canonical formatting, or fail if the file differs. |
+| `gala new <name> [--lib]` | Create `gala.toml` and `src/main.gala` or `src/lib.gala`. |
+| `gala repl` | Read lines and check them; currently echoes valid input. |
+| `gala add <pkg> [--version V] [--git URL] [--path PATH]` | Update the current manifest. |
+| `gala explain <code>` | Print a short explanation for known codes. |
+| `gala lsp` | Start the current LSP entry point, which is a stub. |
 
-## `gala run`
+## Build emission
 
-The critical first-five-minutes experience. Works with no configuration because the simulator
-is built in:
+The current CLI accepts `gir`, `qir`, and `llvm` as `--emit` values:
 
 ```bash
-gala new hello-bell
-cd hello-bell
-gala run
+cargo run --bin gala -- build examples/hello_world.gala --emit gir
+cargo run --bin gala -- build examples/hello_world.gala --emit qir --output build/out.ll
 ```
 
-## `gala build`
+These paths are intentionally documented as current behavior, not as completed backend support.
+The CLI adds a label and writes the source to the requested output; use the backend pages for the
+actual emitter status.
 
-Compile with selectable output:
+## Formatting
 
 ```bash
-gala build                              # default: binary
-gala build --emit gir                   # dump GIR (Gala IR)
-gala build --emit qir                   # emit QIR (LLVM IR)
-gala build --emit native                # native classical codegen
-gala build --emit llvm-ir               # LLVM IR
-gala build --emit object                # object file
+cargo run --bin gala -- fmt examples/hello_world.gala
+cargo run --bin gala -- fmt examples/hello_world.gala --check
 ```
 
-## `gala test`
+Without `--check`, the command prints formatted source to stdout. It does not currently overwrite
+the input file or recursively walk a directory.
 
-Runs example-based tests **and** quantum-aware property tests (unitarity, reversibility,
-uncomputation). See [Testing & QA](/docs/toolchain/testing).
-
-## `gala explain`
-
-Every diagnostic has a stable code. `gala explain` gives the long-form writeup:
+## Project scaffolding
 
 ```bash
-gala explain E0530
+cargo run --bin gala -- new demo
+cd demo
+cargo run --manifest-path ../Cargo.toml --bin gala -- build src/main.gala
 ```
 
-See [Diagnostics](/docs/toolchain/diagnostics) for the full error code catalog.
-
-## `gala fmt`
-
-One canonical style, no options (Go/gofmt philosophy):
-
-```bash
-gala fmt src/main.gala       # format in place
-gala fmt --check src/        # check only (for CI)
-```
-
-## `gala repl`
-
-Evaluate expressions incrementally and **see quantum state update live**: state-vector amplitudes,
-Bloch-sphere for single qubits, and measurement histograms. Backed by `gala-sim`. Great for
-teaching and exploration.
-
-## Feature flags
-
-The compiler supports feature flags to control which backends are available:
-
-| Flag | What it enables |
-|------|-----------------|
-| `default` | `frontend-only` — no LLVM/QuEST |
-| `qir` | QIR emission via inkwell |
-| `sim` | Simulator via roqoqo/QuEST |
-| `cranelift` | Classical codegen via cranelift |
-| `llvm` | Classical codegen via LLVM |
-| `full` | All backends |
-
-## Project layout
-
-```
-myproject/
-├── gala.toml
-├── gala.lock
-├── src/
-│   ├── main.gala          # or lib.gala
-│   └── ...
-└── tests/
-    └── ...
-```
-
-## The DX north star
-
-A newcomer runs `gala new demo && cd demo && gala run`, sees a Bell pair simulate and its circuit
-render, then introduces a no-cloning bug and gets a diagnostic that *teaches them the physics and
-points at the fix*. That loop — instant, visual, educational — is the adoption engine.
+The scaffold includes a manifest with a `gala-std` dependency and a minimal source file. Dependency
+resolution and registry installation are not yet complete.

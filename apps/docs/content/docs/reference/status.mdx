@@ -1,0 +1,43 @@
+---
+title: Implementation status
+description: What is implemented, partial, or planned in the current repository.
+---
+
+This page prevents a common failure mode in language documentation: describing the intended
+architecture as if every backend were already working.
+
+## Frontend and semantic core
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| Source spans and source map | implemented | `gala-span` provides file IDs, byte spans, source files, and interning |
+| Lexing | implemented in a hand-written form | `gala-lexer` emits tokens and spans, with nested block-comment handling |
+| Parsing and AST | implemented partially | `gala-parser` and `gala-ast` cover declarations, expressions, types, and recovery paths |
+| HIR and resolution | implemented partially | `gala-hir` desugars files, resolves definitions, and builds module data |
+| Types and effects | implemented partially | `gala-types` includes type checking, effect checks, and `Qubits<N>` size helpers |
+| Linearity | implemented partially | `check_linearity` tracks common moves, duplicate uses, and consumption cases |
+| Uncomputation | implemented as an analysis/planning layer | provenance and refusal diagnostics exist; backend execution is separate |
+| GIR | implemented as a data model and lowering path | `gala-gir` defines nodes, blocks, types, IDs, and lowering |
+| Incremental queries | implemented as a database foundation | Salsa inputs and tracked queries live in `gala-driver/src/db.rs` |
+
+## Toolchain and backends
+
+| Area | State | Current limitation |
+| --- | --- | --- |
+| Formatter | usable but incomplete | parses and prints supported AST nodes; does not edit files in place |
+| Diagnostics | data model implemented | emitter is lightweight and CLI explanations are seeded, not exhaustive |
+| Package manifests | scaffolding implemented | dependency resolution and registry operations are placeholders |
+| CLI | command surface implemented | `run`, `test`, REPL, and emission output still contain simulated behavior |
+| Simulator | API scaffold | all backend runners currently return an empty error collection |
+| Runtime | API scaffold | backend registration and program types exist; execution returns an error placeholder |
+| QIR | minimal emitter scaffold | outputs a module shell rather than lowering gates and control flow |
+| Classical codegen | API scaffold | both target paths return an error placeholder |
+| Gradient lowering | API scaffold | parameter-shift and reverse-mode functions currently clone GIR |
+| Optimization | pass scaffold | pass entry points exist but do not rewrite GIR yet |
+| LSP | stub | `gala lsp` prints a stub message rather than speaking the protocol |
+
+## Reading rule
+
+Use phrases such as “the design intends” or “planned” for the second table. Use “the compiler
+currently” only for behavior covered by the first table or by tests. When adding a feature, update
+this page and add evidence in code or tests.

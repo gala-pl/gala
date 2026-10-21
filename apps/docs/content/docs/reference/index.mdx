@@ -1,0 +1,31 @@
+---
+title: Reference
+description: A map of the language contract, implementation surfaces, and source-of-truth documents.
+---
+
+Use this section when you need a precise answer about what a page means and where the behavior is
+implemented.
+
+## Language contract
+
+- [Syntax](/docs/language/syntax) mirrors the lexer, parser, and AST model.
+- [Types](/docs/language/types) explains linear quantum values and const-sized registers.
+- [Effects](/docs/language/effects) explains the pure/quantum/prob boundary.
+- [Quantum operations](/docs/language/quantum) explains ownership-threaded primitives.
+
+## Compiler contract
+
+- [Architecture](/docs/architecture) maps crates and boundaries.
+- [Pipeline](/docs/architecture/pipeline) maps the driver passes and Salsa queries.
+- [GIR](/docs/architecture/gir) explains the backend-facing IR.
+- [Backends](/docs/architecture/backends) records the execution and emission APIs.
+
+## Tooling contract
+
+- [CLI](/docs/toolchain/cli) lists the actual command-line flags.
+- [Diagnostics](/docs/toolchain/diagnostics) lists code families and explanation behavior.
+- [Testing](/docs/toolchain/testing) describes workspace and conformance tests.
+
+The repository `docs/` directory remains the design-of-record for longer architecture, type-system,
+roadmap, and agent-build-plan documents. These web pages distill that material and annotate it with
+implementation status from the source tree.

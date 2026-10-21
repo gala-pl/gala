@@ -1,4 +1,4 @@
 {
   "title": "Architecture",
-  "pages": ["index", "compiler-pipeline", "backends-runtime"]
+  "pages": ["index", "pipeline", "gir", "backends"]
 }

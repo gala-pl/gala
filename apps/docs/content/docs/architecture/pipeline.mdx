@@ -1,0 +1,66 @@
+---
+title: Compiler pipeline
+description: The source-to-GIR path and the incremental query model.
+---
+
+## Pass order
+
+```text
+.gala source
+   │
+   ▼
+lexer → tokens with spans
+   │
+   ▼
+parser → AST
+   │
+   ▼
+HIR → desugared definitions and module data
+   │
+   ▼
+type/effect checks → linearity checks → uncomputation analysis
+   │
+   ▼
+GIR → optional diff/opt passes → backend
+```
+
+The public driver entry point is `gala_driver::compile_source`. It parses a source string, creates
+HIR functions, type-checks them, records effects, checks linearity, analyzes and synthesizes
+uncomputation plans, and lowers successful functions to GIR. `check_file` exposes the same path as
+a diagnostics-only operation.
+
+## Incremental database
+
+`gala-driver/src/db.rs` defines a Salsa database with inputs for source files and function
+definitions. The tracked query surface includes:
+
+- tokens and AST;
+- HIR and resolved HIR;
+- module graph and function collection;
+- type and effect queries;
+- linearity and uncomputation queries;
+- GIR, gradient, and optimized-GIR queries.
+
+This gives the project a place to share compiler state with future editor tooling. The current
+LSP crate is still a stub, so do not assume all queries are exposed over LSP yet.
+
+## Error handling
+
+The parser returns a `Diagnostics` collection rather than panicking on a parse failure. The
+driver stops before GIR when diagnostics contain errors. Diagnostic codes are grouped by stage:
+
+| Range | Stage |
+| --- | --- |
+| `E01xx` | syntax |
+| `E02xx` | type and size checking |
+| `E03xx` | effects |
+| `E04xx` | linearity |
+| `E05xx` | uncomputation |
+| `E06xx` | backend capabilities and emission |
+
+## Determinism and gaps
+
+The data model is intended to make GIR stable and inspectable. The diff and optimizer passes
+currently preserve their inputs, the simulator returns an error placeholder, and QIR emission
+currently creates a minimal module shell. Those facts are recorded rather than hidden behind the
+design description.

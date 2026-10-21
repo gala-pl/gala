@@ -1,0 +1,25 @@
+---
+title: Toolchain
+description: CLI commands, diagnostics, formatting, tests, and editor integration.
+---
+
+The Rust workspace ships a single `gala` binary plus supporting crates. The toolchain is designed
+to make the compiler usable from a terminal, CI, and eventually an editor.
+
+## Available now
+
+- `gala build <file>` runs the compiler driver and can print a labeled GIR/QIR/LLVM placeholder.
+- `gala fmt <file>` formats or checks one file.
+- `gala new <name>` scaffolds a package directory.
+- `gala add <pkg>` updates `gala.toml` dependencies.
+- `gala explain <code>` prints a short explanation for the seeded diagnostic codes.
+- `gala test [--file <file>]` is present, but its current success output is simulated.
+
+## Still under construction
+
+The LSP entry point is a stub, simulator execution is not wired, package resolution is a
+placeholder, and the CLI does not yet expose the full design roadmap such as `gala check`,
+`gala doc`, backend targets, JSON diagnostics, or property runners.
+
+See [CLI](/docs/toolchain/cli) for exact current flags and [implementation status]
+(/docs/reference/status) for the distinction between API shape and working behavior.

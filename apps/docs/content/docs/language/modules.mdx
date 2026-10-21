@@ -1,59 +1,52 @@
 ---
-title: Modules & Imports
-description: Organizing code, packages, and the import system
+title: Modules and packages
+description: Organize Gala source and declare dependencies with gala.toml.
 ---
 
-Gala organizes code into **packages** and **modules**, with a standard import system.
+The language model uses dotted module paths and imports:
 
-## Packages
-
-A package is a directory with a `gala.toml` manifest:
-
-```toml
-[package]
-name = "my-vqa"
-version = "0.1.0"
-
-[dependencies]
-gala = "0.1.0"
-```
-
-The standard library (`gala.core`, `gala.gates`, `gala.vqa`, etc.) is versioned with the
-toolchain and available by default.
-
-## Imports
-
-```
+```gala
 import gala.core.*
-import gala.vqa.{ angle_encode, layered_ansatz }
-import mypkg.foo as f
+import gala.gates.{ h, cx }
+import mypkg.encoding as encoding
 ```
 
-- `import gala.core.*` — import everything from `gala.core`
-- `import gala.vqa.{ angle_encode, Params }` — import specific items
-- `import mypkg.foo as f` — import with an alias
-
-## Module paths
-
-Module paths mirror directory structure. A file at `src/utils/encoding.gala` defines the module
-`utils.encoding`.
+The AST and HIR include import nodes, module identifiers, definitions, and a module-graph builder.
+The package crate provides the manifest and lockfile data structures.
 
 ## Project layout
 
-```
-myproject/
-├── gala.toml              # package manifest
-├── gala.lock              # lockfile for reproducible builds
+```text
+my-project/
+├── gala.toml
+├── gala.lock
 ├── src/
-│   ├── main.gala          # entry point (or lib.gala for libraries)
-│   └── ...
+│   ├── main.gala
+│   └── helpers.gala
 └── tests/
-    └── ...
 ```
 
-Use `gala new <name>` to scaffold this layout automatically.
+## Manifest
 
-## See also
+`gala-pkg` reads a TOML manifest with a `[package]` table and optional `[dependencies]` and
+`[dev-dependencies]` tables:
 
-- [Toolchain & CLI](/docs/toolchain/cli) — `gala new`, `gala add`, package management
-- [Standard Library](/docs/stdlib) — the layered stdlib hierarchy
+```toml
+[package]
+name = "my-project"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+gala-std = "0.1.0"
+```
+
+The current resolver can serialize simple, git, and path dependencies into a lockfile-shaped
+structure. Registry fetching and a complete dependency graph resolver are still planned.
+
+## Standard library source
+
+The repository’s Gala-source library lives under `library/std`. The Rust `gala-std` crate currently
+provides classical helper modules; the Gala-source files are the intended home for core, gates,
+algorithms, VQA, noise, and hardware layers as they mature.

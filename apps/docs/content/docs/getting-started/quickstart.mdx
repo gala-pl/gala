@@ -1,71 +1,65 @@
 ---
 title: Quickstart
-description: Write and run your first Gala program in minutes
+description: Read and check a first Gala program without hiding the implementation status.
 ---
 
-Let's create a Bell pair — the simplest quantum program that demonstrates entanglement.
+Gala source files use the `.gala` extension. The compiler accepts top-level function definitions;
+the parser also has AST forms for structs, enums, traits, implementations, type aliases, constants,
+and imports.
 
-## Create a project
+## A classical first program
+
+Create `hello.gala`:
+
+```gala
+fn main() -> Int pure {
+    return 42;
+}
+```
+
+Check it through the CLI:
 
 ```bash
-gala new hello-bell
-cd hello-bell
+cargo run --bin gala -- build hello.gala
 ```
 
-This scaffolds a project with `gala.toml`, `src/main.gala`, and a `tests/` directory.
+The current `build` command performs the frontend compilation and prints the source or a labeled
+placeholder for a requested emission. It does not yet produce a native executable.
 
-## Write a Bell pair
+## A quantum-shaped program
 
-Edit `src/main.gala`:
+The language model uses ownership-threaded values. A Bell-pair-shaped function can be written as:
 
-```
-fn main() {
-    let result = bell()
-    print(result)
-}
-
-fn bell() -> Qubits<2> quantum {
-    let a = qubit()
-    let b = qubit()
-    h(a)
-    let (a, b) = cx(a, b)
-    (a, b)
+```gala
+fn bell(a: Qubit, b: Qubit) -> (Qubit, Qubit) quantum {
+    let a = h(a);
+    let (a, b) = cx(a, b);
+    return (a, b);
 }
 ```
 
-## Run it
+The return value makes the ownership story explicit: the two qubits are still live and are returned
+to the caller. In the current implementation, built-in names and quantum operations are represented
+in the HIR and type-checking layers, but the execution backends are not complete.
 
-```bash
-gala run
-```
+## See the linear rule
 
-The simulator compiles and executes the program, outputting the final state.
+This program attempts to use a moved qubit twice:
 
-## Introduce a no-cloning bug
-
-Try copying a qubit:
-
-```
-fn bad() -> (Qubit, Qubit) quantum {
-    let a = qubit()
-    (a, a)  // Error!
+```gala
+fn invalid(q: Qubit) -> (Qubit, Qubit) quantum {
+    let first = q;
+    let second = q;
+    return (first, second);
 }
 ```
 
-Gala rejects this:
+The intended rule is that a linear quantum value cannot be duplicated. The repository contains
+conformance fixtures for duplicate use, use after consumption, aliasing, and implicit drop under
+`tests/conformance/linearity/`.
 
-```
-error[E0410]: qubit `a` duplicated
-  ┌─ src/main.gala:10:5
-9 │     let a = qubit()
-10 │     (a, a)
-  │      ^  ^ `a` used here a second time
-  = help: qubits are linear resources — they cannot be cloned.
-          If you need two qubits, allocate two.
-```
+## What to read next
 
-## What's next
-
-- [Vision & Goals](/docs/vision) — understand the philosophy behind Gala
-- [Language Specification](/docs/language-spec) — full syntax reference
-- [Toolchain & DX](/docs/guides/toolchain) — CLI commands, LSP, debugging
+- [Syntax](/docs/language/syntax) for the accepted surface forms.
+- [Types](/docs/language/types) and [Effects](/docs/language/effects) for semantic rules.
+- [Compiler pipeline](/docs/architecture/pipeline) to see how this source is processed.
