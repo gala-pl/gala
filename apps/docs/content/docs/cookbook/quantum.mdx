@@ -1,19 +1,35 @@
 ---
-title: Quantum Recipes
-description: Core quantum computing patterns
+title: Quantum patterns
+description: Explicitly thread qubits and keep the measurement boundary visible.
 ---
 
-Qubits, gates, and the effect system.
+## Thread a gate result
 
-| Recipe | What you'll learn |
-|--------|-------------------|
-| bell_pair | Create and measure a Bell state — entanglement in 5 lines |
-| quantum_gates | Single-qubit gates (H, X, Y, Z, S, T) and two-qubit gates (CX, CZ, SWAP) |
-| superposition | Put a qubit into superposition and understand probabilities |
-| entanglement | Multi-qubit entanglement patterns and GHZ states |
-| measurement_and_effects | Crossing the measurement boundary — `quantum` → `prob` effects |
-| qubit_ownership | Linear types in action — no-cloning, move semantics, and `drop` |
+```gala
+fn hadamard(q: Qubit) -> Qubit quantum {
+    return h(q);
+}
+```
 
-**Prerequisites:** Beginner recipes or familiarity with Gala syntax.
+The input binding is consumed by `h`; the returned binding is the live resource. This style is
+more verbose than in-place sugar but makes linear ownership obvious.
 
-**See also:** [Language Specification](/docs/language-spec), [Type System](/docs/type-system)
+## Return all resources from a two-qubit operation
+
+```gala
+fn pair(a: Qubit, b: Qubit) -> (Qubit, Qubit) quantum {
+    return cx(a, b);
+}
+```
+
+## Cross into probability
+
+```gala
+fn read(q: Qubit) -> Measured<Bool> prob {
+    return measure(q);
+}
+```
+
+The `prob` annotation communicates that the function is not a reversible unitary kernel. The
+current simulator and runtime do not yet execute this program, but the frontend and diagnostics
+model are built around this distinction.

@@ -1,0 +1,54 @@
+---
+title: Quantum operations
+description: Allocation, gates, measurement, reversibility, and safe release.
+---
+
+Quantum operations are represented as built-ins in the HIR and GIR design. They consume and return
+quantum values so the ownership transition is explicit.
+
+## Allocation and gates
+
+```gala
+fn prepare(q: Qubit) -> Qubit quantum {
+    let q = h(q);
+    let q = rz(q, 0.5);
+    return q;
+}
+```
+
+The built-in registry used by the incremental driver includes allocation for `Qubit` and
+`Qubits`, measurement, drop, `h`, `x`, `y`, `z`, `s`, `t`, `rx`, `ry`, `rz`, `cx`, `cz`, and
+`swap`.
+
+## Two-qubit ownership
+
+Operations that touch multiple qubits return all live resources:
+
+```gala
+fn entangle(a: Qubit, b: Qubit) -> (Qubit, Qubit) quantum {
+    return cx(a, b);
+}
+```
+
+This shape prevents accidentally losing a qubit at a call boundary. In-place gate syntax is a
+planned convenience in the language design, but explicit rebinding is the clearest form for code
+that must work with the current parser and checker.
+
+## Measurement and release
+
+```gala
+fn read(q: Qubit) -> Measured<Bool> prob {
+    return measure(q);
+}
+```
+
+Measurement consumes `q`. A temporary quantum value that is not returned must be intentionally
+released. The uncomputation pass records reversible provenance and can produce a plan for safe
+release when the value is liftable; measurement-dependent or irreversible provenance is refused.
+
+## Reversibility and gradients
+
+The language design reserves `reverse`, `adjoint`, `control`, and `grad` as quantum-language
+operations. The corresponding crates exist, but the current implementations of gradient lowering,
+optimization, simulation, and QIR emission are scaffolds. See [implementation status]
+(/docs/reference/status) before relying on these operations in a production workflow.

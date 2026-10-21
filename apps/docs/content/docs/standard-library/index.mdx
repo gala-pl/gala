@@ -1,0 +1,31 @@
+---
+title: Standard library
+description: The Gala-source and Rust support layers, their intended modules, and current state.
+---
+
+The standard library has two layers:
+
+1. `library/std/` contains Gala-source modules that are intended to become the user-facing
+   `gala.*` library.
+2. `crates/gala-std/` contains Rust-side helper modules used by the toolchain and runtime.
+
+The design favors Gala source for ordinary APIs and compiler intrinsics only for operations that
+cannot be expressed in Gala, such as qubit allocation, gate primitives, and measurement.
+
+## Intended layers
+
+```text
+gala.vqa         encoders, ansätze, optimizers
+gala.algorithms  QFT, Grover, phase estimation, Trotter steps
+gala.gates       standard and derived gates
+gala.core        qubit resources and measurement
+gala.classical   collections, numerics, strings, I/O
+gala.noise       typed noise models
+gala.hardware    capabilities and topology
+```
+
+## Stability labels
+
+The documentation distinguishes design surface from shipped API. A module or function should not
+be described as stable until it has implementation coverage, conformance or property tests, and
+public documentation.

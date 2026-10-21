@@ -1,0 +1,34 @@
+---
+title: Module inventory
+description: What the standard-library source files are intended to contain.
+---
+
+The repository currently includes these Gala-source files under `library/std`:
+
+| File | Intended responsibility | State |
+| --- | --- | --- |
+| `core.gala` | resource primitives, allocation, measurement | placeholder/design surface |
+| `gates.gala` | one- and two-qubit gates | placeholder/design surface |
+| `algorithms.gala` | reusable quantum algorithms | placeholder/design surface |
+| `vqa.gala` | encoders, ansätze, and hybrid ML helpers | placeholder/design surface |
+| `noise.gala` | noise models | placeholder/design surface |
+| `hardware.gala` | backend capabilities and topology | placeholder/design surface |
+| `classical.gala` | classical helpers | placeholder/design surface |
+
+The Rust standard-library crate currently exposes classical modules such as `io`, `str`, and
+`vec`. Some methods are intentionally incomplete; for example, vector mutation still requires an
+allocator. Consult the source before depending on an item.
+
+## Core operations in the language design
+
+The intended primitive signatures look like:
+
+```gala
+qubit() -> Qubit quantum
+qubits<N>() -> Qubits<N> quantum
+measure(q: Qubit) -> Measured<Bool> prob
+drop(q: Qubit) quantum
+```
+
+These are part of the language and compiler design, not a claim that a complete runtime-backed
+stdlib ships today.

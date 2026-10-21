@@ -1,12 +1,20 @@
 {
+  "root": true,
   "pages": [
+    "index",
+    "---Start here---",
     "getting-started",
-    "vision",
-    "language-spec",
-    "architecture",
-    "guides",
+    "language",
     "cookbook",
+    "---Build with Gala---",
+    "standard-library",
+    "toolchain",
+    "architecture",
+    "---Reference---",
+    "reference",
+    "---Project---",
     "contributing",
-    "roadmap"
+    "roadmap",
+    "resources"
   ]
 }

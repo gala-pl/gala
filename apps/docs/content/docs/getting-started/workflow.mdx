@@ -1,0 +1,44 @@
+---
+title: Development workflow
+description: A repeatable loop for changing Gala and keeping behavior documented.
+---
+
+Gala is developed as a Rust workspace with source fixtures that exercise the language boundary.
+Keep changes narrow: compiler behavior belongs in the relevant crate, while user-facing behavior
+needs a conformance or integration test and an update to this site.
+
+## The local loop
+
+```bash
+cargo fmt --check
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
+cargo build --workspace
+```
+
+When investigating one source file, use the CLI directly:
+
+```bash
+cargo run --bin gala -- build tests/fixtures/bell.gala
+cargo run --bin gala -- fmt tests/fixtures/bell.gala --check
+```
+
+## Where tests live
+
+- `crates/*/src` contains unit tests close to implementation code.
+- `crates/*/tests` contains crate-level properties, snapshots, and conformance helpers.
+- `tests/conformance` contains language fixtures grouped by type, effects, linearity,
+  uncomputation, differentiation, QIR, runtime, and valid programs.
+- `tests/fixtures` contains parser and integration inputs.
+
+## Updating the contract
+
+When observable syntax or semantics change:
+
+1. Update the language documentation.
+2. Add both a successful case and a refusal case where relevant.
+3. Keep diagnostic codes and explanations synchronized.
+4. Run the workspace gates.
+
+The project uses conventional commits and feature branches named `wp-XXX-short-slug`; see
+[Contributing](/docs/contributing) for the full definition of done.

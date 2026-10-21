@@ -1,0 +1,69 @@
+---
+title: Types and ownership
+description: Classical values, linear quantum resources, measured results, and register sizes.
+---
+
+## Core types
+
+| Type | Role | Ownership model |
+| --- | --- | --- |
+| `Bool`, `Int`, `Float`, `Complex`, `String`, `Unit` | Classical values | Ordinary values |
+| `Qubit` | One quantum resource | Linear |
+| `Qubits<N>` | A register with a compile-time size | Linear |
+| `Measured<T>` | A classical result produced by measurement | Classical result |
+| `Vec<T>` and tuples | Classical aggregates | Depends on contained semantics |
+| `fn(...) -> T` | Function values | Callable values |
+
+The `Ty` model in `gala-types` also carries type variables, function types, tuples, arrays, named
+types, and measured values. `Qubits<N>` sizes are represented as const expressions and have a
+dedicated unification check.
+
+## Linear values
+
+The intended linear discipline is:
+
+1. Moving a qubit consumes the old binding.
+2. A linear value cannot be duplicated or aliased.
+3. A linear value must be returned, measured, explicitly dropped, or otherwise consumed.
+4. A value cannot be used after it has been consumed.
+
+This is the language-level representation of the no-cloning constraint. The implementation’s
+`check_linearity` pass tracks definitions, parameters, and consumption states and emits codes in
+the `E04xx` family.
+
+```gala
+fn keep(q: Qubit) -> Qubit quantum {
+    let moved = q;
+    return moved;
+}
+```
+
+The old name `q` is not available after the move. A second use is rejected by the checker rather
+than being left to a simulator or backend.
+
+## `Qubits<N>`
+
+The size parameter makes register shape visible in APIs:
+
+```gala
+fn prepare() -> Qubits<4> quantum {
+    return qubits<4>();
+}
+```
+
+`gala-types` exposes `unify_qubits_size` and a `QUBITS_SIZE_MISMATCH` diagnostic. This is
+const-generic sizing, not full dependent typing: values can still depend on runtime data.
+
+## Measured values
+
+Measurement crosses into the classical world and returns `Measured<T>`. The design reserves room
+for sampling, expectation, and distribution operations, but those APIs are not yet implemented as
+a complete standard library. Do not document `Measured<T>` as a plain `T` or assume that a
+measurement is reversible.
+
+## Inference versus annotations
+
+Gala’s checker can infer parts of the classical type structure, while public quantum APIs benefit
+from explicit resource and effect annotations. The compiler driver currently checks each discovered
+function and lowers successfully checked functions into GIR; module-wide inference and package
+resolution are still evolving.

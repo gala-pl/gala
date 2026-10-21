@@ -1,0 +1,38 @@
+---
+title: Resources
+description: Repository documents, examples, tests, and source locations for deeper study.
+---
+
+## Repository documents
+
+- `docs/VISION.md` — goals, non-goals, and design principles.
+- `docs/LANGUAGE_SPEC.md` — surface syntax and language examples.
+- `docs/TYPE_SYSTEM.md` — linearity, effects, uncomputation, and gradients.
+- `docs/ARCHITECTURE.md` — workspace and crate boundaries.
+- `docs/COMPILER_PIPELINE.md` — pass order and query graph.
+- `docs/BACKENDS_RUNTIME.md` — intended backends and runtime model.
+- `docs/TESTING_QA.md` — test levels and conformance strategy.
+- `docs/ROADMAP.md` — milestones and open RFC questions.
+- `docs/GLOSSARY.md` — quantum, PL, and compiler terminology.
+
+## Source locations
+
+```text
+crates/                 Rust compiler and toolchain crates
+library/std/            Gala-source standard-library modules
+tests/conformance/      language behavior fixtures
+tests/fixtures/         parser and integration fixtures
+examples/               small Gala source examples
+apps/docs/content/docs/ this documentation site
+```
+
+## Useful entry points
+
+- `crates/gala-driver/src/lib.rs`: batch compilation orchestration.
+- `crates/gala-driver/src/db.rs`: incremental Salsa queries.
+- `crates/gala-types/src/lib.rs`: type, effect, and linearity logic.
+- `crates/gala-uncompute/src/lib.rs`: provenance and release planning.
+- `crates/gala-gir/src/lib.rs`: GIR data model and lowering.
+- `crates/gala-cli/src/main.rs`: current command surface.
+
+The canonical repository is [gala-pl/gala](https://github.com/gala-pl/gala).

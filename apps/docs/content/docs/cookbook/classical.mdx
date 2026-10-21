@@ -1,0 +1,36 @@
+---
+title: Classical patterns
+description: Functions, arithmetic, branches, and formatting in ordinary Gala code.
+---
+
+## A pure function
+
+```gala
+fn square(value: Int) -> Int pure {
+    return value * value;
+}
+```
+
+## A branch
+
+```gala
+fn sign(value: Int) -> Int pure {
+    if value < 0 {
+        return -1;
+    }
+    if value > 0 {
+        return 1;
+    }
+    return 0;
+}
+```
+
+## Check formatting
+
+```bash
+cargo run --bin gala -- fmt examples/hello_world.gala
+cargo run --bin gala -- fmt examples/hello_world.gala --check
+```
+
+The formatter is a source-to-source helper built on the lexer and parser. It currently prints
+output rather than editing files in place.
