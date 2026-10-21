@@ -4,7 +4,7 @@ use gala_ast::Ident;
 use gala_diagnostics::{codes, Diagnostic, Diagnostics};
 use gala_gir::{
     Block, ClassicalOp, Constant, FuncId, GateKind, Gir, GirFunc, GirNode, NodeId, NodeKind,
-    Terminator, ValueId,
+    Terminator, TypeKind, ValueId,
 };
 use gala_span::Span;
 use gala_types::Effect;
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 /// Lower reverse-mode gradient functions for pure GIR functions.
 ///
-/// Each source parameter gets a sibling function named <name>_grad_<index>.
+/// Each source parameter gets a sibling function named `name_grad_index`.
 /// The sibling contains the original straight-line body followed by symbolic
 /// derivative nodes and returns the selected parameter's derivative.
 pub fn lower_gradients(gir: &mut Gir) {
@@ -171,12 +171,6 @@ pub fn reverse_mode_autodiff_gir(
     };
     let source_nodes = source_block.nodes.clone();
 
-    let derivative_is_float = source_nodes.iter().any(|node_id| {
-        matches!(
-            gir.nodes.get(node_id).map(|node| &node.kind),
-            Some(NodeKind::Constant(Constant::Float(_)))
-        )
-    });
     let mut next_node = lowered.nodes.keys().map(|id| id.0).max().unwrap_or(0).saturating_add(1);
     let mut next_value = lowered
         .nodes
@@ -193,6 +187,26 @@ pub fn reverse_mode_autodiff_gir(
         if param_idx >= source.params.len() {
             return Err(unsupported("autodiff parameter index is outside the function parameters"));
         }
+
+        // Prefer the declared parameter/return types over the presence of a
+        // float constant in the body. A function such as `fn f(x: Float) ->
+        // Float { x * x }` has no float literal, but its derivative still
+        // needs float zero/one constants.
+        let derivative_is_float = source
+            .param_tys
+            .get(param_idx)
+            .and_then(|type_id| gir.types.get(type_id))
+            .is_some_and(|ty| matches!(&ty.kind, TypeKind::Float))
+            || source
+                .ret_ty
+                .and_then(|type_id| gir.types.get(&type_id))
+                .is_some_and(|ty| matches!(&ty.kind, TypeKind::Float))
+            || source_nodes.iter().any(|node_id| {
+                matches!(
+                    gir.nodes.get(node_id).map(|node| &node.kind),
+                    Some(NodeKind::Constant(Constant::Float(_)))
+                )
+            });
 
         let mut block = source_block.clone();
         let mut derivatives = HashMap::<ValueId, ValueId>::new();
@@ -584,6 +598,32 @@ mod tests {
             .nodes
             .values()
             .any(|node| matches!(node.kind, NodeKind::Constant(Constant::Int(1)))));
+    }
+
+    #[test]
+    fn test_reverse_mode_autodiff_float_parameter_without_float_literal() {
+        let mut gir = Gir::default();
+        gir.types.insert(
+            gala_gir::TypeId(0),
+            gala_gir::GirType {
+                id: gala_gir::TypeId(0),
+                kind: TypeKind::Float,
+                span: Span::dummy(),
+            },
+        );
+        let mut func = GirFunc::new_test();
+        func.params = vec![ValueId(0)];
+        func.param_tys = vec![gala_gir::TypeId(0)];
+        func.ret_ty = Some(gala_gir::TypeId(0));
+        let block = func.blocks.get_mut(&BlockId(0)).expect("entry block exists");
+        block.terminator = Some(Terminator::Return(Some(ValueId(0))));
+        gir.funcs.insert(func.id, func);
+
+        let (lowered, ids) = reverse_mode_autodiff_gir(&gir, FuncId(0), &[0]).expect("autodiff");
+        assert_eq!(ids.len(), 1);
+        assert!(lowered.nodes.values().any(|node| {
+            matches!(node.kind, NodeKind::Constant(Constant::Float(value)) if value == 1.0)
+        }));
     }
 
     #[test]
