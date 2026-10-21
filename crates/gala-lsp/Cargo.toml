@@ -11,3 +11,7 @@ name = "gala_lsp"
 path = "src/lib.rs"
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+gala-driver.workspace = true
+gala-span.workspace = true

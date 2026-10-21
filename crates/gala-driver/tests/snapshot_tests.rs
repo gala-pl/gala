@@ -20,9 +20,8 @@ fn simple_pure_function() {
 fn quantum_function_rejected_without_uncompute() {
     // The compiler enforces safe uncomputation for the quantum effect: a quantum
     // function that returns a linear `Qubit` without an explicit uncomputation
-    // strategy must be rejected. Quantum intrinsics (qubit(), h(), cx(), ...) are
-    // not yet implemented, so we exercise the linearity/uncompute safety on a
-    // qubit parameter. This verifies the quantum effect path and the E0501 check.
+    // strategy must be rejected. This uses a qubit parameter to isolate the
+    // linearity/uncompute safety path and verify the E0501 check.
     let source = "fn bell_pair(q: Qubit) -> Qubit quantum { return q; }";
     let mut map = SourceMap::new();
     let result = compile_source(source, &mut map);

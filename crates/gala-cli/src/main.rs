@@ -1,11 +1,14 @@
 //! The `gala` CLI — user-facing entry point for the Gala toolchain.
 
 use clap::{Parser, Subcommand};
+use gala_codegen_classical::emit_llvm;
 use gala_diagnostics::Emitter;
-use gala_driver::check_file;
+use gala_driver::{check_file, compile_file};
 use gala_fmt::{format_source, is_formatted};
 use gala_lsp::run as run_lsp;
 use gala_pkg::{add_dependency, init_project};
+use gala_qir::{emit_qir, QirProfile};
+use gala_runtime::Runtime;
 use gala_span::SourceMap;
 use std::path::PathBuf;
 use std::process;
@@ -19,7 +22,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Compile and run a .gala file on the built-in simulator
+    /// Compile and execute a supported quantum .gala file with the simulator backend
     Run {
         file: PathBuf,
         #[arg(long)]
@@ -33,7 +36,7 @@ enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
     },
-    /// Run tests
+    /// Type-check a test file
     Test {
         #[arg(long)]
         file: Option<PathBuf>,
@@ -83,14 +86,25 @@ fn main() {
             };
 
             let fid = source_map.add_file(file.clone(), source.clone());
-            match check_file(fid, &source, &mut source_map) {
-                diags if !diags.has_errors() => {
-                    println!("{}", source);
-                    if let Some(s) = shots {
-                        eprintln!("running with {} shots (simulated)", s);
+            match compile_file(fid, &source, &mut source_map) {
+                Ok(gir) => {
+                    let runtime = Runtime::new();
+                    match runtime.run(&gir, "sim", shots.unwrap_or(1024) as u64) {
+                        Ok(result) => {
+                            let mut counts: Vec<_> = result.counts.into_iter().collect();
+                            counts.sort_by(|(lhs, _), (rhs, _)| lhs.cmp(rhs));
+                            for (basis, count) in counts {
+                                println!("{basis}: {count}");
+                            }
+                        }
+                        Err(diags) => {
+                            let emitter = Emitter::new(&source_map);
+                            emitter.emit_all(&diags);
+                            process::exit(2);
+                        }
                     }
                 }
-                diags => {
+                Err(diags) => {
                     let emitter = Emitter::new(&source_map);
                     emitter.emit_all(&diags);
                     process::exit(1);
@@ -107,25 +121,42 @@ fn main() {
             };
 
             let fid = source_map.add_file(file.clone(), source.clone());
-            match check_file(fid, &source, &mut source_map) {
-                diags if !diags.has_errors() => {
-                    let result = match emit.as_deref() {
-                        Some("gir") => format!("; GIR output\n{}", source),
-                        Some("qir") => format!("; QIR output\n{}", source),
-                        Some("llvm") => format!("; LLVM IR\n{}", source),
-                        _ => source,
+            match compile_file(fid, &source, &mut source_map) {
+                Ok(gir) => {
+                    let artifact = match emit.as_deref() {
+                        Some("gir") => Ok(format!("{gir:#?}")),
+                        Some("qir") => emit_qir(&gir, QirProfile::Base)
+                            .map_err(|_| "QIR emission failed".to_string()),
+                        Some("llvm") => {
+                            emit_llvm(&gir).map_err(|_| "LLVM emission failed".to_string())
+                        }
+                        Some(other) => Err(format!("unknown emit target '{other}'")),
+                        None => Ok(String::new()),
+                    };
+                    let result = match artifact {
+                        Ok(result) => result,
+                        Err(message) => {
+                            eprintln!("error: {message}");
+                            process::exit(1);
+                        }
                     };
 
                     if let Some(path) = output {
+                        if emit.is_none() {
+                            eprintln!("error: --output requires --emit");
+                            process::exit(1);
+                        }
                         if let Err(e) = std::fs::write(&path, &result) {
                             eprintln!("error: could not write '{}': {}", path.display(), e);
                             process::exit(1);
                         }
+                    } else if !result.is_empty() {
+                        println!("{result}");
                     } else {
-                        println!("{}", result);
+                        println!("build succeeded");
                     }
                 }
-                diags => {
+                Err(diags) => {
                     let emitter = Emitter::new(&source_map);
                     emitter.emit_all(&diags);
                     process::exit(1);
@@ -133,12 +164,27 @@ fn main() {
             }
         }
         Commands::Test { file } => {
-            if let Some(f) = file {
-                let source = std::fs::read_to_string(f).unwrap_or_default();
+            let Some(f) = file else {
+                eprintln!("error: no test file supplied");
+                process::exit(2);
+            };
+            {
+                let source = match std::fs::read_to_string(&f) {
+                    Ok(source) => source,
+                    Err(error) => {
+                        eprintln!("error: could not read '{}': {error}", f.display());
+                        process::exit(1);
+                    }
+                };
                 let fid = source_map.add_file("<test>".into(), source.clone());
-                let _ = check_file(fid, &source, &mut source_map);
+                let diags = check_file(fid, &source, &mut source_map);
+                if diags.has_errors() {
+                    let emitter = Emitter::new(&source_map);
+                    emitter.emit_all(&diags);
+                    process::exit(1);
+                }
             }
-            println!("tests passed (simulated)");
+            println!("tests passed");
         }
         Commands::Fmt { file, check } => {
             let source = match std::fs::read_to_string(&file) {

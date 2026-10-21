@@ -19,3 +19,4 @@ gala-opt.workspace = true
 gala-diff.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
+gala-sim.workspace = true

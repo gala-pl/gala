@@ -13,24 +13,32 @@ pub fn parse_file(
 ) -> Result<Vec<gala_ast::Item>, Diagnostics> {
     let lexer = Lexer::new(file_id, source);
     let tokens = lexer.collect_all();
-    parse(tokens.as_slice())
+    parse_with_source(tokens.as_slice(), Some(source))
 }
 
 /// Parse a token stream into an AST.
 pub fn parse(tokens: &[(Token, Span)]) -> Result<Vec<gala_ast::Item>, Diagnostics> {
-    let mut parser = Parser::new(tokens);
+    parse_with_source(tokens, None)
+}
+
+fn parse_with_source(
+    tokens: &[(Token, Span)],
+    source: Option<&str>,
+) -> Result<Vec<gala_ast::Item>, Diagnostics> {
+    let mut parser = Parser::new(tokens, source);
     parser.parse()
 }
 
 struct Parser<'a> {
     tokens: &'a [(Token, Span)],
+    source: Option<&'a str>,
     pos: usize,
     diags: Diagnostics,
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: &'a [(Token, Span)]) -> Self {
-        Parser { tokens, pos: 0, diags: Diagnostics::new() }
+    fn new(tokens: &'a [(Token, Span)], source: Option<&'a str>) -> Self {
+        Parser { tokens, source, pos: 0, diags: Diagnostics::new() }
     }
 
     fn parse(&mut self) -> Result<Vec<gala_ast::Item>, Diagnostics> {
@@ -92,17 +100,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_generics(&mut self) -> Result<Vec<gala_ast::GenericParam>, ()> {
-        if !self.match_token(&Token::LAngle) {
+        if !self.match_l_angle() {
             return Ok(Vec::new());
         }
         let mut params = Vec::new();
-        while !self.check(&Token::RAngle) && !self.is_at_end() {
+        while !self.check_r_angle() && !self.is_at_end() {
             params.push(self.parse_generic_param()?);
             if !self.match_token(&Token::Comma) {
                 break;
             }
         }
-        self.expect(&Token::RAngle)?;
+        self.expect_r_angle()?;
         Ok(params)
     }
 
@@ -156,7 +164,9 @@ impl<'a> Parser<'a> {
                 stmts.push(self.parse_stmt()?);
             } else {
                 let expr = self.parse_expr()?;
-                if self.match_token(&Token::Semicolon) {
+                if self.match_token(&Token::Semicolon)
+                    || (self.line_break_before_current() && !self.check(&Token::RBrace))
+                {
                     stmts.push(gala_ast::Stmt::Expr(expr));
                 } else {
                     tail = Some(Box::new(expr));
@@ -175,7 +185,7 @@ impl<'a> Parser<'a> {
             let ty = if self.match_token(&Token::Colon) { Some(self.parse_type()?) } else { None };
             self.expect(&Token::Eq)?;
             let init = self.parse_expr()?;
-            self.expect(&Token::Semicolon)?;
+            self.expect_statement_end()?;
             Ok(gala_ast::Stmt::Let(gala_ast::LetStmt {
                 mutable,
                 pattern,
@@ -184,12 +194,16 @@ impl<'a> Parser<'a> {
                 span: Span::dummy(),
             }))
         } else if self.match_token(&Token::KwReturn) {
-            let expr = if !self.check(&Token::Semicolon) { Some(self.parse_expr()?) } else { None };
-            self.expect(&Token::Semicolon)?;
+            let expr = if !self.check(&Token::Semicolon) && !self.check(&Token::RBrace) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+            self.expect_statement_end()?;
             Ok(gala_ast::Stmt::Return(expr))
         } else {
             let expr = self.parse_expr()?;
-            self.expect(&Token::Semicolon)?;
+            self.expect_statement_end()?;
             Ok(gala_ast::Stmt::Expr(expr))
         }
     }
@@ -325,9 +339,23 @@ impl<'a> Parser<'a> {
             }
         }
         if self.match_token(&Token::LParen) {
-            let expr = self.parse_expr()?;
+            if self.match_token(&Token::RParen) {
+                return Ok(gala_ast::Expr::Tuple(Vec::new()));
+            }
+            let first = self.parse_expr()?;
+            if !self.match_token(&Token::Comma) {
+                self.expect(&Token::RParen)?;
+                return Ok(first);
+            }
+            let mut exprs = vec![first];
+            while !self.check(&Token::RParen) && !self.is_at_end() {
+                exprs.push(self.parse_expr()?);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+            }
             self.expect(&Token::RParen)?;
-            return Ok(expr);
+            return Ok(gala_ast::Expr::Tuple(exprs));
         }
         if self.match_token(&Token::LBrace) {
             return Ok(gala_ast::Expr::Block(self.parse_block()?));
@@ -464,15 +492,15 @@ impl<'a> Parser<'a> {
             return Ok(gala_ast::Type::Qubit);
         }
         if self.match_token(&Token::TyQubits) {
-            self.expect(&Token::LAngle)?;
+            self.expect_l_angle()?;
             let size = self.parse_const_expr()?;
-            self.expect(&Token::RAngle)?;
+            self.expect_r_angle()?;
             return Ok(gala_ast::Type::Qubits(Box::new(size)));
         }
         if self.match_token(&Token::TyMeasured) {
-            self.expect(&Token::LAngle)?;
+            self.expect_l_angle()?;
             let ty = self.parse_type()?;
-            self.expect(&Token::RAngle)?;
+            self.expect_r_angle()?;
             return Ok(gala_ast::Type::Measured(Box::new(ty)));
         }
         if self.match_token(&Token::TyBool) {
@@ -566,11 +594,13 @@ impl<'a> Parser<'a> {
             }));
         }
         if self.match_token(&Token::TyVec) {
+            let mut type_args = Vec::new();
+            if self.match_l_angle() {
+                type_args.push(gala_ast::TypeArg::Type(self.parse_type()?));
+                self.expect_r_angle()?;
+            }
             return Ok(gala_ast::Type::Path(gala_ast::Path {
-                segments: vec![gala_ast::PathSegment {
-                    ident: Ident::new("Vec"),
-                    type_args: Vec::new(),
-                }],
+                segments: vec![gala_ast::PathSegment { ident: Ident::new("Vec"), type_args }],
                 span: Span::dummy(),
             }));
         }
@@ -584,10 +614,9 @@ impl<'a> Parser<'a> {
                 span: Span::dummy(),
             };
             // Check for generic args
-            if self.check(&Token::LAngle) {
-                self.advance_token();
+            if self.match_l_angle() {
                 let mut args = Vec::new();
-                while !self.check(&Token::RAngle) && !self.is_at_end() {
+                while !self.check_r_angle() && !self.is_at_end() {
                     if let Some((Token::Int(i), _)) = self.current_token() {
                         let i = *i;
                         self.advance_token();
@@ -599,7 +628,7 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-                self.expect(&Token::RAngle)?;
+                self.expect_r_angle()?;
                 return Ok(gala_ast::Type::Named(
                     path.segments[0].ident.as_str().to_string(),
                     args.iter()
@@ -673,6 +702,16 @@ impl<'a> Parser<'a> {
     fn parse_pattern(&mut self) -> Result<Pattern, ()> {
         if self.match_token(&Token::Underscore) {
             Ok(Pattern::Wildcard)
+        } else if self.match_token(&Token::LParen) {
+            let mut patterns = Vec::new();
+            while !self.check(&Token::RParen) && !self.is_at_end() {
+                patterns.push(self.parse_pattern()?);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+            }
+            self.expect(&Token::RParen)?;
+            Ok(Pattern::Tuple(patterns))
         } else if let Some((Token::Int(i), _)) = self.current_token().cloned() {
             self.advance_token();
             Ok(Pattern::Literal(gala_ast::Literal::Int(i)))
@@ -900,6 +939,31 @@ impl<'a> Parser<'a> {
         self.tokens.get(self.pos)
     }
 
+    fn line_break_before_current(&self) -> bool {
+        let Some(source) = self.source else { return false };
+        let Some((_, current)) = self.current_token() else { return false };
+        let Some((_, previous)) = self.pos.checked_sub(1).and_then(|index| self.tokens.get(index))
+        else {
+            return false;
+        };
+        let start = previous.byte_span.end as usize;
+        let end = current.byte_span.start as usize;
+        source.get(start..end).is_some_and(|gap| gap.contains('\n'))
+    }
+
+    fn expect_statement_end(&mut self) -> Result<(), ()> {
+        if self.match_token(&Token::Semicolon)
+            || self.line_break_before_current()
+            || self.check(&Token::RBrace)
+            || self.is_at_end()
+        {
+            Ok(())
+        } else {
+            self.error("expected Semicolon");
+            Err(())
+        }
+    }
+
     fn advance_token(&mut self) -> Option<(Token, Span)> {
         let tok = self.current_token().cloned();
         self.pos += 1;
@@ -911,6 +975,35 @@ impl<'a> Parser<'a> {
             std::mem::discriminant(tok) == std::mem::discriminant(expected)
         } else {
             false
+        }
+    }
+
+    // The lexer currently uses Lt/Gt for both comparisons and generic angle
+    // brackets. Type parsing is the unambiguous context, so accept both the
+    // dedicated tokens and the comparison tokens here.
+    fn match_l_angle(&mut self) -> bool {
+        self.match_token(&Token::LAngle) || self.match_token(&Token::Lt)
+    }
+
+    fn check_r_angle(&self) -> bool {
+        self.check(&Token::RAngle) || self.check(&Token::Gt)
+    }
+
+    fn expect_l_angle(&mut self) -> Result<(), ()> {
+        if self.match_l_angle() {
+            Ok(())
+        } else {
+            self.error("expected LAngle");
+            Err(())
+        }
+    }
+
+    fn expect_r_angle(&mut self) -> Result<(), ()> {
+        if self.match_token(&Token::RAngle) || self.match_token(&Token::Gt) {
+            Ok(())
+        } else {
+            self.error("expected RAngle");
+            Err(())
         }
     }
 
@@ -1008,5 +1101,13 @@ mod tests {
         if let Err(diags) = result {
             assert!(diags.has_errors());
         }
+    }
+
+    #[test]
+    fn test_parse_quantum_fixture_syntax() {
+        let source = "fn bell() -> Qubits<2> quantum {\n    let a = qubit()\n    let b = qubit()\n    h(a)\n    let (a, b) = cx(a, b)\n    (a, b)\n}";
+        let mut map = SourceMap::new();
+        let fid = map.add_file("bell.gala".into(), source.to_string());
+        assert!(parse_file(fid, source, &mut map).is_ok());
     }
 }
