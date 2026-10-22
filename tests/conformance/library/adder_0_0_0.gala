@@ -1,0 +1,22 @@
+// expect-output: false
+// expect-output: false
+// expect-output: false
+// expect-output: false
+// full adder on inputs a=0 b=0 cin=0: sum and carry (order a, b, cin, cout)
+import gala.algorithms.{ full_adder }
+
+fn main() -> Int prob {
+    let a = qubit()
+    let b = qubit()
+    let c = qubit()
+    let co = qubit()
+    // a stays 0
+    // b stays 0
+    // cin stays 0
+    let (a, b, c, co) = full_adder(a, b, c, co)
+    print(measure(a))
+    print(measure(b))
+    print(measure(c))
+    print(measure(co))
+    0
+}

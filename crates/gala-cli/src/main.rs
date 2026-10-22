@@ -11,6 +11,41 @@ use std::process;
 
 mod fix;
 
+#[derive(Subcommand)]
+enum PkgCmd {
+    /// Add a dependency to gala.toml and update gala.lock
+    Add {
+        name: String,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+    },
+    /// Remove a dependency and update gala.lock
+    Remove {
+        name: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+    },
+    /// Update one package (or all) within the manifest's requirements
+    Update {
+        package: Option<String>,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+    },
+    /// Install from gala.lock; --locked fails if the manifest and lockfile disagree
+    Install {
+        #[arg(long)]
+        locked: bool,
+        #[arg(long)]
+        registry: Option<PathBuf>,
+    },
+    /// Publish the project to a local registry directory (remote registries are refused)
+    Publish { registry: String },
+}
+
 #[derive(Parser)]
 #[command(name = "gala", version, about = "The Gala programming language toolchain")]
 struct Cli {
@@ -100,6 +135,11 @@ enum Commands {
     /// line is the prompt, the source is the completion, and the expectation header is recorded
     /// in `properties`.
     Corpus { dir: PathBuf },
+    /// Package management with JSON output (gala-pkg schema)
+    Pkg {
+        #[command(subcommand)]
+        cmd: PkgCmd,
+    },
     /// Interactive session: definitions persist, and each expression is evaluated on the simulator
     Repl {
         /// One JSON object per input line, for programmatic use
@@ -141,6 +181,7 @@ fn main() {
         Commands::New { name, lib } => new_project(&name, lib),
         Commands::Add { name, version, path } => add(&name, version, path),
         Commands::Repl { json } => repl(json),
+        Commands::Pkg { cmd } => pkg_cmd(cmd),
         Commands::Corpus { dir } => corpus(&dir),
         Commands::Fix { file, apply, json } => fix_cmd(&file, apply, json),
     };
@@ -175,6 +216,28 @@ fn check(path: &Path, as_json: bool, fail_on_warnings: bool) -> i32 {
         Err(d) => d.clone(),
     };
     if as_json {
+        // Attach validated fixes to the diagnostics they repair. Fixes are checked by recompiling
+        // the entry source text, so they are offered for the entry file only.
+        let mut diags = diags.clone();
+        if let Ok(entry_text) = std::fs::read_to_string(entry_file(path)) {
+            for fix in fix::suggest(&entry_text, &diags.diagnostics) {
+                let edits = fix
+                    .edits
+                    .iter()
+                    .map(|e| gala_diagnostics::TextEdit {
+                        span: gala_span::Span::new(
+                            gala_span::FileId(0),
+                            gala_span::ByteSpan::new(e.start as u32, e.end as u32),
+                        ),
+                        new_text: e.new_text.clone(),
+                    })
+                    .collect();
+                diags.diagnostics[fix.diagnostic].fixes.push(gala_diagnostics::SuggestedFix {
+                    description: fix.description.clone(),
+                    edits,
+                });
+            }
+        }
         let items: Vec<Value> =
             diags.diagnostics.iter().map(|d| to_json(d, &sources.map)).collect();
         let errors = diags.errors().len();
@@ -569,6 +632,37 @@ fn property_tests(path: &Path, as_json: bool) -> i32 {
                         })),
                     }
                 }
+                "unitary" | "reversible" => match register_width(f) {
+                    Some(n) => {
+                        let as_register = matches!(f.params[0].ty, gala_ast::Type::Qubits(_));
+                        let (passed, detail, cx) = if kind == "unitary" {
+                            match unitarity_error(&program.gir, idx, n, as_register) {
+                                Ok(err) => (err < 1e-9, json!({"max_error": err, "tolerance": 1e-9}), Value::Null),
+                                Err(e) => (false, Value::Null, json!({"error": e.to_string()})),
+                            }
+                        } else {
+                            match worst_roundtrip(&program.gir, idx, n, as_register) {
+                                Ok((fid, input)) => (
+                                    1.0 - fid < 1e-9,
+                                    json!({"fidelity": fid, "tolerance": 1e-9}),
+                                    if 1.0 - fid < 1e-9 { Value::Null } else { json!({"input": input}) },
+                                ),
+                                Err(e) => (false, Value::Null, json!({"error": e.to_string()})),
+                            }
+                        };
+                        let mut details = json!({"function_name": name, "num_trials": 1 << n, "counterexample": cx});
+                        if let (Some(d), Some(m)) = (detail.as_object(), details.as_object_mut()) {
+                            for (k, v) in d {
+                                m.insert(k.clone(), v.clone());
+                            }
+                        }
+                        results.push(json!({"property": kind, "passed": passed, "details": details}));
+                    }
+                    None => skipped.push(json!({
+                        "property": kind, "function_name": name,
+                        "reason": "needs one parameter and one result, both Qubit or Qubits<N> of the same size",
+                    })),
+                },
                 other => skipped.push(json!({
                     "property": other, "function_name": name,
                     "reason": "no runner for this property in the CLI yet",
@@ -769,4 +863,96 @@ fn collect_gala(dir: &Path, out: &mut Vec<PathBuf>) {
             out.push(p);
         }
     }
+}
+
+/// `gala pkg ...`: run a package operation and print its JSON result.
+fn pkg_cmd(cmd: PkgCmd) -> i32 {
+    let project = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let result = match cmd {
+        PkgCmd::Add { name, version, path, registry } => {
+            let spec = match (version, path) {
+                (_, Some(p)) => DependencySpec::path(p.display().to_string()),
+                (Some(v), None) => DependencySpec::requirement(v),
+                (None, None) => DependencySpec::requirement("*"),
+            };
+            gala_pkg::commands::add(&project, &name, &spec, registry.as_deref())
+        }
+        PkgCmd::Remove { name, registry } => {
+            gala_pkg::commands::remove(&project, &name, registry.as_deref())
+        }
+        PkgCmd::Update { package, registry } => {
+            gala_pkg::commands::update(&project, package.as_deref(), registry.as_deref())
+        }
+        PkgCmd::Install { locked, registry } => {
+            gala_pkg::commands::install(&project, registry.as_deref(), locked)
+        }
+        PkgCmd::Publish { registry } => gala_pkg::commands::publish(&project, &registry),
+    };
+    match result {
+        Ok(v) => {
+            println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            0
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
+}
+
+/// Register width of a function with one `Qubit`/`Qubits<N>` parameter and a matching result.
+fn register_width(f: &gala_hir::HirFn) -> Option<usize> {
+    let [param] = f.params.as_slice() else { return None };
+    let width = |t: &gala_ast::Type| match t {
+        gala_ast::Type::Qubit => Some(1),
+        gala_ast::Type::Qubits(c) => gala_hir::const_int(c).filter(|n| *n > 0).map(|n| n as usize),
+        _ => None,
+    };
+    let n = width(&param.ty)?;
+    let ret = f.ret_ty.as_ref().and_then(width)?;
+    (ret == n && n <= 6).then_some(n)
+}
+
+/// Largest deviation of U†U from the identity, with U built from every basis input.
+fn unitarity_error(
+    gir: &gala_gir::Gir,
+    func: usize,
+    n: usize,
+    as_register: bool,
+) -> Result<f64, gala_sim::SimError> {
+    let dim = 1usize << n;
+    let mut cols = Vec::with_capacity(dim);
+    for k in 0..dim {
+        cols.push(gala_sim::basis_action(gir, func, n, k, as_register)?);
+    }
+    let mut worst = 0.0f64;
+    for a in 0..dim {
+        for b in 0..dim {
+            let (mut re, mut im) = (0.0, 0.0);
+            for (&(ar, ai), &(br, bi)) in cols[a].iter().zip(cols[b].iter()) {
+                re += ar * br + ai * bi;
+                im += ar * bi - ai * br;
+            }
+            let target = if a == b { 1.0 } else { 0.0 };
+            worst = worst.max(((re - target).powi(2) + im * im).sqrt());
+        }
+    }
+    Ok(worst)
+}
+
+/// Lowest round-trip fidelity over all basis inputs, with the input that achieves it.
+fn worst_roundtrip(
+    gir: &gala_gir::Gir,
+    func: usize,
+    n: usize,
+    as_register: bool,
+) -> Result<(f64, usize), gala_sim::SimError> {
+    let mut worst = (1.0f64, 0usize);
+    for k in 0..(1usize << n) {
+        let fid = gala_sim::reversible_roundtrip(gir, func, n, k, as_register)?;
+        if fid < worst.0 {
+            worst = (fid, k);
+        }
+    }
+    Ok(worst)
 }

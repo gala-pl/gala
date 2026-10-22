@@ -780,3 +780,124 @@ mod tests {
         assert_eq!(lower(src).unwrap().dump(), lower(src).unwrap().dump());
     }
 }
+
+/// Structural invariants of a lowered program. Returns one message per violation.
+///
+/// Checked: every jump and branch targets an existing block; every slot is below `slot_count`;
+/// every block is terminated; the entry point names a function; and a gate's outputs are fresh
+/// slots (each defined once), so the in-place rewriting in later passes stays sound.
+pub fn verify(gir: &Gir) -> Vec<String> {
+    let mut problems = Vec::new();
+    if let Some(e) = gir.entry {
+        if e >= gir.funcs.len() {
+            problems.push(format!("entry {e} is not a function"));
+        }
+    }
+    for f in &gir.funcs {
+        if f.blocks.is_empty() {
+            continue;
+        }
+        let nblocks = f.blocks.len() as u32;
+        let slot_ok = |s: Slot, what: &str, problems: &mut Vec<String>| {
+            if s >= f.slot_count {
+                problems.push(format!(
+                    "{}: {what} uses slot %{s} beyond slot_count {}",
+                    f.name, f.slot_count
+                ));
+            }
+        };
+        for p in &f.params {
+            slot_ok(*p, "parameter", &mut problems);
+        }
+        let mut defined: std::collections::HashMap<Slot, usize> = std::collections::HashMap::new();
+        for (bi, b) in f.blocks.iter().enumerate() {
+            for inst in &b.insts {
+                let dsts: Vec<Slot> = match inst {
+                    Inst::Const { dst, .. }
+                    | Inst::Copy { dst, .. }
+                    | Inst::Bin { dst, .. }
+                    | Inst::Un { dst, .. }
+                    | Inst::Tuple { dst, .. }
+                    | Inst::VecLit { dst, .. }
+                    | Inst::Index { dst, .. }
+                    | Inst::Len { dst, .. }
+                    | Inst::TupleGet { dst, .. }
+                    | Inst::AllocQubit { dst }
+                    | Inst::AllocRegister { dst, .. }
+                    | Inst::Measure { dst, .. } => vec![*dst],
+                    Inst::Call { dsts, .. } | Inst::Gate { dsts, .. } => dsts.clone(),
+                    Inst::Release { .. } | Inst::Print { .. } => Vec::new(),
+                };
+                for d in dsts {
+                    slot_ok(d, "definition", &mut problems);
+                    *defined.entry(d).or_insert(0) += 1;
+                }
+            }
+            match &b.term {
+                Term::Unreachable => {
+                    problems.push(format!("{}: block bb{bi} has no terminator", f.name))
+                }
+                Term::Jump(t) if *t >= nblocks => {
+                    problems.push(format!("{}: bb{bi} jumps to missing block bb{t}", f.name))
+                }
+                Term::Branch { cond, then_block, else_block } => {
+                    slot_ok(*cond, "branch condition", &mut problems);
+                    for t in [then_block, else_block] {
+                        if *t >= nblocks {
+                            problems.push(format!(
+                                "{}: bb{bi} branches to missing block bb{t}",
+                                f.name
+                            ));
+                        }
+                    }
+                }
+                Term::Return(Some(s)) => slot_ok(*s, "return", &mut problems),
+                _ => {}
+            }
+        }
+        // Gate outputs are fresh; a slot defined by a gate must not be defined anywhere else.
+        for b in &f.blocks {
+            for inst in &b.insts {
+                if let Inst::Gate { dsts, .. } = inst {
+                    for d in dsts {
+                        if defined.get(d).copied().unwrap_or(0) > 1 {
+                            problems.push(format!(
+                                "{}: gate output %{d} is defined more than once",
+                                f.name
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    problems
+}
+
+#[cfg(test)]
+mod verify_tests {
+    use super::*;
+
+    #[test]
+    fn lowered_programs_satisfy_the_invariants() {
+        let src = "fn main() -> Measured<Bool> prob {\n let a = qubit()\n let b = qubit()\n h(a)\n let (a, b) = cx(a, b)\n drop(b)\n measure(a)\n}\n";
+        let out = gala_parser::parse_source(gala_span::FileId(0), src);
+        let (pkg, _) = gala_hir::lower_file(gala_span::FileId(0), out.items);
+        let (info, _) = gala_types::check_package(&pkg);
+        let gir = lower_package(&pkg, &info).unwrap();
+        assert!(verify(&gir).is_empty(), "{:?}", verify(&gir));
+    }
+
+    #[test]
+    fn a_broken_jump_is_reported() {
+        let mut gir = Gir::default();
+        gir.funcs.push(GirFunc {
+            name: "f".into(),
+            effect: Effect::Pure,
+            params: vec![],
+            slot_count: 0,
+            blocks: vec![Block { insts: vec![], term: Term::Jump(9) }],
+        });
+        assert!(verify(&gir).iter().any(|m| m.contains("missing block bb9")));
+    }
+}

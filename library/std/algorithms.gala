@@ -41,3 +41,55 @@ fn grover2() -> Measured<Vec<Bool>> prob {
     h(q[1])
     measure(q)
 }
+
+/// Toffoli (controlled-controlled-NOT): flips `c` when both `a` and `b` are 1.
+/// Standard decomposition into H, T, T-adjoint, and CNOT; exact up to a global phase.
+fn toffoli(a: Qubit, b: Qubit, c: Qubit) -> (Qubit, Qubit, Qubit) quantum {
+    h(c)
+    cx(b, c)
+    rz(c, -0.7853981633974483)
+    cx(a, c)
+    t(c)
+    cx(b, c)
+    rz(c, -0.7853981633974483)
+    cx(a, c)
+    t(b)
+    t(c)
+    h(c)
+    cx(a, b)
+    t(a)
+    rz(b, -0.7853981633974483)
+    cx(a, b)
+    (a, b, c)
+}
+
+/// Full adder on one bit: `b` becomes the sum `a ⊕ b ⊕ cin`, and `cout` (which must start in |0⟩)
+/// becomes the carry `a·b ⊕ cin·(a ⊕ b)`. `a` and `cin` are unchanged.
+fn full_adder(a: Qubit, b: Qubit, cin: Qubit, cout: Qubit) -> (Qubit, Qubit, Qubit, Qubit) quantum {
+    let (a, b, cout) = toffoli(a, b, cout)
+    cx(a, b)
+    let (cin, b, cout) = toffoli(cin, b, cout)
+    cx(cin, b)
+    (a, b, cin, cout)
+}
+
+/// One first-order Trotter step of H = Z⊗Z + X⊗I for time `dt`:
+/// exp(−i·dt·ZZ) · exp(−i·dt·XI), with each term a basis-changed Z rotation.
+fn trotter_step2(q: Qubits<2>, dt: Float) -> Qubits<2> quantum {
+    cx(q[0], q[1])
+    rz(q[1], 2.0 * dt)
+    cx(q[0], q[1])
+    rx(q[0], 2.0 * dt)
+    q
+}
+
+/// Phase estimation with one counting qubit for the eigenphase φ = 1/2 of Z (eigenvalue −1 on
+/// |1⟩). The counting qubit reads 1 and the target stays in |1⟩, so the result is `[true, true]`.
+fn phase_estimate_z() -> Measured<Vec<Bool>> prob {
+    let q = qubits<2>()
+    x(q[1])
+    h(q[0])
+    cz(q[0], q[1])
+    h(q[0])
+    measure(q)
+}

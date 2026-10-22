@@ -69,11 +69,22 @@ export interface GradResult {
   reason: string;
 }
 
+export interface PropertyResult {
+  property: string;
+  passed: boolean;
+  details: Record<string, unknown>;
+}
+
 export interface PropertyVerification {
-  /** Always "unsupported" today: the CLI exposes no property runner. */
-  status: 'unsupported';
-  reason: string;
+  /**
+   * "passed": every requested property was run and held. "failed": at least one ran and did not
+   * hold. "unsupported": a requested property has no runner in the CLI (it is listed in
+   * `skipped`), so it was not checked. "error": the source does not compile.
+   */
+  status: 'passed' | 'failed' | 'unsupported' | 'error';
   requested: string[];
+  results: PropertyResult[];
+  skipped: Array<{ property: string; function_name: string; reason: string }>;
   /** Compile diagnostics, when the source does not type-check. */
   diagnostics: Diagnostic[];
 }
@@ -90,9 +101,6 @@ const GRAD_REASON =
   'The gala CLI exposes no gradient command yet (no `gala grad`), so gradients cannot be computed. ' +
   'No value is returned rather than a fabricated one.';
 
-const PROPERTY_REASON =
-  'The gala CLI exposes no property runner (`gala test` runs only #[test] functions). ' +
-  'Properties were not checked, so nothing is reported as passing.';
 
 export class GalaAgent {
   readonly galaBin: string;
@@ -151,18 +159,33 @@ export class GalaAgent {
   }
 
   /**
-   * Checks quantum properties (unitary, reversible, uncomputes, grad_matches, effect_honesty).
-   * Always reports "unsupported" today because the CLI exposes no property runner.
-   * If the source does not type-check, its diagnostics are included.
+   * Runs the `#[property(...)]` functions of a program through `gala test --property --json` and
+   * reports only the requested kinds. Kinds the CLI cannot run come back as "unsupported", never
+   * as passing.
    */
   async verifyProperties(code: string, properties: string[]): Promise<PropertyVerification> {
     const check = await this.check(code);
-    return {
-      status: 'unsupported',
-      reason: PROPERTY_REASON,
-      requested: [...properties],
-      diagnostics: check.diagnostics,
-    };
+    if (!check.ok) {
+      return { status: 'error', requested: [...properties], results: [], skipped: [], diagnostics: check.diagnostics };
+    }
+    return this.withSource(code, undefined, async (path) => {
+      const out = await this.exec(['test', path, '--property', '--json']);
+      let doc: { results: PropertyResult[]; skipped: PropertyVerification['skipped'] };
+      try {
+        doc = JSON.parse(out.stdout);
+      } catch {
+        throw new Error(this.describeFailure('gala test --property', out));
+      }
+      const wanted = new Set(properties);
+      const results = doc.results.filter((r) => wanted.has(r.property));
+      const skipped = doc.skipped.filter((s) => wanted.has(s.property));
+      const status = results.some((r) => !r.passed)
+        ? 'failed'
+        : skipped.length > 0
+          ? 'unsupported'
+          : 'passed';
+      return { status, requested: [...properties], results, skipped, diagnostics: [] };
+    });
   }
 
   private async withSource<T>(

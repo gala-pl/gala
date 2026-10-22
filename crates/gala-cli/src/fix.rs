@@ -17,6 +17,8 @@ pub struct Edit {
 /// A validated fix for one diagnostic.
 #[derive(Debug, Clone)]
 pub struct Fix {
+    /// Index into the diagnostics this fix belongs to.
+    pub diagnostic: usize,
     pub description: String,
     pub edits: Vec<Edit>,
     pub fixed_source: String,
@@ -139,13 +141,13 @@ fn scope_end(source: &str, pos: usize) -> Option<usize> {
 pub fn suggest(source: &str, diagnostics: &[Diagnostic]) -> Vec<Fix> {
     let before = errors_of(source);
     let mut out = Vec::new();
-    for d in diagnostics {
+    for (index, d) in diagnostics.iter().enumerate() {
         for (description, edits) in candidates(source, d) {
             let fixed = apply_edits(source, &edits);
             let after = errors_of(&fixed);
             let introduces_new = after.iter().any(|c| !before.contains(c));
             if after.len() < before.len() && !introduces_new {
-                out.push(Fix { description, edits, fixed_source: fixed });
+                out.push(Fix { diagnostic: index, description, edits, fixed_source: fixed });
                 break;
             }
         }

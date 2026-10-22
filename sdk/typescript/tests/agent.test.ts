@@ -29,12 +29,27 @@ describe('GalaAgent', () => {
     expect(result.reason.length).toBeGreaterThan(0);
   });
 
-  test('verifyProperties is unsupported, never passed', async () => {
-    const result = await agent.verifyProperties(read('tests/conformance/run/bell_run.gala'), [
-      'unitary',
-    ]);
+  test('verifyProperties runs runnable properties and reports the rest as unsupported', async () => {
+    const source = [
+      '#[property(effect_honesty, unitary)]',
+      'fn prep() -> Qubit quantum {',
+      '    qubit()',
+      '}',
+      '',
+      'fn main() -> Int { 0 }',
+      '',
+    ].join('\n');
+    const result = await agent.verifyProperties(source, ['effect_honesty', 'unitary']);
+    expect(result.results.map((r) => r.property)).toEqual(['effect_honesty']);
+    expect(result.results[0]?.passed).toBe(true);
+    expect(result.skipped.map((s) => s.property)).toEqual(['unitary']);
     expect(result.status).toBe('unsupported');
-    expect(result.requested).toEqual(['unitary']);
+  });
+
+  test('verifyProperties reports a source that does not compile as error', async () => {
+    const result = await agent.verifyProperties('fn main() -> Int { missing }', ['effect_honesty']);
+    expect(result.status).toBe('error');
+    expect(result.diagnostics.length).toBeGreaterThan(0);
   });
 
   test('a missing binary is reported as a failed run, not a crash', async () => {

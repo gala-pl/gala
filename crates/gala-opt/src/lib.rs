@@ -16,8 +16,102 @@ pub fn optimize(gir: &Gir) -> Gir {
     let mut out = gir.clone();
     for f in &mut out.funcs {
         cancel_self_inverse(f);
+        merge_rotations(f);
     }
     out
+}
+
+/// Merge adjacent rotations about the same axis on the same qubit into one rotation by the sum of
+/// their angles. Applies only when both angles are literal constants defined once, so the merged
+/// angle is known at compile time. Rotations about one axis commute and compose additively.
+fn merge_rotations(f: &mut gala_gir::GirFunc) {
+    let mut defs: HashMap<Slot, usize> = HashMap::new();
+    let mut consts: HashMap<Slot, f64> = HashMap::new();
+    for b in &f.blocks {
+        for i in &b.insts {
+            for d in defined_slots(i) {
+                *defs.entry(d).or_insert(0) += 1;
+            }
+            if let Inst::Const { dst, value } = i {
+                let v = match value {
+                    gala_gir::Const::Float(v) => Some(*v),
+                    gala_gir::Const::Int(v) => Some(*v as f64),
+                    _ => None,
+                };
+                if let Some(v) = v {
+                    consts.insert(*dst, v);
+                }
+            }
+        }
+    }
+    let single = |s: &Slot| defs.get(s) == Some(&1);
+    let mut next_slot = f.slot_count;
+    let mut rename: HashMap<Slot, Slot> = HashMap::new();
+    for b in &mut f.blocks {
+        let mut kept: Vec<Inst> = Vec::with_capacity(b.insts.len());
+        for inst in b.insts.drain(..) {
+            if let Inst::Gate { gate, targets, angle: Some(a2), dsts } = &inst {
+                if matches!(gate, GateKind::Rx | GateKind::Ry | GateKind::Rz) {
+                    // Constants between the two rotations do not touch the qubit, so look back
+                    // past them to the previous instruction that does.
+                    let prev = kept.iter().rposition(|i| !matches!(i, Inst::Const { .. }));
+                    let found = prev.and_then(|j| match &kept[j] {
+                        Inst::Gate { gate: g0, targets: t0, angle: Some(a1), dsts: d0 } => {
+                            Some((j, *g0, t0.clone(), *a1, d0.clone()))
+                        }
+                        _ => None,
+                    });
+                    if let Some((j, g0, t0, a1, d0)) = found {
+                        if let (Some(x), Some(y)) = (consts.get(&a1), consts.get(a2)) {
+                            if g0 == *gate && t0 == *targets && single(&a1) && single(a2) {
+                                let total = x + y;
+                                let angle_slot = next_slot;
+                                next_slot += 1;
+                                kept.remove(j);
+                                kept.push(Inst::Const {
+                                    dst: angle_slot,
+                                    value: gala_gir::Const::Float(total),
+                                });
+                                kept.push(Inst::Gate {
+                                    gate: g0,
+                                    targets: t0,
+                                    angle: Some(angle_slot),
+                                    dsts: d0.clone(),
+                                });
+                                // The second rotation's outputs are the same qubits as the merged one.
+                                for (out, keep) in dsts.iter().zip(d0.iter()) {
+                                    rename.insert(*out, *keep);
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            kept.push(inst);
+        }
+        b.insts = kept;
+    }
+    f.slot_count = next_slot;
+    if rename.is_empty() {
+        return;
+    }
+    let resolve = |mut s: Slot| {
+        while let Some(&n) = rename.get(&s) {
+            s = n;
+        }
+        s
+    };
+    for b in &mut f.blocks {
+        for inst in &mut b.insts {
+            rewrite_uses(inst, &resolve);
+        }
+        match &mut b.term {
+            Term::Branch { cond, .. } => *cond = resolve(*cond),
+            Term::Return(Some(s)) => *s = resolve(*s),
+            _ => {}
+        }
+    }
 }
 
 fn self_inverse(g: GateKind) -> bool {
@@ -184,6 +278,19 @@ mod tests {
         );
         assert_eq!(count_gates(&gir), 2);
         assert_eq!(count_gates(&optimize(&gir)), 0);
+    }
+
+    #[test]
+    fn adjacent_rotations_merge_and_keep_statistics() {
+        let src = "fn main() -> Measured<Bool> prob {\n let q = qubit()\n h(q)\n rz(q, 0.3)\n rz(q, 0.4)\n h(q)\n measure(q)\n}";
+        let gir = compile(src);
+        let opt = optimize(&gir);
+        assert_eq!(count_gates(&gir), 4);
+        assert_eq!(count_gates(&opt), 3, "two rz become one");
+        let cfg = gala_sim::SimConfig { shots: 4000, seed: 3, ..Default::default() };
+        let a = gala_sim::run_entry(&gir, &cfg).unwrap();
+        let b = gala_sim::run_entry(&opt, &cfg).unwrap();
+        assert_eq!(a.histogram, b.histogram, "merged rotation behaves identically");
     }
 
     #[test]

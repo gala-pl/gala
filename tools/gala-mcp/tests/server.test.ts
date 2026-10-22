@@ -137,10 +137,24 @@ describe('gala-mcp stdio server', () => {
     expect(doc.result).toBe('0');
   });
 
-  test('gala_fix, gala_gir and gala_lsp_query return error results, not fake success', async () => {
+  test('gala_fix and gala_gir run the CLI; gala_lsp_query stays an error result', async () => {
+    const fix = await client.request('tools/call', {
+      name: 'gala_fix',
+      arguments: { source: 'fn f() -> Int {\n    let x = 1\n    x = 2\n    x\n}\n' },
+    });
+    expect(fix.result.isError).toBeFalsy();
+    const fixDoc = JSON.parse(fix.result.content[0].text);
+    expect(fixDoc.schema).toBe('gala.fix.v1');
+    expect(fixDoc.fixes.length).toBeGreaterThan(0);
+
+    const gir = await client.request('tools/call', {
+      name: 'gala_gir',
+      arguments: { source: 'fn main() -> Int { 0 }' },
+    });
+    expect(gir.result.isError).toBeFalsy();
+    expect(JSON.parse(gir.result.content[0].text).version).toBe(1);
+
     for (const [name, args] of [
-      ['gala_fix', { source: 'fn main() -> Int { 0 }' }],
-      ['gala_gir', { source: 'fn main() -> Int { 0 }' }],
       [
         'gala_lsp_query',
         {

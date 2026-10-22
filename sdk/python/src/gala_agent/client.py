@@ -20,10 +20,6 @@ _GRAD_REASON = (
     "The gala CLI exposes no gradient command yet (no `gala grad`), so gradients cannot be "
     "computed. No value is returned rather than a fabricated one."
 )
-_PROPERTY_REASON = (
-    "The gala CLI exposes no property runner (`gala test` runs only #[test] functions). "
-    "Properties were not checked, so nothing is reported as passing."
-)
 
 
 class GalaError(RuntimeError):
@@ -59,9 +55,13 @@ class GradResult:
 
 @dataclass
 class PropertyVerification:
+    """status: "passed" (all requested ran and held), "failed" (one did not hold), "unsupported"
+    (a requested kind has no runner and is listed in `skipped`), or "error" (does not compile)."""
+
     status: str
-    reason: str
     requested: List[str]
+    results: List[Dict[str, Any]]
+    skipped: List[Dict[str, Any]]
     diagnostics: List[Dict[str, Any]]
 
 
@@ -148,16 +148,37 @@ class GalaAgent:
         return GradResult(supported=False, reason=_GRAD_REASON)
 
     def verify_properties(self, code: str, properties: Sequence[str]) -> PropertyVerification:
-        """Checks quantum properties. Always "unsupported": the CLI has no property runner.
-
-        The source is type-checked so its diagnostics are returned alongside the status.
-        """
+        """Runs the `#[property(...)]` functions through `gala test --property --json` and reports
+        only the requested kinds. Kinds the CLI cannot run are "unsupported", never passing."""
         check = self.check(code)
+        if not check.ok:
+            return PropertyVerification(
+                status="error",
+                requested=list(properties),
+                results=[],
+                skipped=[],
+                diagnostics=check.diagnostics,
+            )
+        with self._source_file(code, None) as path:
+            proc = self._exec(["test", str(path), "--property", "--json"])
+        doc = _parse_json_object(proc.stdout)
+        if doc is None:
+            raise RuntimeError(self._describe_failure("test --property", proc))
+        wanted = set(properties)
+        results = [r for r in doc.get("results", []) if r.get("property") in wanted]
+        skipped = [s for s in doc.get("skipped", []) if s.get("property") in wanted]
+        if any(not r.get("passed") for r in results):
+            status = "failed"
+        elif skipped:
+            status = "unsupported"
+        else:
+            status = "passed"
         return PropertyVerification(
-            status="unsupported",
-            reason=_PROPERTY_REASON,
+            status=status,
             requested=list(properties),
-            diagnostics=check.diagnostics,
+            results=results,
+            skipped=skipped,
+            diagnostics=[],
         )
 
     # ----- internals -----

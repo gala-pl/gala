@@ -29,8 +29,13 @@
     "languages": [
       {
         "id": "gala",
-        "aliases": ["Gala", "gala"],
-        "extensions": [".gala"],
+        "aliases": [
+          "Gala",
+          "gala"
+        ],
+        "extensions": [
+          ".gala"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -82,6 +87,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show inline circuit diagram lenses for quantum functions"
+        },
+        "gala.lspPath": {
+          "type": "string",
+          "default": "gala-lsp",
+          "description": "Path to the gala-lsp language server binary."
         }
       }
     }
@@ -112,5 +122,8 @@
   },
   "bugs": {
     "url": "https://github.com/gala-lang/gala/issues"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

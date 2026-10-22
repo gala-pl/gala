@@ -176,7 +176,18 @@ pub fn compile_modules(modules: &[SourceModule]) -> Result<Program, Diagnostics>
         return Err(diags);
     }
     let gir = gala_gir::lower_package(&hir, &types)?;
+    // Internal invariant: lowering must produce well-formed GIR (checked in debug builds).
+    debug_assert!(
+        gala_gir::verify(&gir).is_empty(),
+        "GIR invariant violated: {:?}",
+        gala_gir::verify(&gir)
+    );
     let gir = gala_opt::optimize(&gir);
+    debug_assert!(
+        gala_gir::verify(&gir).is_empty(),
+        "optimizer broke GIR: {:?}",
+        gala_gir::verify(&gir)
+    );
     Ok(Program { hir, types, gir })
 }
 

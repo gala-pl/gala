@@ -915,3 +915,156 @@ mod tests {
         }
     }
 }
+
+/// Exact action of a register-to-register function on one computational basis input.
+///
+/// Prepares an `n`-qubit register in basis state `input` (bit `i` is register qubit `i`), calls
+/// `func` on it, and returns the output register's amplitudes in the function's returned order
+/// (index bit `j` is the `j`-th returned qubit). The function must leave no other qubit live.
+pub fn basis_action(
+    gir: &Gir,
+    func: usize,
+    n: usize,
+    input: usize,
+    as_register: bool,
+) -> Result<Vec<(f64, f64)>, SimError> {
+    let shifts = ShiftPlan::new();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0);
+    let mut ids = Vec::with_capacity(n);
+    for _ in 0..n {
+        ids.push(m.quantum.alloc()?);
+    }
+    for (i, &id) in ids.iter().enumerate() {
+        if input >> i & 1 == 1 {
+            m.quantum.apply(GateKind::X, &[id], 0.0, false)?;
+        }
+    }
+    let arg = if as_register { Value::Register(ids) } else { Value::Qubit(ids[0]) };
+    let out = match m.call(func, vec![arg])? {
+        Value::Register(v) => v,
+        Value::Qubit(id) => vec![id],
+        other => {
+            return Err(SimError::new(
+                codes::RUNTIME_ERROR,
+                format!("the function returned {other}, not a qubit or register"),
+            ))
+        }
+    };
+    let mut live: Vec<u32> = m.quantum.ids.clone();
+    let mut want = out.clone();
+    live.sort_unstable();
+    want.sort_unstable();
+    if live != want {
+        return Err(SimError::new(
+            codes::RUNTIME_ERROR,
+            "the function must return exactly the qubits it was given, with no others left live",
+        ));
+    }
+    let positions: Vec<usize> =
+        out.iter().map(|&id| m.quantum.pos(id)).collect::<Result<_, _>>()?;
+    let dim = 1usize << out.len();
+    let mut amps = Vec::with_capacity(dim);
+    for x in 0..dim {
+        let mut phys = 0usize;
+        for (j, &p) in positions.iter().enumerate() {
+            if x >> j & 1 == 1 {
+                phys |= 1 << p;
+            }
+        }
+        let a = m.quantum.amps[phys];
+        amps.push((a.re, a.im));
+    }
+    Ok(amps)
+}
+
+/// Fidelity of `func` as a round trip on basis input `input`: run it, then apply the inverse of
+/// every gate it applied (in reverse), and return the probability of getting `input` back.
+/// A reversible function returns 1.0; the gates undone by a release are not undone twice.
+pub fn reversible_roundtrip(
+    gir: &Gir,
+    func: usize,
+    n: usize,
+    input: usize,
+    as_register: bool,
+) -> Result<f64, SimError> {
+    let shifts = ShiftPlan::new();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0);
+    let mut ids = Vec::with_capacity(n);
+    for _ in 0..n {
+        ids.push(m.quantum.alloc()?);
+    }
+    for (i, &id) in ids.iter().enumerate() {
+        if input >> i & 1 == 1 {
+            m.quantum.apply(GateKind::X, &[id], 0.0, false)?;
+        }
+    }
+    let arg = if as_register { Value::Register(ids.clone()) } else { Value::Qubit(ids[0]) };
+    m.call(func, vec![arg])?;
+    let records: Vec<Record> = m.quantum.history.iter().filter(|r| !r.undone).cloned().collect();
+    for rec in records.iter().rev() {
+        m.quantum.apply(rec.gate, &rec.targets, rec.angle, true)?;
+    }
+    let live = m.quantum.ids.clone();
+    let mut want = ids.clone();
+    let mut have = live.clone();
+    want.sort_unstable();
+    have.sort_unstable();
+    if want != have {
+        return Err(SimError::new(
+            codes::RUNTIME_ERROR,
+            "the round trip left a different set of qubits live",
+        ));
+    }
+    // Index of `input` in the state's own ordering of the same qubits.
+    let mut index = 0usize;
+    for (i, &id) in ids.iter().enumerate() {
+        if input >> i & 1 == 1 {
+            index |= 1 << m.quantum.pos(id)?;
+        }
+    }
+    Ok(m.quantum.amps[index].norm2())
+}
+
+#[cfg(test)]
+mod basis_tests {
+    use super::*;
+    use gala_hir::lower_file;
+    use gala_parser::parse_source;
+    use gala_span::FileId;
+
+    fn gir_of(src: &str) -> Gir {
+        let out = parse_source(FileId(0), src);
+        let (pkg, _) = lower_file(FileId(0), out.items);
+        let (info, _) = gala_types::check_package(&pkg);
+        gala_gir::lower_package(&pkg, &info).expect("lowers")
+    }
+
+    #[test]
+    fn x_gate_maps_basis_zero_to_basis_one() {
+        let gir =
+            gir_of("fn flip(q: Qubit) -> Qubit quantum {\n    x(q)\n}\nfn main() -> Int { 0 }\n");
+        let func = gir.func_named("flip").unwrap();
+        let amps = basis_action(&gir, func, 1, 0, false).unwrap();
+        assert!(amps[0].0.hypot(amps[0].1) < 1e-12);
+        assert!((amps[1].0 - 1.0).abs() < 1e-12);
+        assert!((reversible_roundtrip(&gir, func, 1, 0, false).unwrap() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn dropping_a_nonzero_input_is_refused_at_release() {
+        // Dropping the input and returning a fresh |0⟩ maps both basis inputs to the same
+        // output, so its columns coincide and it cannot be unitary.
+        let gir = gir_of(
+            "fn bad(q: Qubit) -> Qubit quantum {\n    drop(q)\n    qubit()\n}\nfn main() -> Int { 0 }\n",
+        );
+        let func = gir.func_named("bad").unwrap();
+        // The |0⟩ input is released in |0⟩ and returns a fresh |0⟩ ...
+        let zero = basis_action(&gir, func, 1, 0, false).unwrap();
+        assert!((zero[0].0 - 1.0).abs() < 1e-12);
+        // ... while |1⟩ fails the release check, because a release requires |0⟩.
+        let one = basis_action(&gir, func, 1, 1, false).unwrap_err();
+        assert_eq!(one.code.to_string(), "E0530");
+    }
+}

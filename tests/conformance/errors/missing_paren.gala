@@ -2,4 +2,4 @@
 // a call with a missing closing parenthesis
 fn f() -> Int {
     g(1, 2
-}
+    }

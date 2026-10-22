@@ -52,12 +52,12 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'gala_build',
     description:
-      'Compile Gala source and return the text IR. emit_gir=true is not supported (the CLI has no gir.v1 JSON output).',
+      'Compile Gala source and return the text IR, or gir.v1 JSON when emit_gir is true.',
     inputSchema: {
       type: 'object',
       properties: {
         source: { type: 'string', description: 'Gala source code' },
-        emit_gir: { type: 'boolean', description: 'Request GIR JSON (currently unsupported)' },
+        emit_gir: { type: 'boolean', description: 'Return gir.v1 JSON instead of text IR' },
         gir_version: { type: 'integer', description: 'GIR schema version (only 1)' },
       },
       required: ['source'],
@@ -89,7 +89,7 @@ export const TOOL_DEFINITIONS = [
         properties: {
           type: 'array',
           items: { type: 'string', enum: RULE_CODES },
-          description: 'Property checks to run (currently unsupported by the CLI)',
+          description: 'Property kinds to run, e.g. grad_matches; empty runs all declared',
         },
       },
       required: ['source'],
@@ -99,7 +99,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'gala_fix',
     description:
-      'Apply suggested fixes to Gala source. Not implemented: the gala CLI has no fix subcommand.',
+      'Suggest validated fixes for Gala source (gala fix --json). Fixes are only offered when they reduce the error count.',
     inputSchema: {
       type: 'object',
       properties: { source: { type: 'string', description: 'Gala source code' } },
@@ -122,7 +122,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'gala_gir',
     description:
-      'Return gir.v1 JSON for a Gala source. Not implemented: the gala CLI cannot emit GIR JSON yet.',
+      'Return gir.v1 JSON for a Gala source (gala build --emit gir=json).',
     inputSchema: {
       type: 'object',
       properties: { source: { type: 'string', description: 'Gala source code' } },
@@ -251,15 +251,10 @@ async function galaBuild(args: {
   emit_gir?: boolean;
   gir_version?: number;
 }): Promise<ToolResult> {
-  if (args.emit_gir) {
-    return errorText(
-      'gala_build: GIR JSON output is not available. The gala CLI only emits text IR ' +
-        '(`gala build --emit gir=json` is not implemented yet). Call gala_build without emit_gir.'
-    );
-  }
   if (args.gir_version !== undefined && args.gir_version !== 1) {
     return errorText(`gala_build: unsupported gir_version ${args.gir_version} (only 1 exists)`);
   }
+  if (args.emit_gir) return galaGir(args.source);
   return withSourceFile(args.source, 'input.gala', async (path) => {
     const p = await runGala(['build', path]);
     if (p.spawnError || p.timedOut || p.exitCode !== 0) return procFailure('gala_build', p);
@@ -340,10 +335,20 @@ async function galaRun(args: { source: string; shots?: number; seed?: number }):
 
 async function galaTest(args: { source: string; properties?: string[] }): Promise<ToolResult> {
   if (args.properties && args.properties.length > 0) {
-    return errorText(
-      'gala_test: property checks are unsupported. The gala CLI exposes no property runner ' +
-        `(requested: ${args.properties.join(', ')}). Only #[test] functions can be run.`
-    );
+    return withSourceFile(args.source, 'input.gala', async (path) => {
+      const p = await runGala(['test', path, '--property', '--json']);
+      if (p.spawnError || p.timedOut) return procFailure('gala_test', p);
+      let doc: { results: Array<{ property: string; passed: boolean }>; skipped: unknown[] };
+      try {
+        doc = JSON.parse(p.stdout);
+      } catch {
+        return procFailure('gala_test', p);
+      }
+      const wanted = new Set(args.properties);
+      const results = doc.results.filter((r) => wanted.has(r.property));
+      const failed = results.filter((r) => !r.passed).length;
+      return okText({ ok: failed === 0, exit_code: p.exitCode, failed, results, skipped: doc.skipped });
+    });
   }
   return withSourceFile(args.source, 'input.gala', async (path) => {
     const p = await runGala(['test', path]);
@@ -363,18 +368,33 @@ async function galaTest(args: { source: string; properties?: string[] }): Promis
 
 // ---------- gala_fix / gala_gir / gala_lsp_query (unavailable) ----------
 
-function galaFix(): ToolResult {
-  return errorText(
-    'gala_fix is not implemented: the gala CLI has no `fix` subcommand. ' +
-      'Apply the suggested_fixes reported by gala_check manually.'
-  );
+async function galaFix(source: string): Promise<ToolResult> {
+  return withSourceFile(source, 'input.gala', async (path) => {
+    const p = await runGala(['fix', path, '--json']);
+    if (p.spawnError || p.timedOut || p.exitCode !== 0) return procFailure('gala_fix', p);
+    let doc: unknown;
+    try {
+      doc = JSON.parse(p.stdout);
+    } catch {
+      return procFailure('gala_fix', p);
+    }
+    return okText(doc);
+  });
 }
 
-function galaGir(): ToolResult {
-  return errorText(
-    'gala_gir is not implemented: the gala CLI cannot emit gir.v1 JSON yet. ' +
-      'The schema is available at gala://schema/gir.v1.'
-  );
+async function galaGir(source: string): Promise<ToolResult> {
+  return withSourceFile(source, 'input.gala', async (path) => {
+    const p = await runGala(['build', path, '--emit', 'gir=json']);
+    if (p.spawnError || p.timedOut || p.exitCode !== 0) return procFailure('gala_gir', p);
+    let doc: { version?: unknown };
+    try {
+      doc = JSON.parse(p.stdout);
+    } catch {
+      return procFailure('gala_gir', p);
+    }
+    if (doc.version !== 1) return errorText('gala_gir: CLI output is not gir.v1');
+    return okText(doc);
+  });
 }
 
 function galaLspQuery(args: { queryType: string }): ToolResult {
@@ -419,11 +439,11 @@ export async function callTool(name: ToolName, args: Record<string, unknown>): P
     case 'gala_test':
       return galaTest(args as { source: string; properties?: string[] });
     case 'gala_fix':
-      return galaFix();
+      return galaFix((args as { source: string }).source);
     case 'gala_explain':
       return galaExplain(args as { code: string });
     case 'gala_gir':
-      return galaGir();
+      return galaGir((args as { source: string }).source);
     case 'gala_lsp_query':
       return galaLspQuery(args as { queryType: string });
   }

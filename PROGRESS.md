@@ -82,11 +82,9 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
 - [x] **WP-001 Span, source DB, interning.** `gala-span` tests: `span_arithmetic_and_display`,
   `line_col_counts_newlines`, `files_iterate_in_id_order`, `interner_empty_string_round_trips`,
   `test_interner`. Byte offsets are used throughout.
-- [~] **WP-002 Diagnostics framework.** Registry of 40+ codes with long-form text, ariadne
-  rendering, `diagnostic.v1` JSON, `gala explain` in text/Markdown/JSON.
-  Tests: `json_matches_schema_v1_shape`, `render_contains_code_message_and_snippet`,
-  `every_registered_code_has_an_explanation`, `markdown_and_json_render_all_registered_codes`.
-  Open: no insta snapshot test of a multi-label diagnostic.
+- [x] **WP-002 Diagnostics framework.** Code registry with long-form text, ariadne rendering, `diagnostic.v1` JSON,
+  `gala explain` (text, Markdown, JSON). Tests: `json_matches_schema_v1_shape`, `every_registered_code_has_an_explanation`,
+  and the insta snapshot `multi_label_linearity` in `gala-diagnostics/tests/render_snapshot.rs`.
 - [~] **WP-003 CI + repo hygiene.** `ci.yml` calls `gala check`, which exists now. Open: the PR
   template DoD checklist and branch protection are not verified here; a failing test was not
   demonstrated to block merge.
@@ -100,11 +98,10 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
   Tests: parser unit tests (`parses_bell_pair_from_spec`, `syntax_error_recovers_and_keeps_later_items`,
   `missing_brace_reports_unexpected_eof`, `parses_match_arms`, …), snapshot and property tests.
   Open: `tests/fixtures/*.gala` are not all checked by a test.
-- [~] **WP-012 HIR, desugar, resolution, modules.** Name resolution with E0202, forward calls,
-  intrinsic binding, imports from bundled and on-disk modules (`load_file` in the driver).
-  Tests: nine `gala-hir` tests (`unresolved_name_is_e0202`, `import_from_module_table_binds_function`,
-  `let_rhs_sees_previous_binding`, …). Open: no multi-file package test; no salsa incremental test
-  (salsa is not used).
+- [~] **WP-012 HIR, desugar, resolution, modules.** Name resolution (E0202), forward calls, intrinsic binding,
+  imports from bundled and on-disk package modules. Tests: nine `gala-hir` tests; multi-file package tests
+  `import_resolves_to_a_sibling_module` and `missing_name_in_a_module_is_reported_at_the_import` (`gala-driver/tests/multi_file.rs`).
+  Open: no salsa incremental query layer (salsa is not used).
 - [x] **WP-013 Type & effect inference** `[spec-sensitive]`. Lattice `pure ⊑ quantum ⊑ prob`
   with a fixpoint over the call graph. Codes E0201–E0207, E0301–E0304. Tests: `pure_calling_quantum_is_e0302`,
   `quantum_calling_prob_is_e0303`, `measure_in_quantum_is_e0304`, `effects_propagate_through_calls_in_fixpoint`,
@@ -120,9 +117,9 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
   `partner_measured_before_drop_is_e0530`, `passing_through_user_call_is_e0530`,
   `register_drop_counts_each_element`; sim: `uncompute_returns_ancilla_to_zero`,
   `released_entangled_ancilla_undoes_entanglement`; conformance `uncompute/*`, `run/uncompute_runs`.
-- [x] **WP-016 GIR + lowering.** Block-structured GIR with `Gir::dump`. Golden snapshots:
-  `bell_pair_gir`, `classical_gir`. Tests: `bell_lowers_to_gates_and_measure`, `for_range_creates_loop_blocks`,
-  `dump_is_deterministic`. Open: linearity invariant checks in debug builds.
+- [~] **WP-016 GIR + lowering.** Block-structured GIR, text dump, `gir.v1` JSON. Golden snapshots `bell_pair_gir`,
+  `classical_gir`. Structural verifier `gala_gir::verify`, asserted in debug builds on every compile and tested
+  (`lowered_programs_satisfy_the_invariants`, `a_broken_jump_is_reported`). Open: golden QFT snapshot.
 - [x] **WP-017 `gala check` + `explain`.** `gala check` (text and `--json`), `gala explain`. The
   conformance suite asserts every case's expected code or output (`conformance_suite_passes`).
 
@@ -136,21 +133,25 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
 - [x] **WP-021 `gala run`.** `gala new demo && gala run demo` prints a Bell measurement (the
   scaffold is a Bell pair). Verified at the last run; the scaffold is in `gala-pkg`
   (`init_project`).
-- [~] **WP-022 Basic optimizer.** Adjacent self-inverse cancellation with a semantic check
-  (`cancellation_preserves_measurement_statistics`). Open: gate fusion and rotation merging.
+- [~] **WP-022 Basic optimizer.** Self-inverse cancellation and rotation merging for constant angles. Tests:
+  `cancellation_preserves_measurement_statistics`, `adjacent_rotations_merge_and_keep_statistics`. Open: gate fusion into
+  general single-qubit unitaries.
 - [~] **WP-023 `gala.core` + `gala.gates`.** Declarations bind to builtins. Unitarity:
   `matrices_are_unitary`. Adjoints: exercised by the uncompute path (`uncompute_returns_ancilla_to_zero`).
   Open: no property test over the gate library as a whole.
-- [~] **WP-024 `gala.algorithms`.** QFT2/IQFT2 (`qft_roundtrip`), Grover2 (`grover_search`).
-  Open: phase estimation, Trotter step, quantum adder; QFT is 2-qubit only (A9).
-- [x] **WP-025 Formatter.** Idempotent, comment-preserving, indentation canonical. Tests:
-  `formatting_is_idempotent_on_messy_input`, `is_idempotent`, `keeps_comments_and_strings_intact`,
-  `control_flow_is_indented`. Open: the stdlib is not formatter-checked.
+- [~] **WP-024 `gala.algorithms`.** QFT2/IQFT2 (round trip: `qft_roundtrip`), Grover2 (`grover_search`), Toffoli, full
+  adder (4 conformance cases `library/adder_*`), Trotter step (`trotter_identity`), one-counting-qubit phase estimation
+  (`phase_estimate`). Open: QFT/adder are fixed-size (generic sizes unsupported); Trotter has no physics check beyond
+  the identity at dt=0; no `reversible`/`uncomputes` property sweep over the library.
+- [x] **WP-025 Formatter.** Idempotent, comment-preserving. Every `.gala` file in the repository, including the library,
+  passes `gala fmt --check` (checked this session). Tests: `formatting_is_idempotent_on_messy_input`, `is_idempotent`,
+  `keeps_comments_and_strings_intact`.
 - [~] **WP-026 REPL.** `gala repl`: definitions persist, expressions are evaluated on the
   simulator. Open: quantum state does not persist across lines; no visualization.
-- [~] **WP-027 Property harness.** `gala test --property`: `effect_honesty` (checker-verified),
-  `uncomputes` (run and release check), `grad_matches` (parameter-shift vs finite differences).
-  Open: `unitary` and `reversible` have no runner and are reported as skipped.
+- [~] **WP-027 Property harness.** `gala test --property --json`: `effect_honesty`, `uncomputes`, `grad_matches`,
+  `unitary`, `reversible`. `unitary` and `reversible` are computed exactly from basis-state action (no sampling); tests
+  `x_gate_maps_basis_zero_to_basis_one`, `dropping_a_nonzero_input_is_refused_at_release`. Open: no shrinking of
+  counterexamples; the function must take one `Qubit`/`Qubits<N>` (N<=6) and return the same shape.
 
 ## M3 — Hybrid & differentiable
 
@@ -161,9 +162,9 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
 - [~] **WP-031 `gala.vqa`.** Encoder, ansatz, and classifier. `classifier_trains_to_target_accuracy`
   trains to 100% with decreasing loss. Open: the training loop is in Rust (`gala_diff::train`),
   not Gala source; no QAOA/VQE templates; no optimizer zoo.
-- [~] **WP-032 Noisy simulator.** Depolarizing noise per gate (`SimConfig::depolarizing`).
-  Test: `depolarizing_noise_flips_a_flipped_qubit_at_the_expected_rate` (rate 2p/3). Open: `gala.noise`
-  as a typed library; readout error; the noisy-vs-noiseless demo.
+- [~] **WP-032 Noisy simulator.** Depolarizing noise per gate (`SimConfig::depolarizing`). Test:
+  `depolarizing_noise_flips_a_flipped_qubit_at_the_expected_rate`. Open: `gala.noise` as a typed library (not bundled);
+  readout error.
 - [ ] **WP-033 Gradient batching.** Submissions per gradient are counted (`Gradient::submissions`:
   2 per gate occurrence). No batching implemented: the only submissions are single shifted circuits, and
   deduplicating them would not change any result. Not done until a target is defined.
@@ -171,8 +172,9 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
   tower-lsp: it is not in the offline cache). Lifecycle, diagnostics (UTF-16 positions), hover, definition,
   completion. Tests: 23 unit + `tests/stdio.rs::binary_serves_diagnostics_and_hover_over_stdio` (passing).
   Open: stdlib diagnostics map to 0:0; imported library symbols are not indexed; compile warnings dropped.
-- [~] **WP-035 VS Code extension.** `extensions/` exists from earlier work; not reviewed or tested
-  in this session. Publishing to the marketplace is `[!]`.
+- [~] **WP-035 VS Code extension.** The client now starts `gala-lsp` over stdio (`vscode-languageclient` 9.0.1; setting
+  `gala.lspPath`). Checked: JavaScript syntax, manifest JSON, and the server's `initialize` reply. Not run in VS Code.
+  Open: the TextMate grammar and circuit lens were not reviewed here; publishing is `[!]`.
 - [~] **WP-036 `gala doc`.** `crates/gala-doc` (`document_source`, `document_file`): Markdown from `///`
   comments above `fn`. Tests: 8 passing. Open: not wired into the CLI; stdlib publication is not done.
 
@@ -186,13 +188,11 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
 - [!] **WP-041 Vendor backends via `qoqo_qir`.** Needs vendor credentials and hardware.
 - [ ] **WP-042 Backend polymorphism.** `run(f, on: backend)` needs functions as first-class values,
   which the language does not support (A9). Not done.
-- [~] **WP-043 Target lowering.** SWAP routing on line and ring topologies with exact equivalence
-  check, SWAP→CX decomposition, depth. Tests in `gala-opt::route`: `distant_gates_are_routed_with_swaps_and_stay_equivalent`,
-  `ring_routes_no_further_than_line`, `swap_decomposes_to_three_cnots_with_same_distribution`,
-  `depth_counts_parallel_layers`. Open: hardware-specific native sets; wiring into `gala build`.
+- [~] **WP-043 Target lowering.** SWAP routing on line and ring topologies with exact equivalence check, SWAP→CX
+  decomposition, depth. Open: hardware native-gate sets; wiring into `gala build` (not done).
 - [ ] **WP-044 Classical codegen.** `gala-codegen-classical` predates this work and is not
   rewritten. Not done.
-- [ ] **WP-045 Tensor-network simulator.** Not done.
+- [ ] **WP-045 Tensor-network simulator.** Not done. An MPS simulator needs a decomposition (SVD) that the workspace does not provide offline; implementing one is a separate piece of work.
 - [x] **WP-046 Package manager + registry v1.** Local registry: publish and consume, reproducible
   lockfile. Tests (gala-pkg): `test_publish_and_consume_end_to_end`, `resolver_conflict_names_both_requirements`,
   `locked_install_fails_when_manifest_and_lockfile_disagree`, `publish_refuses_remote_registries_and_opening_them`.
@@ -201,11 +201,12 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
 
 ## M5 — Ecosystem & FT readiness
 
-- [x] **WP-050 Adaptive control flow.** Measure-and-branch runs on the simulator and as adaptive QIR.
-  Tests: conformance `run/adaptive_branch` (prints `branched`), `mid_circuit_measurement_selects_adaptive_profile`.
-- [ ] **WP-051 Python bridge.** Not done here (see Agent track for the SDK, which is not a PyTorch bridge).
+- [x] **WP-050 Adaptive control flow.** Measure-and-branch runs on the simulator and as adaptive QIR. Tests:
+  conformance `run/adaptive_branch`, `mid_circuit_measurement_selects_adaptive_profile`.
+- [ ] **WP-051 Python bridge.** Not done. The Python SDK (`gala_agent`) wraps the CLI for check/run/properties; a PyTorch loop needs PyTorch, which is not installed here.
 - [!] **WP-052 Notebook kernel.** Needs a Jupyter install and a kernel protocol implementation.
-- [ ] **WP-053 Expanded stdlib.** Not done beyond the four bundled modules.
+- [~] **WP-053 Expanded stdlib.** Stability tiers (`docs/STDLIB_STABILITY.md`) and a changelog entry. The stdlib gained
+  algorithms (WP-024); no new property-test sweep yet.
 - [~] **WP-054 Formal core writeup.** `docs/FORMAL_CORE.md`: semantics and progress/preservation sketch,
   explicitly not mechanized, with a "not proven" section. Cross-links to TYPE_SYSTEM.md are listed for the lead.
 - [~] **WP-055 Governance + RFC process.** `docs/decisions/` ADRs 0001–0006 (checked against the source)
@@ -215,41 +216,39 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
 
 ## Agent track (WP-060..072)
 
-- [x] **WP-060 Structured diagnostics JSON + `gala check --json`.** `gala.check.v1` envelope, each
-  diagnostic in `diagnostic.v1` shape. Test: `json_matches_schema_v1_shape`. Open: "80% of E04xx/E05xx
-  have machine-applicable fixes" — few fixes exist.
-- [~] **WP-061 Suggested fixes.** `gala fix <file> [--apply] [--json]`. Recipes: E0203 (declare `mut`),
-  E0402 (`drop(name)` before scope end). A fix is offered only if the edited program compiles with fewer
-  errors and adds no new code. Tests: `immutable_assignment_gets_mut_fix`, `unconsumed_qubit_gets_drop_before_scope_end`,
-  `fix_is_not_offered_when_it_would_add_an_error`. Open: no recipes for E0403/E0412; not yet wired into `check --json`.
-- [~] **WP-062 GIR JSON schema v1.** `gala build --emit gir=json` emits `gir.v1`; `gala run --from-gir` runs
-  a saved file. Test: `gir_json_round_trips_to_an_identical_program` (identical dump and histogram), plus
-  `gir_json_has_schema_v1_keys_and_typed_params`. Open: golden JSON snapshots; spans and types are not
-  restored on read.
+- [~] **WP-060 Structured diagnostics JSON + `gala check --json`.** `gala.check.v1` envelope; each diagnostic in
+  `diagnostic.v1` shape; validated fixes attached to the diagnostics they repair (E0203, E0402). Open: the 80% target
+  for E04xx/E05xx machine-applicable fixes is not met (only E0402 and E0203 have recipes).
+- [~] **WP-061 Suggested fixes.** `gala fix [--apply] [--json]` and `check --json`. Recipes: E0203, E0402, each
+  validated by recompiling. Tests: `immutable_assignment_gets_mut_fix`, `unconsumed_qubit_gets_drop_before_scope_end`,
+  `fix_is_not_offered_when_it_would_add_an_error`. Open: no recipes for E0403/E0412; fixes are checked against the entry
+  file alone.
+- [~] **WP-062 GIR JSON schema v1.** `gala build --emit gir=json` emits `gir.v1`; `gala run --from-gir` runs a saved file.
+  Test: `gir_json_round_trips_to_an_identical_program`. Open: golden JSON snapshots; spans and types are not restored on read.
 - [~] **WP-063 LSP custom methods.** `gala/typeAtPosition`, `gala/effectAtPosition`, `gala/girAtPosition`
   implemented (test: `custom_methods_report_type_effect_and_gir`). `gala/suggestFixes` returns an empty
   array: the compiler generates no fixes yet.
-- [~] **WP-064 Canonical formatter.** `--check`, `--diff`, `--stdin` work (manual runs this session). Open:
-  the repository's `.gala` files are not all checked with `--check`.
-- [x] **WP-065 Property JSON.** `gala test --property --json` output has the `property_result.v1`
-  fields. Tests: manual run recorded in the session (`effect_honesty`, `uncomputes`, `grad_matches` ok).
-  Open: unitary and reversible runners.
+- [x] **WP-064 Canonical formatter.** `--check`, `--diff`, `--stdin`; idempotent; all repository `.gala` files pass
+  `--check` (checked this session).
+- [x] **WP-065 Property JSON.** `gala test --property --json` runs `effect_honesty`, `uncomputes`, `grad_matches`,
+  `unitary`, `reversible`; output has the `property_result.v1` fields. Checked manually this session.
 - [x] **WP-066 `gala explain --markdown/--json`.** Tests: `markdown_and_json_render_all_registered_codes`,
   `explain_known_code_mentions_title`.
-- [~] **WP-067 Corpus generator.** `gala corpus <dir>` emits JSONL (`prompt`, `completion`, `properties`) for
-  all 46 conformance cases across every category. Open: `properties[]` holds the expectation and compile
-  status, not the property results; no agent-quality evaluation.
-- [x] **WP-068 `gala pkg --json`.** The package library's JSON outputs (`test_json_outputs_have_stable_keys`).
-  The `gala add` CLI does not print JSON yet.
+- [~] **WP-067 Corpus generator.** `gala corpus <dir>` emits JSONL (`prompt`, `completion`, `properties`) for all 47
+  conformance cases across every category. Open: `properties` holds the expectations, not property results; no
+  agent-quality evaluation.
+- [~] **WP-068 `gala pkg --json`.** `gala pkg add|remove|update|install|publish` print JSON (schema `gala-pkg.v1`).
+  Checked: `pkg install` in a fresh project; `pkg add` against a missing registry fails cleanly. Open: a CI check of
+  lockfile determinism.
 - [x] **WP-069 `gala repl --json`.** Definitions persist; expressions are evaluated per line (stateless
   quantum state).
 - [x] **WP-070 `gala check --json --fail-on-warnings`.** Exit 0 clean, 1 on diagnostics, JSON always emitted.
-- [~] **WP-071 `gala-mcp` server.** `tools/gala-mcp` (TypeScript on bun, no dependencies): MCP over stdio,
-  tools, resources, prompts, hand-written schema validation. `bun test`: 11 passing. Not met: gala_fix (no CLI
-  command), gala_gir (no GIR JSON via MCP yet), gala_lsp_query (not connected). Not published.
-- [~] **WP-072 Agent SDKs.** `sdk/typescript` (`bun test`: 5 passing) and `sdk/python` (`unittest`: 6
-  passing), both wrapping the CLI. grad and verifyProperties return "unsupported" rather than a value.
-  Publishing to npm/PyPI is `[!]` and was not done.
+- [~] **WP-071 `gala-mcp` server.** `tools/gala-mcp`: MCP over stdio, tools, resources, prompts, schema validation. Now
+  wired to the CLI for `gala_fix`, `gala_gir`, `gala_build` (emit_gir), and `gala_test` (properties). `bun test`: 11 pass.
+  Open: `gala_lsp_query` (not connected to the server). Not published.
+- [~] **WP-072 Agent SDKs.** `sdk/typescript` (`bun test`: 6 pass) and `sdk/python` (`unittest`: 7 pass) wrap the CLI.
+  `verifyProperties` runs the CLI property runner and reports `passed`/`failed`/`unsupported`/`error`. `grad` is still
+  unsupported (no CLI gradient command). Not published.
 
 ## Log
 
@@ -259,3 +258,8 @@ outcome in a header: `// expect: ok`, `// expect: E0412`, or `// expect-output: 
   a worktree; noise; routing; REPL; property runner; byte-offset span fix.
 - 2026-10-22 (later): `gala fix`, `fmt --diff/--stdin`, GIR JSON round trip with `run --from-gir`,
   `gala corpus`, adaptive conformance case. Gates: fmt, clippy, cargo test (255 passing) clean.
+- Round 3: gala fix, fmt --diff/--stdin, GIR JSON round trip, corpus, pkg CLI with JSON, MCP/SDK wiring to the CLI
+  (fix, gir, property runner), LSP client in the VS Code extension, unitary/reversible property runners,
+  algorithms (Toffoli, full adder, Trotter step, phase estimation), rotation merging, GIR verifier, stability tiers.
+  Gates: fmt, clippy -D warnings, cargo doc, 263 Rust tests, 11 MCP tests, 6 TS SDK tests, 7 Python SDK tests — all passing.
+  Not committed in round 3.

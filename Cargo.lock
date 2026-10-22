@@ -366,6 +366,7 @@ dependencies = [
  "gala-diff",
  "gala-driver",
  "gala-fmt",
+ "gala-gir",
  "gala-hir",
  "gala-pkg",
  "gala-sim",
@@ -395,6 +396,7 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "gala-span",
+ "insta",
  "serde_json",
 ]
 
