@@ -1,3 +1,4 @@
+// expect: ok
 fn f() -> Int {
     42
 }

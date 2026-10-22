@@ -1,0 +1,11 @@
+[package]
+name = "gala-doc"
+version = "0.1.0"
+edition = "2021"
+description = "Markdown API documentation generator for Gala (`///` doc comments)"
+license = "Apache-2.0"
+repository = "https://github.com/gala-lang/gala"
+
+[lib]
+name = "gala_doc"
+path = "src/lib.rs"

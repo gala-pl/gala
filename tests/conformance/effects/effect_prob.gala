@@ -1,3 +1,7 @@
-fn f() -> Int prob {
-    42
+// expect: ok
+// a measuring function declared prob
+fn coin() -> Measured<Bool> prob {
+    let q = qubit()
+    h(q)
+    measure(q)
 }

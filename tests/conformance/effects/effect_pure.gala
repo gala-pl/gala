@@ -1,3 +1,5 @@
-fn f() -> Int {
-    42
+// expect: ok
+// classical functions are pure
+fn f(x: Int) -> Int pure {
+    x * 2
 }

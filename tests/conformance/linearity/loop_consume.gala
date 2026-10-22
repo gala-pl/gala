@@ -1,0 +1,8 @@
+// expect: E0412
+// an outer qubit consumed inside a loop
+fn f() quantum {
+    let q = qubit()
+    for i in 0..3 {
+        drop(q)
+    }
+}

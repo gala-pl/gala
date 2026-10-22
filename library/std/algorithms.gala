@@ -1,86 +1,43 @@
-// Gala quantum algorithms library.
+// Gala quantum algorithms.
 //
-// Built-in, well-tested quantum algorithms that double as
-// correctness tests for the compiler's uncomputation and
-// reversibility guarantees.
+// Written in Gala with the gates and measurement from the core library. Register sizes are
+// concrete: generic register sizes (`Qubits<N>`) are not supported by the compiler yet.
 
-import gala.gates.{ h, x, cx, rz, swap, t, s }
-import gala.core.{ qubit, qubits, measure, drop }
-
-// ─── Quantum Fourier Transform ───
-
-/// Apply the Quantum Fourier Transform to a register.
-/// The QFT is the quantum analogue of the discrete Fourier transform.
-/// It maps the computational basis to the Fourier basis.
-fn qft(q: Qubits<N>) -> Qubits<N> quantum {
-    // Placeholder: would apply Hadamard + controlled rotations
-    for i in 0..N {
-        h(q[i])
-        for j in i+1..N {
-            // Apply controlled rotation R_{j-i+1} on q[j] controlled by q[i]
-            crz(q[i], q[j], pi() / pow(2, j - i + 1))
-        }
-    }
-    return q;
+/// Quantum Fourier transform on two qubits, with the output swap applied.
+fn qft2(q: Qubits<2>) -> Qubits<2> quantum {
+    h(q[1])
+    cp(q[0], q[1], 1.5707963267948966)
+    h(q[0])
+    swap(q[0], q[1])
+    q
 }
 
-/// Inverse Quantum Fourier Transform
-fn iqft(q: Qubits<N>) -> Qubits<N> quantum {
-    // The adjoint is compiler-derived: adjoint(qft)
-    // But we also provide it directly for clarity
-    return reverse(qft)(q);
+/// Inverse quantum Fourier transform on two qubits: the exact inverse of `qft2`.
+fn iqft2(q: Qubits<2>) -> Qubits<2> quantum {
+    swap(q[0], q[1])
+    h(q[0])
+    cp(q[0], q[1], -1.5707963267948966)
+    h(q[1])
+    q
 }
 
-// ─── Grover's Search Algorithm ───
-
-/// Apply the Grover diffusion operator (inversion about the mean).
-fn grover_diffusion(q: Qubits<N>) -> Qubits<N> quantum {
-    for i in 0..N {
-        h(q[i])
-        x(q[i])
-    }
-    h(q[N-1])  // multi-controlled Z
-    x(q[N-1])
-    for i in 0..N {
-        h(q[i])
-        x(q[i])
-    }
-    return q;
-}
-
-/// Run Grover's search algorithm for k iterations.
-fn grover_search(q: Qubits<N>, oracle: fn(Qubits<N>) -> Qubits<N> quantum, k: Int) -> Qubits<N> quantum {
-    for _ in 0..k {
-        oracle(q)
-        grover_diffusion(q)
-    }
-    return q;
-}
-
-// ─── Phase Estimation ───
-
-/// Estimate the phase φ of a unitary U applied to eigenstate |ψ⟩.
-/// Uses t ancilla qubits for the phase register.
-fn phase_estimation<M, N>(
-    U: fn(Qubits<N>) -> Qubits<N> quantum,
-    ψ: Qubits<N>,
-    t: Int
-) -> (Qubits<M>, Measured<Int>) prob {
-    // Placeholder: would apply H, controlled-U²ʲ, IQFT, then measure
-    let ancilla = qubits<M>()
-    return (ancilla, measure(ψ[0]));
-}
-
-// ─── Adder (Ripple-carry) ───
-
-/// Simple quantum adder using ancillae.
-/// Exercises auto-uncomputation.
-fn quantum_adder(a: Qubits<N>, b: Qubits<N>) -> (Qubits<N>, Qubits<N>) quantum {
-    // Placeholder: textbook ripple-carry adder
-    return (a, b);
-}
-
-// Utility
-fn pow(base: Int, exp: Int) -> Int pure {
-    // Integer power function
+/// Grover search over two items for the marked state |11⟩. One iteration finds it with
+/// certainty, so the measurement returns `[true, true]`.
+fn grover2() -> Measured<Vec<Bool>> prob {
+    let q = qubits<2>()
+    h(q[0])
+    h(q[1])
+    // Oracle: flip the phase of |11⟩.
+    cz(q[0], q[1])
+    // Diffusion: reflect about the uniform superposition.
+    h(q[0])
+    h(q[1])
+    x(q[0])
+    x(q[1])
+    cz(q[0], q[1])
+    x(q[0])
+    x(q[1])
+    h(q[0])
+    h(q[1])
+    measure(q)
 }

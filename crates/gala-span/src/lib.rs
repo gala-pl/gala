@@ -102,6 +102,12 @@ impl SourceMap {
         id
     }
 
+    /// Iterate over every registered file in ID order.
+    pub fn files(&self) -> impl Iterator<Item = &SourceFile> {
+        self.files.iter()
+    }
+
+    /// Look up a file by ID.
     pub fn get_file(&self, file_id: FileId) -> Option<&SourceFile> {
         self.files.get(file_id.0 as usize)
     }
@@ -150,7 +156,6 @@ impl Interner {
     }
 }
 
-/// Re-export Spur for convenience
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +193,40 @@ mod tests {
         assert_ne!(spur1, spur3);
 
         assert_eq!(interner.resolve(spur1), Some("hello"));
+    }
+
+    #[test]
+    fn span_arithmetic_and_display() {
+        let file = FileId(3);
+        let a = Span::new(file, ByteSpan::new(2, 5));
+        assert_eq!(a.byte_span.len(), 3);
+        assert_eq!(a.to_string(), "file#3:2..5");
+        assert!(Span::dummy().byte_span.is_empty());
+    }
+
+    #[test]
+    fn line_col_counts_newlines() {
+        let mut map = SourceMap::new();
+        let id = map.add_file("t.gala".into(), "ab\ncd\nef".to_string());
+        assert_eq!(map.span_to_line_col(id, 0), Some((1, 1)));
+        assert_eq!(map.span_to_line_col(id, 3), Some((2, 1)));
+        assert_eq!(map.span_to_line_col(id, 6), Some((3, 1)));
+        assert_eq!(map.span_to_line_col(id, 7), Some((3, 2)));
+    }
+
+    #[test]
+    fn files_iterate_in_id_order() {
+        let mut map = SourceMap::new();
+        let a = map.add_file("a.gala".into(), String::new());
+        let b = map.add_file("b.gala".into(), String::new());
+        let ids: Vec<FileId> = map.files().map(|f| f.id).collect();
+        assert_eq!(ids, vec![a, b]);
+    }
+
+    #[test]
+    fn interner_empty_string_round_trips() {
+        let mut interner = Interner::new();
+        let s = interner.get_or_intern("");
+        assert_eq!(interner.resolve(s), Some(""));
     }
 }

@@ -2,6 +2,21 @@
 
 All notable changes to the Gala programming language are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Decision log** — `docs/decisions/` with ADRs 0001-0006 (hand-written front end, pure-Rust
+  simulator, textual QIR, uncomputation by recorded history, effect lattice and in-place gates,
+  error code scheme) and an index README.
+- **RFC template** — `docs/RFC_TEMPLATE.md`, with the process steps from CONTRIBUTING §4.
+- **Formal core sketch** — `docs/FORMAL_CORE.md`: operational semantics and progress,
+  preservation, and linearity sketches for the implemented core. Not mechanized.
+- **Tutorial** — `docs/TUTORIAL/`, five modules covering classical code, a Bell pair, linearity
+  errors, effects, and a hybrid classifier. Human course validation is not done.
+- **`gala-doc`** — library crate that renders Markdown API docs from `///` comments on top-level
+  functions (`document_source`, `document_file`).
+
 ## [0.1.0] - Unreleased
 
 ### Added

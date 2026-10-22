@@ -1,7 +1,6 @@
-fn arithmetic() -> Int {
-    return 42;
-}
-
-fn compare() -> Bool {
-    return false;
+// expect-output: 19
+// precedence and grouping
+fn main() -> Int {
+    print((2 + 3) * 4 - 1)
+    0
 }

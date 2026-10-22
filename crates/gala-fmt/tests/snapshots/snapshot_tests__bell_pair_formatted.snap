@@ -1,0 +1,11 @@
+---
+source: crates/gala-fmt/tests/snapshot_tests.rs
+expression: formatted
+---
+fn bell() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}

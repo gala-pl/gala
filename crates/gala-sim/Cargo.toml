@@ -2,7 +2,7 @@
 name = "gala-sim"
 version.workspace = true
 edition.workspace = true
-description = "Simulator backends (roqoqo/QuEST) for Gala"
+description = "Simulator backend for Gala: exact state-vector execution of GIR"
 license.workspace = true
 repository.workspace = true
 
@@ -10,14 +10,14 @@ repository.workspace = true
 name = "gala_sim"
 path = "src/lib.rs"
 
-[features]
-default = []
-sim = ["roqoqo", "roqoqo-quest"]
-
 [dependencies]
-roqoqo = { version = "0.6", optional = true }
-roqoqo-quest = { version = "0.6", optional = true }
-gala-gir.workspace = true
-gala-opt.workspace = true
-gala-span.workspace = true
+rand.workspace = true
+gala-ast.workspace = true
 gala-diagnostics.workspace = true
+gala-gir.workspace = true
+gala-span.workspace = true
+gala-types.workspace = true
+
+[dev-dependencies]
+gala-hir.workspace = true
+gala-parser.workspace = true

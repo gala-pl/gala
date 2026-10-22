@@ -1,10 +1,10 @@
 [package]
 name = "gala-driver"
-version = "0.1.0"
-edition = "2021"
-description = "Compilation orchestration for Gala"
-license = "Apache-2.0"
-repository = "https://github.com/gala-lang/gala"
+version.workspace = true
+edition.workspace = true
+description = "Compilation driver for Gala: runs every pass from source to GIR"
+license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "gala_driver"
@@ -12,18 +12,17 @@ path = "src/lib.rs"
 
 [dependencies]
 gala-ast.workspace = true
-gala-lexer.workspace = true
-gala-parser.workspace = true
+gala-diagnostics.workspace = true
+gala-gir.workspace = true
 gala-hir.workspace = true
+gala-opt.workspace = true
+gala-parser.workspace = true
+gala-span.workspace = true
 gala-types.workspace = true
 gala-uncompute.workspace = true
-gala-gir.workspace = true
-gala-diff.workspace = true
-gala-opt.workspace = true
-gala-span.workspace = true
-gala-diagnostics.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
-gala-gir.workspace = true
-proptest.workspace = true
+gala-sim.workspace = true
 insta.workspace = true
+proptest.workspace = true

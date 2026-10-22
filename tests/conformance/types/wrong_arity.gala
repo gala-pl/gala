@@ -1,0 +1,8 @@
+// expect: E0204
+fn g(a: Int) -> Int {
+    a
+}
+
+fn f() -> Int {
+    g(1, 2)
+}

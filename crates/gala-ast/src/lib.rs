@@ -53,12 +53,22 @@ pub enum Item {
 /// Function definition.
 #[derive(Debug, Clone)]
 pub struct FnDef {
+    pub attributes: Vec<Attribute>,
     pub ident: Ident,
     pub generics: Vec<GenericParam>,
     pub params: Vec<Param>,
     pub ret_ty: Option<Type>,
     pub effect: Option<Effect>,
-    pub body: Block,
+    /// `None` for a signature-only declaration (an intrinsic in the standard library).
+    pub body: Option<Block>,
+    pub span: Span,
+}
+
+/// An attribute such as `#[property(unitary)]`.
+#[derive(Debug, Clone)]
+pub struct Attribute {
+    pub name: Ident,
+    pub args: Vec<Ident>,
     pub span: Span,
 }
 
@@ -105,9 +115,23 @@ pub struct LetStmt {
     pub span: Span,
 }
 
-/// Expression.
+/// An expression with its source span.
 #[derive(Debug, Clone)]
-pub enum Expr {
+pub struct Expr {
+    pub kind: ExprKind,
+    pub span: Span,
+}
+
+impl Expr {
+    /// Build an expression from its kind and span.
+    pub fn new(kind: ExprKind, span: Span) -> Self {
+        Expr { kind, span }
+    }
+}
+
+/// Expression kinds.
+#[derive(Debug, Clone)]
+pub enum ExprKind {
     Literal(Literal),
     Ident(Ident),
     Binary(BinaryExpr),
@@ -125,6 +149,15 @@ pub enum Expr {
     Field(FieldExpr),
     Index(IndexExpr),
     Let(LetExpr),
+    Assign(AssignExpr),
+}
+
+/// Assignment `target = value` or compound `target op= value`.
+#[derive(Debug, Clone)]
+pub struct AssignExpr {
+    pub target: Box<Expr>,
+    pub op: Option<BinOp>,
+    pub value: Box<Expr>,
 }
 
 /// Binary expression.
@@ -170,11 +203,15 @@ pub enum UnOp {
     Not,
 }
 
-/// Function call.
+/// Function call, with optional explicit type or const arguments (`qubits<4>()`) and optional
+/// argument names (`run(f, on: backend)`).
 #[derive(Debug, Clone)]
 pub struct CallExpr {
     pub callee: Box<Expr>,
+    pub generics: Vec<TypeArg>,
     pub args: Vec<Expr>,
+    /// One entry per argument; `Some` when the argument was written `name: value`.
+    pub names: Vec<Option<Ident>>,
     pub span: Span,
 }
 
@@ -409,11 +446,11 @@ pub struct TypeAlias {
     pub span: Span,
 }
 
-/// Const definition.
+/// Const or top-level `let` definition. The type is optional and inferred when omitted.
 #[derive(Debug, Clone)]
 pub struct ConstDef {
     pub ident: Ident,
-    pub ty: Type,
+    pub ty: Option<Type>,
     pub value: Expr,
     pub span: Span,
 }
@@ -440,18 +477,19 @@ mod tests {
     fn test_ast_construction() {
         let span = Span::new(FileId(0), ByteSpan::new(0, 10));
 
-        let _expr = Expr::Literal(Literal::Int(42));
+        let _expr = Expr::new(ExprKind::Literal(Literal::Int(42)), span);
         let item = Item::FnDef(FnDef {
+            attributes: vec![],
             ident: Ident::new("main"),
             generics: vec![],
             params: vec![],
             ret_ty: None,
             effect: None,
-            body: Block {
-                stmts: vec![Stmt::Expr(Expr::Literal(Literal::Int(0)))],
+            body: Some(Block {
+                stmts: vec![Stmt::Expr(Expr::new(ExprKind::Literal(Literal::Int(0)), span))],
                 tail: None,
                 span,
-            },
+            }),
             span,
         });
 

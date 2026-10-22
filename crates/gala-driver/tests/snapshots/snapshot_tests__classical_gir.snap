@@ -1,0 +1,16 @@
+---
+source: crates/gala-driver/tests/snapshot_tests.rs
+expression: dump(src)
+---
+fn add #0 effect=pure params=[%0, %1] slots=3 {
+  bb0:
+    %2 = Add %0, %1
+    return %2
+}
+fn main #1 effect=pure params=[] slots=3 {
+  bb0:
+    %0 = const Int(1)
+    %1 = const Int(2)
+    %2 = call #0(%0, %1)
+    return %2
+}

@@ -1,0 +1,6 @@
+// expect-output: Hello, Gala!
+// classical output
+fn main() -> Int {
+    print("Hello, Gala!")
+    0
+}

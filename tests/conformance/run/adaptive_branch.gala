@@ -1,0 +1,11 @@
+// expect-output: branched
+// mid-circuit measurement: the branch reads the measured outcome
+fn main() -> Int prob {
+    let q = qubit()
+    x(q)
+    let r = measure(q)
+    if r {
+        print("branched")
+    }
+    0
+}

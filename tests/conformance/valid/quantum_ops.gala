@@ -1,23 +1,9 @@
-// Test: quantum gate operations
-fn test_h_gate() -> Qubit quantum {
-    let q = qubit();
+// expect: ok
+fn ops() -> Measured<Bool> prob {
+    let q = qubit()
     h(q)
+    s(q)
+    t(q)
+    rz(q, 0.5)
+    measure(q)
 }
-
-fn test_cx_gate() -> Qubit quantum {
-    let a = qubit();
-    let b = qubit();
-    cx(a, b);
-    b
-}
-
-fn test_x_gate() -> Qubit quantum {
-    let q = qubit();
-    x(q)
-}
-
-fn test_z_gate() -> Qubit quantum {
-    let q = qubit();
-    z(q)
-}
-
