@@ -230,3 +230,119 @@ mod tests {
         assert_eq!(layers(&ops, 2), 2);
     }
 }
+
+/// Route like [`route`], but choose each interaction's path by total edge cost (Dijkstra), so
+/// SWAPs avoid couplings with a high cost such as a high error rate. `edge_cost(a, b)` is
+/// consulted for each coupling in either direction; costs must be non-negative.
+///
+/// With unit costs this chooses shortest paths, like [`route`].
+pub fn route_weighted(
+    ops: &[Op],
+    topology: &Topology,
+    edge_cost: &dyn Fn(usize, usize) -> f64,
+) -> Option<Routed> {
+    let n = topology.qubits;
+    let mut layout: Vec<usize> = (0..n).collect();
+    let mut out: Vec<Op> = Vec::new();
+    let mut swaps = 0usize;
+    for (gate, qs, angle) in ops {
+        if gate.qubits() == 2 {
+            let (a, b) = (qs[0], qs[1]);
+            let path = weighted_path(topology, layout[a], layout[b], edge_cost)?;
+            for step in path.windows(2).take(path.len().saturating_sub(2)) {
+                let (p, q) = (step[0], step[1]);
+                out.push((GateKind::Swap, vec![p, q], 0.0));
+                swaps += 1;
+                for slot in layout.iter_mut() {
+                    if *slot == p {
+                        *slot = q;
+                    } else if *slot == q {
+                        *slot = p;
+                    }
+                }
+            }
+        }
+        let phys: Vec<usize> = qs.iter().map(|&l| layout[l]).collect();
+        out.push((*gate, phys, *angle));
+    }
+    let depth = layers(&out, n);
+    Some(Routed { ops: out, swaps, depth, final_layout: layout })
+}
+
+/// Cheapest path between two physical qubits under `edge_cost` (Dijkstra; n is small).
+fn weighted_path(
+    topology: &Topology,
+    from: usize,
+    to: usize,
+    edge_cost: &dyn Fn(usize, usize) -> f64,
+) -> Option<Vec<usize>> {
+    let n = topology.qubits;
+    let mut dist = vec![f64::INFINITY; n];
+    let mut prev: Vec<Option<usize>> = vec![None; n];
+    let mut done = vec![false; n];
+    dist[from] = 0.0;
+    loop {
+        let Some(u) = (0..n)
+            .filter(|&i| !done[i] && dist[i].is_finite())
+            .min_by(|&a, &b| dist[a].total_cmp(&dist[b]))
+        else {
+            break;
+        };
+        done[u] = true;
+        for &(a, b) in &topology.edges {
+            let v = if a == u {
+                b
+            } else if b == u {
+                a
+            } else {
+                continue;
+            };
+            let alt = dist[u] + edge_cost(u, v);
+            if alt < dist[v] {
+                dist[v] = alt;
+                prev[v] = Some(u);
+            }
+        }
+    }
+    if !dist[to].is_finite() {
+        return None;
+    }
+    let mut path = vec![to];
+    let mut cur = to;
+    while let Some(p) = prev[cur] {
+        path.push(p);
+        cur = p;
+    }
+    path.reverse();
+    Some(path)
+}
+
+#[cfg(test)]
+mod weighted_tests {
+    use super::*;
+
+    #[test]
+    fn expensive_coupling_is_avoided() {
+        // On a ring of 4, CX(0,2) can go 0-1-2 or 0-3-2. Make the edge 0-1 very noisy.
+        let ops = vec![(GateKind::Cx, vec![0, 2], 0.0)];
+        let cost =
+            |a: usize, b: usize| if (a, b) == (0, 1) || (a, b) == (1, 0) { 100.0 } else { 1.0 };
+        let r = route_weighted(&ops, &Topology::ring(4), &cost).unwrap();
+        assert_eq!(r.swaps, 1);
+        let used_noisy = r
+            .ops
+            .iter()
+            .any(|(g, q, _)| *g == GateKind::Swap && (q == &vec![0, 1] || q == &vec![1, 0]));
+        assert!(!used_noisy, "routing avoided the noisy coupling: {:?}", r.ops);
+        assert!(verify_routing(&ops, 4, &r));
+    }
+
+    #[test]
+    fn unit_costs_match_plain_routing_swap_count() {
+        let ops = vec![(GateKind::Cx, vec![0, 3], 0.0), (GateKind::Cx, vec![1, 3], 0.0)];
+        let unit = |_: usize, _: usize| 1.0;
+        let weighted = route_weighted(&ops, &Topology::line(4), &unit).unwrap();
+        let plain = route(&ops, &Topology::line(4)).unwrap();
+        assert_eq!(weighted.swaps, plain.swaps);
+    }
+}
