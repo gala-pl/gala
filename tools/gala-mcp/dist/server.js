@@ -5158,54 +5158,76 @@ const Jn = a.object({
     start: a.number().int().nonnegative(),
     end: a.number().int().nonnegative()
   }),
-  labels: a.array(a.object({
-    file_id: a.number().int().nonnegative(),
-    start: a.number().int().nonnegative(),
-    end: a.number().int().nonnegative(),
-    message: a.string()
-  })),
-  notes: a.array(a.string()),
-  suggested_fixes: a.array(a.object({
-    description: a.string(),
-    edits: a.array(a.object({
+  labels: a.array(
+    a.object({
       file_id: a.number().int().nonnegative(),
       start: a.number().int().nonnegative(),
       end: a.number().int().nonnegative(),
-      new_text: a.string()
-    }))
-  })),
+      message: a.string()
+    })
+  ),
+  notes: a.array(a.string()),
+  suggested_fixes: a.array(
+    a.object({
+      description: a.string(),
+      edits: a.array(
+        a.object({
+          file_id: a.number().int().nonnegative(),
+          start: a.number().int().nonnegative(),
+          end: a.number().int().nonnegative(),
+          new_text: a.string()
+        })
+      )
+    })
+  ),
   explain_url: a.string().url().optional()
 }), Bn = a.object({
   version: a.literal(1),
-  functions: a.array(a.object({
-    id: a.string(),
-    name: a.string(),
-    params: a.array(a.object({
+  functions: a.array(
+    a.object({
+      id: a.string(),
       name: a.string(),
-      type: a.string(),
-      linearity: a.enum(["linear", "unrestricted"])
-    })),
-    return_type: a.string(),
-    effect: a.enum(["pure", "quantum", "prob"]),
-    body: a.unknown(),
-    spans: a.object({
-      file_id: a.number().int().nonnegative(),
-      start: a.number().int().nonnegative(),
-      end: a.number().int().nonnegative()
-    }),
-    properties: a.object({
-      is_unitary: a.boolean().optional(),
-      is_reversible: a.boolean().optional(),
-      has_adjoint: a.boolean().optional(),
-      has_controlled: a.boolean().optional()
-    }).optional()
-  })),
-  types: a.record(a.object({
-    kind: a.enum(["primitive", "qubit", "qubits", "measured", "function", "array", "tuple", "struct", "named"]),
-    name: a.string().optional(),
-    params: a.array(a.string()).optional(),
-    linearity: a.enum(["linear", "unrestricted"]).optional()
-  })),
+      params: a.array(
+        a.object({
+          name: a.string(),
+          type: a.string(),
+          linearity: a.enum(["linear", "unrestricted"])
+        })
+      ),
+      return_type: a.string(),
+      effect: a.enum(["pure", "quantum", "prob"]),
+      body: a.unknown(),
+      spans: a.object({
+        file_id: a.number().int().nonnegative(),
+        start: a.number().int().nonnegative(),
+        end: a.number().int().nonnegative()
+      }),
+      properties: a.object({
+        is_unitary: a.boolean().optional(),
+        is_reversible: a.boolean().optional(),
+        has_adjoint: a.boolean().optional(),
+        has_controlled: a.boolean().optional()
+      }).optional()
+    })
+  ),
+  types: a.record(
+    a.object({
+      kind: a.enum([
+        "primitive",
+        "qubit",
+        "qubits",
+        "measured",
+        "function",
+        "array",
+        "tuple",
+        "struct",
+        "named"
+      ]),
+      name: a.string().optional(),
+      params: a.array(a.string()).optional(),
+      linearity: a.enum(["linear", "unrestricted"]).optional()
+    })
+  ),
   effects: a.record(a.enum(["pure", "quantum", "prob"])),
   metadata: a.object({
     source_hash: a.string().optional(),
@@ -5228,11 +5250,13 @@ const Jn = a.object({
   diagnostics: a.array(Jn),
   gir: Bn.optional()
 }), Bc = a.object({
-  results: a.array(a.object({
-    name: a.string(),
-    counts: a.record(a.number().int().nonnegative()),
-    probabilities: a.record(a.number())
-  })),
+  results: a.array(
+    a.object({
+      name: a.string(),
+      counts: a.record(a.number().int().nonnegative()),
+      probabilities: a.record(a.number())
+    })
+  ),
   circuit: a.string().optional(),
   shots: a.number().int().nonnegative(),
   seed: a.number().int().nonnegative().optional()
@@ -5245,24 +5269,30 @@ const Jn = a.object({
     failed: a.number().int().nonnegative()
   })
 }), Qc = a.object({
-  applied: a.array(a.object({
-    description: a.string(),
-    edits: a.array(a.object({
-      file_id: a.number().int().nonnegative(),
-      start: a.number().int().nonnegative(),
-      end: a.number().int().nonnegative(),
-      new_text: a.string()
-    }))
-  })),
+  applied: a.array(
+    a.object({
+      description: a.string(),
+      edits: a.array(
+        a.object({
+          file_id: a.number().int().nonnegative(),
+          start: a.number().int().nonnegative(),
+          end: a.number().int().nonnegative(),
+          new_text: a.string()
+        })
+      )
+    })
+  ),
   remaining: a.array(Jn)
 }), Kc = a.object({
   code: a.string().regex(/^E[0-9]{4}$/),
   markdown: a.string(),
-  examples: a.array(a.object({
-    title: a.string(),
-    bad: a.string(),
-    good: a.string()
-  })).optional()
+  examples: a.array(
+    a.object({
+      title: a.string(),
+      bad: a.string(),
+      good: a.string()
+    })
+  ).optional()
 }), Yc = a.object({
   gir: Bn,
   version: a.literal("1")
@@ -5284,30 +5314,36 @@ const Xc = a.object({
     documentation: a.string().optional(),
     gir_node: a.unknown().optional()
   }).optional(),
-  completion: a.array(a.object({
-    label: a.string(),
-    kind: a.number().optional(),
-    detail: a.string().optional(),
-    insert_text: a.string().optional()
-  })).optional(),
-  definition: a.array(a.object({
-    file_path: a.string(),
-    range: a.object({
-      start: a.object({ line: a.number(), character: a.number() }),
-      end: a.object({ line: a.number(), character: a.number() })
+  completion: a.array(
+    a.object({
+      label: a.string(),
+      kind: a.number().optional(),
+      detail: a.string().optional(),
+      insert_text: a.string().optional()
     })
-  })).optional(),
-  code_lens: a.array(a.object({
-    range: a.object({
-      start: a.object({ line: a.number(), character: a.number() }),
-      end: a.object({ line: a.number(), character: a.number() })
-    }),
-    command: a.object({
-      title: a.string(),
-      command: a.string(),
-      arguments: a.array(a.unknown()).optional()
-    }).optional()
-  })).optional(),
+  ).optional(),
+  definition: a.array(
+    a.object({
+      file_path: a.string(),
+      range: a.object({
+        start: a.object({ line: a.number(), character: a.number() }),
+        end: a.object({ line: a.number(), character: a.number() })
+      })
+    })
+  ).optional(),
+  code_lens: a.array(
+    a.object({
+      range: a.object({
+        start: a.object({ line: a.number(), character: a.number() }),
+        end: a.object({ line: a.number(), character: a.number() })
+      }),
+      command: a.object({
+        title: a.string(),
+        command: a.string(),
+        arguments: a.array(a.unknown()).optional()
+      }).optional()
+    })
+  ).optional(),
   gir_at_position: a.unknown().optional()
 }), eu = Xn(import.meta.url), Jt = Ge(eu, "..");
 async function tu() {
@@ -5502,10 +5538,16 @@ oe.setRequestHandler(Fn, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          source: { type: "string", description: "Gala source code with #[property(...)] attributes" },
+          source: {
+            type: "string",
+            description: "Gala source code with #[property(...)] attributes"
+          },
           properties: {
             type: "array",
-            items: { type: "string", enum: ["unitary", "reversible", "uncomputes", "grad_matches", "effect_honesty"] },
+            items: {
+              type: "string",
+              enum: ["unitary", "reversible", "uncomputes", "grad_matches", "effect_honesty"]
+            },
             description: "Specific properties to test (default: all)"
           }
         },
@@ -5583,7 +5625,10 @@ oe.setRequestHandler(kt, async (e) => {
       }
       case "gala_build": {
         const r = B.gala_build.parse(n);
-        o = await Wn(r.source, { emitGir: r.emitGir, girVersion: r.girVersion });
+        o = await Wn(r.source, {
+          emitGir: r.emitGir,
+          girVersion: r.girVersion
+        });
         break;
       }
       case "gala_run": {
@@ -5668,18 +5713,30 @@ oe.setRequestHandler(An, async () => ({
   ]
 }));
 oe.setRequestHandler(Mn, async (e) => {
-  const { uri: t } = e.params;
+  const { uri: t } = e.params, o = `${import.meta.url.replace("file://", "").replace(/\/dist\/server\.js$/, "").replace(/\/src\/server\.ts$/, "")}/../../schemas/v1`;
   if (t === "gala://schema/diagnostic.v1") {
-    const n = await import("./diagnostic.v1-Cc33rZMO.js");
-    return { contents: [{ uri: t, mimeType: "application/json", text: JSON.stringify(n.default, null, 2) }] };
+    const r = await import(`${o}/diagnostic.json`, { assert: { type: "json" } });
+    return {
+      contents: [
+        { uri: t, mimeType: "application/json", text: JSON.stringify(r.default, null, 2) }
+      ]
+    };
   }
   if (t === "gala://schema/gir.v1") {
-    const n = await import("./gir.v1-BfC1dnqK.js");
-    return { contents: [{ uri: t, mimeType: "application/json", text: JSON.stringify(n.default, null, 2) }] };
+    const r = await import(`${o}/gir.json`, { assert: { type: "json" } });
+    return {
+      contents: [
+        { uri: t, mimeType: "application/json", text: JSON.stringify(r.default, null, 2) }
+      ]
+    };
   }
   if (t === "gala://schema/property_result.v1") {
-    const n = await import("./property_result.v1-s3ZRD4zs.js");
-    return { contents: [{ uri: t, mimeType: "application/json", text: JSON.stringify(n.default, null, 2) }] };
+    const r = await import(`${o}/property_result.json`, { assert: { type: "json" } });
+    return {
+      contents: [
+        { uri: t, mimeType: "application/json", text: JSON.stringify(r.default, null, 2) }
+      ]
+    };
   }
   throw new Error(`Resource not found: ${t}`);
 });
@@ -5805,8 +5862,8 @@ Provide optimized Gala code with #[property(unitary)] and explain the optimizati
 });
 async function uu() {
   const e = new Gc();
-  await oe.connect(e), console.error("Gala MCP server running on stdio");
+  await oe.connect(e);
 }
 uu().catch((e) => {
-  console.error("Server error:", e), process.exit(1);
+  process.exit(1);
 });

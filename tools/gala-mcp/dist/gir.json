@@ -63,7 +63,20 @@
         "type": "object",
         "required": ["kind"],
         "properties": {
-          "kind": { "type": "string", "enum": ["primitive", "qubit", "qubits", "measured", "function", "array", "tuple", "struct", "named"] },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "primitive",
+              "qubit",
+              "qubits",
+              "measured",
+              "function",
+              "array",
+              "tuple",
+              "struct",
+              "named"
+            ]
+          },
           "name": { "type": "string" },
           "params": { "type": "array", "items": { "type": "string" } },
           "linearity": { "type": "string", "enum": ["linear", "unrestricted"] }

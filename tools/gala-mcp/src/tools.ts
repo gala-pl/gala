@@ -4,7 +4,7 @@
 import { queryLsp } from './lsp-query.ts';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { type GalaProcess, runGala, withSourceFile } from './gala-cli.ts';
+import { type GalaProcess, runGala, withSourceFile } from './cli.ts';
 import { type Schema, validate } from './jsonschema.ts';
 
 export interface TextContent {
