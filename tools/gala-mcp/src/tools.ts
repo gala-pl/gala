@@ -1,6 +1,7 @@
 // MCP tool definitions and handlers. Each handler shells out to the gala CLI and
 // validates its structured output before returning it.
 
+import { queryLsp } from './lsp-query.ts';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { type GalaProcess, runGala, withSourceFile } from './gala-cli.ts';
@@ -133,7 +134,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'gala_lsp_query',
     description:
-      'Query the Gala language server at a position. Not available: this server does not start or connect to gala-lsp.',
+      'Query gala-lsp at a position: hover, completion, definition, or gir_at_position. code_lens is not provided by the server.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -397,11 +398,20 @@ async function galaGir(source: string): Promise<ToolResult> {
   });
 }
 
-function galaLspQuery(args: { queryType: string }): ToolResult {
-  return errorText(
-    `gala_lsp_query is not available: the Gala language server is not running or connected ` +
-      `to this MCP server (requested queryType: ${args.queryType}).`
-  );
+async function galaLspQuery(args: {
+  source: string;
+  file_path: string;
+  position: { line: number; character: number };
+  queryType: string;
+}): Promise<ToolResult> {
+  const r = await queryLsp({
+    source: args.source,
+    filePath: args.file_path,
+    position: args.position,
+    queryType: args.queryType,
+  });
+  if (!r.ok) return errorText(`gala_lsp_query: ${r.error}`);
+  return okText({ ok: true, queryType: args.queryType, result: r.result });
 }
 
 // ---------- gala_explain ----------
@@ -445,6 +455,6 @@ export async function callTool(name: ToolName, args: Record<string, unknown>): P
     case 'gala_gir':
       return galaGir((args as { source: string }).source);
     case 'gala_lsp_query':
-      return galaLspQuery(args as { queryType: string });
+      return galaLspQuery(args as { source: string; file_path: string; position: { line: number; character: number }; queryType: string });
   }
 }

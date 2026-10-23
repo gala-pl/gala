@@ -137,7 +137,7 @@ describe('gala-mcp stdio server', () => {
     expect(doc.result).toBe('0');
   });
 
-  test('gala_fix and gala_gir run the CLI; gala_lsp_query stays an error result', async () => {
+  test('gala_fix and gala_gir run the CLI; gala_lsp_query answers from gala-lsp', async () => {
     const fix = await client.request('tools/call', {
       name: 'gala_fix',
       arguments: { source: 'fn f() -> Int {\n    let x = 1\n    x = 2\n    x\n}\n' },
@@ -154,20 +154,29 @@ describe('gala-mcp stdio server', () => {
     expect(gir.result.isError).toBeFalsy();
     expect(JSON.parse(gir.result.content[0].text).version).toBe(1);
 
-    for (const [name, args] of [
-      [
-        'gala_lsp_query',
-        {
-          source: 'fn main() -> Int { 0 }',
-          file_path: 'a.gala',
-          position: { line: 0, character: 0 },
-          queryType: 'hover',
-        },
-      ],
-    ] as const) {
-      const res = await client.request('tools/call', { name, arguments: args });
-      expect(res.result.isError).toBe(true);
-    }
+    const hover = await client.request('tools/call', {
+      name: 'gala_lsp_query',
+      arguments: {
+        source: 'fn bell() -> Measured<Bool> prob {\n    let a = qubit()\n    measure(a)\n}\n',
+        file_path: 'bell.gala',
+        position: { line: 0, character: 4 },
+        queryType: 'hover',
+      },
+    });
+    expect(hover.result.isError).toBeFalsy();
+    const hoverDoc = JSON.parse(hover.result.content[0].text);
+    expect(JSON.stringify(hoverDoc.result)).toContain('bell');
+
+    const lens = await client.request('tools/call', {
+      name: 'gala_lsp_query',
+      arguments: {
+        source: 'fn main() -> Int { 0 }\n',
+        file_path: 'a.gala',
+        position: { line: 0, character: 0 },
+        queryType: 'code_lens',
+      },
+    });
+    expect(lens.result.isError).toBe(true);
   });
 
   test('invalid arguments produce a tool error result', async () => {
