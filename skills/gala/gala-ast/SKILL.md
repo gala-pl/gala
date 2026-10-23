@@ -13,31 +13,31 @@ $ARGUMENTS
 
 Gala's AST (`crates/gala-ast`) defines the **abstract syntax tree** nodes used after parsing. It is separate from the CST (concrete syntax tree) used by the formatter. The AST is the input to HIR lowering.
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-ast/src/lib.rs`. As it matures it may be split into `node.rs`, `visit.rs`, `span.rs`, `token.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-ast/src/node.rs` — Core AST node definitions (Expr, Stmt, Item, Type, Pattern)
-- `crates/gala-ast/src/visit.rs` — Visitor trait and walk functions
-- `crates/gala-ast/src/span.rs` — Span/SourceMap integration (re-exports from gala-span)
-- `crates/gala-ast/src/token.rs` — Token wrapper for CST interop
+- `crates/gala-ast/src/lib.rs` — Core AST node definitions (`Item`, `Expr`, `Stmt`, `Type`, `Pattern`), `Ident`, `Spanned`
 
 ## Common Tasks
 
 ### Add new AST node type
-1. Add variant to appropriate enum in `node.rs` (e.g., `ExprKind`, `StmtKind`, `ItemKind`)
-2. Derive `Clone`, `Debug`, `PartialEq`, `Hash`, `Serialize`, `Deserialize` as needed
-3. Add visitor method in `visit.rs` (or use `#[derive(Visit)]` if using derive macro)
-4. Update parser in `gala-parser` to produce the new node
-5. Update HIR lowering in `gala-hir` to handle the new node
-6. Update formatter in `gala-fmt` if syntax-affecting
-7. Add tests in `gala-ast/tests/` and conformance tests
+1. Add variant to appropriate enum in `lib.rs` (e.g., `ExprKind`, `StmtKind`, `ItemKind`)
+2. Derive `Clone`, `Debug`, `PartialEq`, `Hash` as needed
+3. Update parser in `gala-parser` to produce the new node
+4. Update HIR lowering in `gala-hir` to handle the new node
+5. Update formatter in `gala-fmt` if syntax-affecting
+6. Add tests in `gala-ast/tests/` and conformance tests
 
 ### Implement visitor for analysis/transformation
 ```rust
-use gala_ast::visit::{Visit, VisitMut};
-
-struct MyVisitor;
-impl Visit for MyVisitor {
-    fn visit_expr(&mut self, expr: &Expr) { walk_expr(self, expr); }
-    // Override specific visit_* methods as needed
+// Visitors are typically implemented inline via pattern matching
+// in the consuming crate (e.g., Desugarer in gala-hir)
+fn walk_expr(expr: &Expr, f: &mut impl FnMut(&Expr)) {
+    match expr {
+        Expr::Binary(b) => { walk_expr(&b.lhs, f); walk_expr(&b.rhs, f); }
+        Expr::Call(c) => { walk_expr(&c.callee, f); for a in &c.args { walk_expr(a, f); } }
+        // ...
+    }
 }
 ```
 
@@ -65,17 +65,66 @@ cargo test --workspace ast                  # All AST-related tests
 
 ```rust
 // Core expressions
-enum ExprKind { Literal, Path, Call, MethodCall, Binary, Unary, If, Match, For, While, Block, Lambda, Tuple, Array }
+enum Expr {
+    Literal(Literal),
+    Ident(Ident),
+    Binary(BinaryExpr),
+    Unary(UnaryExpr),
+    Call(CallExpr),
+    MethodCall(MethodCallExpr),
+    If(IfExpr),
+    Match(MatchExpr),
+    For(ForExpr),
+    While(WhileExpr),
+    Block(Block),
+    Tuple(Vec<Expr>),
+    Array(Vec<Expr>),
+    Lambda(LambdaExpr),
+    Field(FieldExpr),
+    Index(IndexExpr),
+    Let(LetExpr),
+}
 
 // Core statements
-enum StmtKind { Let, Expr, Item }
+enum Stmt {
+    Let(LetStmt),
+    Expr(Expr),
+    Item(Item),
+    Return(Option<Expr>),
+}
 
 // Top-level items
-enum ItemKind { Fn, Struct, Enum, Trait, Impl, Import, TypeAlias, Const }
+enum Item {
+    FnDef(FnDef),
+    StructDef(StructDef),
+    EnumDef(EnumDef),
+    TraitDef(TraitDef),
+    ImplBlock(ImplBlock),
+    TypeAlias(TypeAlias),
+    ConstDef(ConstDef),
+    Import(Import),
+}
 
 // Types
-enum TypeKind { Path, Qubits, Qubit, Measured, Tuple, Array, Borrow, Fn }
+enum Type {
+    Path(Path),
+    Qubit,
+    Qubits(Box<ConstExpr>),
+    Measured(Box<Type>),
+    Tuple(Vec<Type>),
+    Array(Box<Type>, Box<ConstExpr>),
+    Named(Ident, Vec<TypeArg>),
+    Fn { params: Vec<Type>, ret: Box<Type>, effect: Option<Effect> },
+}
 
 // Patterns
-enum PatKind { Ident, Literal, Tuple, Array, Struct, Wildcard, Or }
+enum Pattern {
+    Ident(Ident),
+    Literal(Literal),
+    Tuple(Vec<Pattern>),
+    Array(Vec<Pattern>),
+    Struct { path: Path, fields: Vec<(Ident, Pattern)>, rest: bool },
+    Wildcard,
+    Or(Vec<Pattern>),
+}
 ```

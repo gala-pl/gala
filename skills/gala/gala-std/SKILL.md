@@ -24,28 +24,30 @@ Key files:
 - `crates/gala-std/src/lib.rs` — Rust-side intrinsics, compiler hooks
 - `library/std/core.gala` — Core intrinsics (compiler-known)
 - `library/std/gates.gala` — Gate definitions
-- `library/std/algorithms/*.gala` — Algorithm implementations
-- `library/std/vqa/*.gala` — VQA components
+- `library/std/algorithms.gala` — Algorithm implementations
+- `library/std/vqa.gala` — VQA components
 - `library/std/noise.gala` — Noise models
+- `library/std/hardware.gala` — Hardware backend descriptors
+- `library/std/classical.gala` — Classical standard library
 
 ## Common Tasks
 
 ### Add new gate intrinsic
-1. Add to `library/std/gates.gala` with `quantum` effect
+1. Edit `library/std/gates.gala` with `quantum` effect
 2. Register in `gala-std` compiler intrinsics (for codegen/sim)
 3. Compiler auto-derives `adjoint`/`controlled` — verify
 4. Property test: `#[property(unitary)]` on gate
 5. Add to `extensions/README.md` keyword list
 
 ### Add algorithm to stdlib
-1. Create `library/std/algorithms/new_algo.gala`
+1. Edit or create file in `library/std/`
 2. Use only `gala.core` + `gala.gates` (no external deps)
 3. Add `#[property(reversible)]` / `#[property(uncomputes)]` if quantum
-4. Test on simulator: `gala run library/std/algorithms/new_algo.gala`
+4. Test on simulator: `gala run library/std/algorithms.gala`
 5. Document in `docs/STANDARD_LIBRARY.md`
 
 ### Add VQA component
-1. Edit `library/std/vqa/` — encoders, ansatz, optimizers
+1. Edit `library/std/vqa.gala` — encoders, ansatz, optimizers
 2. Ensure `grad` works end-to-end (parameter-shift + autodiff)
 3. Benchmark: gradient cost (submissions/grad)
 4. Property test: `#[property(grad_matches)]`
@@ -63,7 +65,7 @@ cargo test --workspace stdlib               # All stdlib tests
 # Property tests on Gala source
 cargo test --workspace -- property/stdlib
 # Run stdlib algorithms on simulator
-cargo run --bin gala -- run library/std/algorithms/qft.gala
+cargo run --bin gala -- run library/std/algorithms.gala
 ```
 
 ## Conventions
@@ -109,7 +111,7 @@ gd_optimizer, adam_optimizer, spsa_optimizer
 cargo run --bin gala -- check library/std/
 
 # Run algorithm on simulator
-cargo run --bin gala -- run library/std/algorithms/qft.gala --shots 1000
+cargo run --bin gala -- run library/std/algorithms.gala --shots 1000
 
 # Test property
 cargo run --bin gala -- test library/std/gates.gala --property unitary

@@ -13,31 +13,30 @@ $ARGUMENTS
 
 Gala's driver (`crates/gala-driver`) **orchestrates compilation** by wiring the **salsa query database**. It defines the `Db` trait, constructs the query graph, and provides high-level compilation entry points used by `gala-cli` and `gala-lsp`.
 
+> **Note on file layout:** The crate currently lives in `crates/gala-driver/src/lib.rs` + `crates/gala-driver/src/db.rs`. As it matures it may be split into `compile.rs`, `emit.rs`, `incremental.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs` or `db.rs`.
+
 Key files:
 - `crates/gala-driver/src/db.rs` — Salsa database definition, all queries
-- `crates/gala-driver/src/compile.rs` — High-level compilation pipeline
-- `crates/gala-driver/src/emit.rs` — Artifact emission (GIR, QIR, LLVM, etc.)
-- `crates/gala-driver/src/incremental.rs` — Incremental compilation, cache invalidation
+- `crates/gala-driver/src/lib.rs` — High-level compilation API
 
 ## Common Tasks
 
 ### Add new salsa query
-1. Edit `db.rs` — add `#[salsa::query]` function
+1. Edit `db.rs` — add `#[salsa::tracked]` function
 2. Implement in appropriate crate (hir, types, uncompute, gir, etc.)
-3. Wire into `compile.rs` pipeline if needed
+3. Wire into pipeline if needed
 4. Test incremental: edit source, verify only affected queries rerun
 
 ### Modify compilation pipeline
-1. Edit `compile.rs` — `CompilePipeline::run()` defines pass order
-2. Add/remove/reorder passes (lex → parse → hir → types → linearity → uncompute → gir → ...)
-3. Each pass is a salsa query or query group
-4. Ensure diagnostics aggregated correctly
+1. Edit `db.rs` — queries define pass order (lex → parse → hir → types → linearity → uncompute → gir → ...)
+2. Each pass is a salsa query or query group
+3. Ensure diagnostics aggregated correctly
 
 ### Add emission target
-1. Edit `emit.rs` — add `EmitTarget` variant
+1. Edit `lib.rs` — add `EmitTarget` variant
 2. Implement emission function (e.g., `emit_gir`, `emit_qir`)
-2. Register in CLI `--emit` flag
-3. Test: `gala build --emit new-target examples/hello.gala`
+3. Register in CLI `--emit` flag
+4. Test: `gala build --emit new-target examples/hello.gala`
 
 ### Optimize incremental performance
 1. Profile salsa: `RUST_LOG=salsa=debug`
@@ -67,36 +66,51 @@ cargo run --bin gala -- check examples/hello.gala  # Check only
 ## Key Queries (from COMPILER_PIPELINE.md)
 
 ```rust
-// In db.rs
-#[salsa::query]
-fn source_text(db: &dyn Db, file: FileId) -> String;
+// In crates/gala-driver/src/db.rs
+#[salsa::input]
+pub struct SourceFile { ... }
 
-#[salsa::query]
-fn tokens(db: &dyn Db, file: FileId) -> Vec<Token>;
+#[salsa::tracked]
+pub fn tokens(db, file: SourceFile) -> Vec<(Token, Span)>;
 
-#[salsa::query]
-fn ast(db: &dyn Db, file: FileId) -> Ast;
+#[salsa::tracked]
+pub fn ast(db, file: SourceFile) -> Arc<Vec<Item>>;
 
-#[salsa::query]
-fn hir(db: &dyn Db, file: FileId) -> Hir;
+#[salsa::tracked]
+pub fn hir_file(db, file: SourceFile) -> Arc<HirFile>;
 
-#[salsa::query]
-fn type_of(db: &dyn Db, def: DefId) -> Ty;
+#[salsa::tracked]
+pub fn hir_file_resolved(db, file: SourceFile) -> Arc<HirFile>;
 
-#[salsa::query]
-fn effect_of(db: &dyn Db, def: DefId) -> Effect;
+#[salsa::tracked]
+pub fn hir_functions(db, file: SourceFile) -> Arc<HashMap<DefId, HirFnDef>>;
 
-#[salsa::query]
-fn linearity_check(db: &dyn Db, def: DefId) -> Vec<Diagnostic>;
+#[salsa::tracked]
+pub fn module_graph(db, file: SourceFile) -> Arc<ModuleGraph>;
 
-#[salsa::query]
-fn uncompute(db: &dyn Db, def: DefId) -> UncomputePlan;
+#[salsa::tracked]
+pub fn type_of_query(db, def_id: DefIdInput) -> Result<Arc<Ty>, Arc<Diagnostics>>;
 
-#[salsa::query]
-fn gir(db: &dyn Db, def: DefId) -> Gir;
+#[salsa::tracked]
+pub fn effect_of_query(db, def_id: DefIdInput) -> Result<Arc<TyEffect>, Arc<Diagnostics>>;
 
-#[salsa::query]
-fn diagnostics(db: &dyn Db, file: FileId) -> Vec<Diagnostic>;
+#[salsa::tracked]
+pub fn linearity_check_query(db, def_id: DefIdInput) -> Result<Arc<Diagnostics>, Arc<Diagnostics>>;
+
+#[salsa::tracked]
+pub fn uncompute_query(db, def_id: DefIdInput) -> Result<Arc<UncomputePlan>, Arc<Diagnostics>>;
+
+#[salsa::tracked]
+pub fn gir_query(db, def_id: DefIdInput) -> Result<Arc<Gir>, Arc<Diagnostics>>;
+
+#[salsa::tracked]
+pub fn gir_diff_query(db, def_id: DefIdInput) -> Result<Arc<Gir>, Arc<Diagnostics>>;
+
+#[salsa::tracked]
+pub fn gir_opt_query(db, def_id: DefIdInput) -> Result<Arc<Gir>, Arc<Diagnostics>>;
+
+#[salsa::tracked]
+pub fn diagnostics(db, file: SourceFile) -> Arc<Vec<Diagnostic>>;
 ```
 
 ## Debugging

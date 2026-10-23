@@ -13,37 +13,34 @@ $ARGUMENTS
 
 Gala's GIR (`crates/gala-gir`) is the **Gala Intermediate Representation**: a typed, effect-annotated operation graph where nodes are classical or quantum operations, edges carry linear-value ownership and classical data dependencies. It is the **stable contract** for all backends.
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-gir/src/lib.rs`. As it matures it may be split into `gir.rs`, `lower.rs`, `serialize.rs`, `validate.rs`, `builder.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-gir/src/gir.rs` — GIR data model: `Gir`, `Op`, `Value`, `Block`, `Func`
-- `crates/gala-gir/src/lower.rs` — Typed HIR → GIR lowering
-- `crates/gala-gir/src/serialize.rs` — JSON serialization (versioned schema)
-- `crates/gala-gir/src/validate.rs` — GIR invariants (linearity, effect consistency)
-- `crates/gala-gir/src/builder.rs` — GIR construction API for passes
+- `crates/gala-gir/src/lib.rs` — GIR data model, lowering, serialization
 
 ## Common Tasks
 
 ### Add new GIR operation
-1. Add `OpKind` variant in `gir.rs`
-2. Add type/effect signature in `lower.rs` lowering rules
-3. Add validation in `validate.rs` (linearity, effects)
+1. Add `NodeKind` variant in `lib.rs`
+2. Add type/effect signature in lowering rules
+3. Add validation in debug builds (linearity, effects)
 4. Update all backends: `gala-qir`, `gala-sim`, `gala-codegen-classical`, `gala-diff`
-5. Add serialization support in `serialize.rs`
-6. Add conformance test in `tests/conformance/gir/`
+5. Add serialization support
 
 ### Modify GIR lowering
-1. Edit `lower.rs` — pattern match on typed HIR, emit GIR ops
+1. Edit `lower_hir_to_gir` in `lib.rs` — pattern match on typed HIR, emit GIR ops
 2. Handle effect annotations correctly (`pure`/`quantum`/`prob`)
 3. Preserve linearity: each linear value used exactly once in GIR
 4. Test with `--emit gir` and `--emit gir=json`
 
 ### Add GIR optimization pass (or modify existing)
 1. Passes live in `gala-opt` but consume/produce GIR
-2. Use `Gir::map_ops` or `Gir::map_blocks` for transformations
-3. Run `validate.rs` after pass in debug builds
+2. Use `Gir` APIs for transformations
+3. Run validation after pass in debug builds
 4. Property test: semantic equivalence on simulator
 
 ### Extend GIR serialization
-1. Update `GirSchema` in `serialize.rs` (versioned: `gir.v1.json`)
+1. Update `GirSchema` (versioned: `gir.v1.json`)
 2. Maintain backward compatibility
 3. Test round-trip: `--emit gir=json --gir-version 1` → `--from-gir`
 
@@ -69,41 +66,42 @@ cargo run --bin gala -- --emit gir=json --gir-version 1 examples/hello_world.gal
 
 ```rust
 // GIR function
-struct Func {
-    name: Symbol,
-    params: Vec<Value>,      // typed, with ownership
-    ret_ty: Ty,
+struct GirFunc {
+    id: FuncId,
+    name: Ident,
+    params: Vec<ValueId>,
+    param_tys: Vec<TypeId>,
+    ret_ty: Option<TypeId>,
     effect: Effect,
-    body: Block,
+    blocks: HashMap<BlockId, Block>,
+    entry_block: BlockId,
+    span: Span,
 }
 
 // GIR block (basic block)
 struct Block {
-    ops: Vec<Op>,
-    terminator: Terminator,
+    id: BlockId,
+    nodes: Vec<NodeId>,
+    terminator: Option<Terminator>,
+    span: Span,
 }
 
 // GIR operation
-struct Op {
-    kind: OpKind,
-    inputs: Vec<Value>,      // data dependencies
-    outputs: Vec<Value>,     // results (linear or classical)
-    effect: Effect,          // effect of this op
-    span: Span,              // source location
+struct GirNode {
+    id: NodeId,
+    kind: NodeKind,
+    operands: Vec<ValueId>,
+    results: Vec<ValueId>,
+    span: Span,
 }
 
-// Op kinds (quantum + classical)
-enum OpKind {
-    // Quantum
-    AllocQubit, AllocQubits(ConstGeneric),
-    H, X, Y, Z, S, T, RX, RY, RZ, CX, CZ, SWAP,
-    Measure,
-    Adjoint(Box<Func>), Control(Box<Func>),
-    // Classical
-    Const, Add, Sub, Mul, Div, Cmp, Select,
-    Call(FuncId), Return,
-    // Control flow
-    Branch, Loop,
+// Node kinds (quantum + classical)
+enum NodeKind {
+    Gate(GateKind),
+    Classical(ClassicalOp),
+    Alloc(AllocKind),
+    Free { target: ValueId },
+    // ...
 }
 ```
 

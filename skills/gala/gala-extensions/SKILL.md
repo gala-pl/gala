@@ -83,9 +83,10 @@ bat cache --build
 
 - **Scope name**: `source.gala` (all TextMate-based)
 - **File extension**: `.gala`
-- **Keywords** (from LANGUAGE_SPEC.md):
+- **Keywords** (from LANGUAGE_SPEC.md §2, matching `extensions/vim/syntax/gala.vim`):
   - Control: `fn`, `let`, `mut`, `if`, `else`, `match`, `for`, `in`, `while`, `return`
-  - Declarations: `import`, `type`, `struct`, `enum`, `trait`, `impl`, `const`, `where`
+  - Declarations: `import`, `type`, `struct`, `enum`, `trait`, `impl`, `const`, `where`, `as`
+  - Effects: `pure`, `quantum`, `prob`
   - Quantum: `qubit`, `qubits`, `measure`, `reverse`, `adjoint`, `control`, `grad`, `drop`
 - **Types**: `Qubit`, `Qubits<N>`, `Measured<T>`, `Bool`, `Int`, `Float`, `Complex`, `Params`
 - **Effects**: `pure`, `quantum`, `prob`

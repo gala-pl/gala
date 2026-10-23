@@ -13,40 +13,37 @@ $ARGUMENTS
 
 Gala's HIR (`crates/gala-hir`) is the **High-Level Intermediate Representation**: desugared, name-resolved, with a module graph and stable `DefId`s. Built on **salsa** for incremental compilation — shared by batch compiler and LSP.
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-hir/src/lib.rs`. As it matures it may be split into `hir.rs`, `lower.rs`, `resolve.rs`, `def_id.rs`, `db.rs`, `module.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-hir/src/hir.rs` — HIR node definitions (desugared Expr, Stmt, Item)
-- `crates/gala-hir/src/lower.rs` — AST → HIR lowering (desugaring)
-- `crates/gala-hir/src/resolve.rs` — Name resolution, module graph
-- `crates/gala-hir/src/def_id.rs` — `DefId`, `DefPath`, `LocalDefId` definitions
-- `crates/gala-hir/src/db.rs` — Salsa database definition and queries
-- `crates/gala-hir/src/module.rs` — Module graph, imports, visibility
+- `crates/gala-hir/src/lib.rs` — HIR node definitions, desugaring, name resolution, module graph
 
 ## Common Tasks
 
 ### Add new desugaring
 1. Identify surface syntax in AST (e.g., in-place gate sugar `h(q)` → `let q = h(q)`)
-2. Add lowering case in `lower.rs` `LowerAst::lower_expr` / `lower_stmt`
+2. Add lowering case in `lib.rs` `Desugarer::desugar_expr` / `desugar_stmt`
 3. Ensure `DefId` assignment for new bindings
 4. Add conformance test in `tests/conformance/hir/` or relevant category
 5. Verify LSP sees desugared form (hover shows explicit form)
 
 ### Modify name resolution / module system
-1. Edit `resolve.rs` for resolution logic (scope, imports, shadowing)
-2. Edit `module.rs` for module graph construction
+1. Edit `Resolver` in `lib.rs` for resolution logic (scope, imports, shadowing)
+2. Update `ModuleGraph` construction in `lib.rs`
 3. Update `DefId` allocation if new definition kinds added
 4. Test cross-file resolution, re-exports, glob imports
 
 ### Add salsa query
-1. Define query in `db.rs` with `#[salsa::query]`
+1. Define query in `crates/gala-driver/src/db.rs` with `#[salsa::query]`
 2. Implement in appropriate module
 3. Use `db.query_name(input)` in consumers (type checker, LSP)
 4. Test incremental recomputation: change source, verify only affected queries rerun
 
 ### Add new definition kind (e.g., new item type)
-1. Add `DefKind` variant in `def_id.rs`
-2. Add `DefId` construction in `lower.rs`
-3. Add resolution entry in `resolve.rs`
-4. Update module graph in `module.rs`
+1. Add `HirItem` variant in `lib.rs`
+2. Add `DefId` construction in `Desugarer`
+3. Add resolution entry in `Resolver`
+4. Update module graph
 
 ## Testing
 
@@ -68,15 +65,15 @@ cargo run --bin gala -- --emit hir examples/hello_world.gala  # Debug HIR output
 ## Key Salsa Queries
 
 ```rust
-// In db.rs
-#[salsa::query]
-fn hir(db: &dyn Db, file: FileId) -> Hir { ... }
+// In crates/gala-driver/src/db.rs
+#[salsa::tracked]
+fn hir_file(db, file: SourceFile) -> Arc<HirFile>;
 
-#[salsa::query]
-fn module_graph(db: &dyn Db, crate_id: CrateId) -> ModuleGraph { ... }
+#[salsa::tracked]
+fn hir_file_resolved(db, file: SourceFile) -> Arc<HirFile>;
 
-#[salsa::query]
-fn resolve(db: &dyn Db, def_id: DefId) -> Resolution { ... }
+#[salsa::tracked]
+fn hir_functions(db, file: SourceFile) -> Arc<HashMap<DefId, HirFnDef>>;
 ```
 
 ## Debugging

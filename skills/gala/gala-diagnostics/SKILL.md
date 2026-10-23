@@ -13,19 +13,18 @@ $ARGUMENTS
 
 Gala's diagnostics (`crates/gala-diagnostics`) provides **rich diagnostic rendering** via **ariadne** and a **centralized error code registry**. Every diagnostic has a code (`E01xx` syntax, `E02xx` types, `E03xx` effects, `E04xx` linearity, `E05xx` uncomputation, `E06xx` backend/diff) and a long-form `gala explain <code>` entry.
 
+> **Note on file layout:** The crate currently lives in `crates/gala-diagnostics/src/lib.rs` + `crates/gala-diagnostics/src/explain/*.md`. As it matures it may be split into `code.rs`, `render.rs`, `explain.rs`, `json.rs`, `fix.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-diagnostics/src/code.rs` — Error code registry, `DiagnosticCode` enum
-- `crates/gala-diagnostics/src/render.rs` — Ariadne rendering, labels, notes, help
-- `crates/gala-diagnostics/src/explain.rs` — Long-form explanations for `--explain`
-- `crates/gala-diagnostics/src/json.rs` — JSON schema v1 output (`gala check --json`)
-- `crates/gala-diagnostics/src/fix.rs` — Suggested fixes (TextEdit-based)
+- `crates/gala-diagnostics/src/lib.rs` — `DiagnosticCode`, `Diagnostic`, `Diagnostics`, `codes` module, `Emitter`
+- `crates/gala-diagnostics/src/explain/` — Long-form explanations (markdown files per code)
 
 ## Common Tasks
 
 ### Add new diagnostic code
-1. Add variant to `DiagnosticCode` in `code.rs` (e.g., `E0412` for use-after-consume)
+1. Add constant to `codes` module in `lib.rs` (e.g., `E0412` for use-after-consume)
 2. Define severity (Error/Warning/Note), default labels, help text
-3. Add `explain` entry in `explain.rs` with:
+3. Add `explain` markdown entry in `src/explain/` with:
    - What the error means (in quantum terms)
    - Why it's a physical law violation
    - Code example showing wrong + correct
@@ -34,19 +33,19 @@ Key files:
 5. Add conformance test in `tests/conformance/errors/`
 
 ### Improve diagnostic rendering
-1. Edit `render.rs` — use ariadne `Report`, `Label`, `Source`
+1. Edit `Emitter` in `lib.rs` — use ariadne `Report`, `Label`, `Source`
 2. Add related labels (definition site, consumption site)
 3. Ensure spans are accurate (byte offsets from `gala-span`)
 4. Test with `cargo run --bin gala -- check examples/broken.gala`
 
 ### Add suggested fix (for `gala fix`)
-1. Edit `fix.rs` — add `SuggestedFix` with `TextEdit` (span + replacement)
+1. Edit `lib.rs` — add `SuggestedFix` with `TextEdit` (span + replacement)
 2. Implement for common errors (E0412, E0530, E03xx)
 3. Test `gala fix --apply` on conformance suite
 4. Validate fix by re-running checker
 
 ### Extend JSON output
-1. Edit `json.rs` — extend `DiagnosticJson` schema
+1. Edit `lib.rs` — extend `DiagnosticJson` schema
 2. Include: code, severity, message, labels (span, text), help, fix (if any)
 3. Version schema: `diagnostic.v1.json`
 4. Test: `gala check --json examples/broken.gala | jq`

@@ -13,31 +13,29 @@ $ARGUMENTS
 
 Gala's QIR backend (`crates/gala-qir`) emits **QIR (Quantum Intermediate Representation)** — an LLVM-based vendor-neutral IR. Uses **inkwell** (safe LLVM bindings). QIR *is* LLVM IR, so classical control flow lowers naturally alongside quantum intrinsics.
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-qir/src/lib.rs`. As it matures it may be split into `emit.rs`, `profile.rs`, `intrinsics.rs`, `validation.rs`, `target.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-qir/src/emit.rs` — Main GIR → QIR emission
-- `crates/gala-qir/src/profile.rs` — Base vs Adaptive profile selection
-- `crates/gala-qir/src/intrinsics.rs` — QIR intrinsic mapping (quantum ops)
-- `crates/gala-qir/src/validation.rs` — QIR profile validation
-- `crates/gala-qir/src/target.rs` — Target-specific lowering hooks
+- `crates/gala-qir/src/lib.rs` — Main GIR → QIR emission, profile selection, intrinsic mapping
 
 ## Common Tasks
 
 ### Add new quantum intrinsic mapping
-1. Edit `intrinsics.rs` — map GIR `OpKind` to QIR intrinsic call
+1. Edit `lib.rs` — map GIR `NodeKind` to QIR intrinsic call
 2. Use `inkwell` to build `CallInst` to `__quantum__qis__<gate>__body`
 3. Handle qubit array indexing, control qubits
 4. Test: emit QIR, validate with `llvm-dis`, run on simulator via `qoqo_qir`
 
 ### Modify profile selection (Base vs Adaptive)
-1. Edit `profile.rs` — Adaptive profile required for:
+1. Edit `lib.rs` — Adaptive profile required for:
    - Mid-circuit measurement (`measure` not at end)
    - Measurement-conditioned control flow (`if measure(q) { ... }`)
 2. Base profile for straight-line circuits with terminal measurement
-3. Validation in `validation.rs` emits compile error on mismatch
+3. Validation emits compile error on mismatch
 
 ### Add vendor-specific extension
 1. QIR is vendor-neutral; vendor extensions via `qoqo_qir` or vendor SDKs
-2. Add capability descriptor in `target.rs` (qubits, gates, connectivity, mid-circuit)
+2. Add capability descriptor in `lib.rs` (qubits, gates, connectivity, mid-circuit)
 3. Register in `gala-runtime` backend registry
 4. Test on target hardware (nightly CI)
 

@@ -12,39 +12,37 @@ $ARGUMENTS
 ## Context
 
 Gala's optimizer (`crates/gala-opt`) performs **GIR → GIR rewrites** preserving effect annotations and linearity invariants:
-
 - **Quantum**: gate fusion, adjacent cancellation, rotation merging, ancilla scheduling, depth/count reduction
 - **Classical**: constant folding, DCE, inlining of small `pure` functions
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-opt/src/lib.rs`. As it matures it may be split into `pass.rs`, `quantum.rs`, `classical.rs`, `validate.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-opt/src/pass.rs` — Pass infrastructure, manager
-- `crates/gala-opt/src/quantum.rs` — Quantum-specific passes
-- `crates/gala-opt/src/classical.rs` — Classical passes
-- `crates/gala-opt/src/validate.rs` — Post-pass invariant checking (debug)
+- `crates/gala-opt/src/lib.rs` — Pass infrastructure, optimizer entry point
 
 ## Common Tasks
 
 ### Add quantum optimization pass
-1. Edit `quantum.rs` — implement pass as function `Gir -> Gir`
-2. Pattern match on `OpKind` sequences (e.g., `H; H` → cancel)
+1. Edit `lib.rs` — implement pass as function `Gir -> Gir`
+2. Pattern match on `NodeKind` sequences (e.g., `H; H` → cancel)
 3. For rotation merge: `RX(a); RX(b)` → `RX(a+b)`
 4. For gate fusion: adjacent single-qubit → single fused op
-5. Register in `pass.rs` pass manager with name, dependencies
+5. Register in pass pipeline
 6. Add benchmarks: gate count/depth on standard algorithms
 
 ### Add classical optimization pass
-1. Edit `classical.rs` — constant folding, DCE, inlining
+1. Edit `lib.rs` — constant folding, DCE, inlining
 2. Use effect info: only inline `pure` functions
 3. Preserve linearity: don't duplicate linear values
-4. Register in pass manager
+4. Register in pass pipeline
 
 ### Modify pass ordering / dependencies
-1. Edit `pass.rs` — `PassManager::new()` defines pipeline
+1. Edit `lib.rs` — `optimize_gir` defines pipeline
 2. Quantum passes typically before classical (quantum structure informs classical)
 3. Some passes may need multiple runs (fixpoint)
 
 ### Debug optimization correctness
-1. Enable `validate.rs` checks in debug builds (`cfg(debug_assertions)`)
+1. Enable validation checks in debug builds (`cfg(debug_assertions)`)
 2. Property test: semantic equivalence on simulator (`gala-sim`)
 3. Compare GIR before/after with `--emit gir`
 

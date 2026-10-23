@@ -13,35 +13,34 @@ $ARGUMENTS
 
 Gala's CLI (`crates/gala-cli`) is the **user-facing `gala` binary** built with **clap**. Commands: `build`, `check`, `run`, `test`, `fmt`, `repl`, `add`, `remove`, `update`, `pkg`, `explain`, `fix`, `new`, `init`.
 
+> **Note on file layout:** The crate currently lives in `crates/gala-cli/src/main.rs`. As it matures it may be split into `commands/`, `output.rs`, `config.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `main.rs`.
+
 Key files:
 - `crates/gala-cli/src/main.rs` — Entry point, command dispatch
-- `crates/gala-cli/src/commands/` — Per-command modules
-- `crates/gala-cli/src/output.rs` — JSON/text output formatting
-- `crates/gala-cli/src/config.rs` — CLI config, profiles
 
 ## Common Tasks
 
 ### Add new CLI command
-1. Create `crates/gala-cli/src/commands/new_command.rs`
+1. Create function in `main.rs` (or new file if split)
 2. Define clap `Args` struct with `#[command]` attributes
 3. Implement `run` function using `gala-driver` / other crates
-4. Register in `main.rs` command enum
-5. Add `--json` output support via `output.rs`
+4. Register in command enum in `main.rs`
+5. Add `--json` output support
 6. Add help text, examples
 
 ### Add `--json` to existing command
 1. Edit command's `Args` — add `json: bool` flag
 2. In `run`, collect structured result
-3. Use `output::json(result)` or `output::text(result)`
+3. Use output formatting
 4. Ensure schema versioned (e.g., `build.v1.json`)
 
 ### Modify build pipeline flags
-1. Edit `commands/build.rs` — `--emit` variants (ast, hir, gir, gir-opt, qir, llvm, clif)
+1. Edit `main.rs` — `--emit` variants (ast, hir, gir, gir-opt, qir, llvm, clif)
 2. Add new emission target in `gala-driver`
 3. Test: `gala build --emit gir examples/hello.gala`
 
 ### Add REPL feature
-1. Edit `commands/repl.rs` — incremental evaluation loop
+1. Edit `main.rs` — incremental evaluation loop
 2. Use `gala-driver` for incremental compilation
 3. Add visualization: state vector, Bloch sphere, histogram
 4. `--json` mode for programmatic use

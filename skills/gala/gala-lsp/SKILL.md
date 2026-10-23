@@ -13,28 +13,25 @@ $ARGUMENTS
 
 Gala's LSP (`crates/gala-lsp`) is built on **tower-lsp** and shares the **salsa query database** with the compiler. Provides live diagnostics, hover (types+effects), go-to-definition, rename, completion, and **inline circuit diagrams**.
 
+> **Note on file layout:** The crate currently lives in `crates/gala-lsp/src/lib.rs` + `crates/gala-lsp/src/main.rs`. As it matures it may be split into `server.rs`, `diagnostics.rs`, `hover.rs`, `completion.rs`, `goto.rs`, `rename.rs`, `custom.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-lsp/src/server.rs` — LSP server, request handlers
-- `crates/gala-lsp/src/diagnostics.rs` — Push diagnostics on change
-- `crates/gala-lsp/src/hover.rs` — Type/effect hover, circuit diagram
-- `crates/gala-lsp/src/completion.rs` — Completion items (keywords, stdlib, snippets)
-- `crates/gala-lsp/src/goto.rs` — Go-to-definition, references
-- `crates/gala-lsp/src/rename.rs` — Rename with salsa invalidation
-- `crates/gala-lsp/src/custom.rs` — Custom methods for agents (`gala/girAtPosition`, etc.)
+- `crates/gala-lsp/src/lib.rs` — LSP server, request handlers
+- `crates/gala-lsp/src/main.rs` — Binary entry point
 
 ## Common Tasks
 
 ### Add LSP feature
-1. Implement handler in appropriate module (`hover.rs`, `completion.rs`, etc.)
-2. Register in `server.rs` capabilities
+1. Implement handler in `lib.rs`
+2. Register in server capabilities
 3. Use salsa queries: `db.hir(file)`, `db.type_of(def_id)`, `db.gir(def_id)`
 4. For circuit diagrams: query `db.gir(def_id)`, render ASCII/UTF-8 circuit
 5. Test in VS Code with `extensions/vscode/`
 
 ### Add custom method for agents
-1. Edit `custom.rs` — define method name (`gala/girAtPosition`)
+1. Edit `lib.rs` — define method name (`gala/girAtPosition`)
 2. Implement handler returning typed JSON (GIR schema v1)
-3. Register in `server.rs` with `ServerCapabilities::experimental`
+3. Register in server capabilities with `ServerCapabilities::experimental`
 4. Test with MCP Inspector or VS Code extension
 
 ### Improve diagnostics latency

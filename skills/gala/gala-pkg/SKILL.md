@@ -13,35 +13,34 @@ $ARGUMENTS
 
 Gala's package manager (`crates/gala-pkg`) handles **package manifests** (`gala.toml`), **dependency resolution**, **registry client**, and **lockfile** (`gala.lock`). Commands: `gala add`, `gala remove`, `gala update`, `gala pkg publish`.
 
+> **Note on file layout:** The crate currently lives in `crates/gala-pkg/src/lib.rs` + `crates/gala-pkg/src/main.rs`. As it matures it may be split into `manifest.rs`, `resolver.rs`, `registry.rs`, `lockfile.rs`, `commands.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-pkg/src/manifest.rs` — `gala.toml` parsing, validation
-- `crates/gala-pkg/src/resolver.rs` — Version resolution (semver, constraints)
-- `crates/gala-pkg/src/registry.rs` — Registry API client (publish, fetch)
-- `crates/gala-pkg/src/lockfile.rs` — `gala.lock` generation, verification
-- `crates/gala-pkg/src/commands.rs` — CLI command implementations
+- `crates/gala-pkg/src/lib.rs` — Package management logic
+- `crates/gala-pkg/src/main.rs` — CLI entry point
 
 ## Common Tasks
 
 ### Modify manifest format
-1. Edit `manifest.rs` — `GalaToml` struct, TOML schema
+1. Edit `lib.rs` — `GalaToml` struct, TOML schema
 2. Add new fields (e.g., `backend`, `target`, `noise-model`)
 3. Update validation rules
 4. Migration: auto-upgrade old manifests
 
 ### Improve resolver
-1. Edit `resolver.rs` — semver constraint solving
+1. Edit `lib.rs` — semver constraint solving
 2. Handle git/path dependencies
 3. Support workspace inheritance
 4. Test: complex dependency graphs, conflict resolution
 
 ### Add registry feature
-1. Edit `registry.rs` — API endpoints, authentication
+1. Edit `lib.rs` — API endpoints, authentication
 2. `publish`: sign package, upload to registry
 3. `fetch`: download, verify checksum, cache
 4. `search`: query registry index
 
 ### Lockfile improvements
-1. Edit `lockfile.rs` — deterministic generation
+1. Edit `lib.rs` — deterministic generation
 2. Include content hashes for reproducibility
 3. `gala pkg verify` — check lockfile matches manifest
 4. JSON output: `gala pkg add --json`
