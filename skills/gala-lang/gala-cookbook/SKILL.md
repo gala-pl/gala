@@ -458,8 +458,8 @@ fn shared_params_ansatz(q: Qubits<4>, θ: Params) -> Qubits<4> quantum {
 
 ## Find More Recipes
 
-- `library/std/algorithms/` — QFT, Grover, adders
-- `library/std/vqa/` — Encoders, ansätze, optimizers
+- `library/std/algorithms.gala` — QFT, Grover, adders
+- `library/std/vqa.gala` — Encoders, ansätze, optimizers
 - `examples/` — Complete programs
 - `tests/conformance/valid/` — Correct usage patterns
 

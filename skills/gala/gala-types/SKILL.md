@@ -18,40 +18,36 @@ Gala's type checker (`crates/gala-types`) implements **bidirectional type infere
 - **Linearity checking** (no-cloning, no-implicit-drop, no-aliasing)
 - Union-find (`ena`) for type unification
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-types/src/lib.rs`. As it matures it may be split into `infer.rs`, `effect.rs`, `linearity.rs`, `const_generic.rs`, `unify.rs`, `diagnostic.rs`, `db.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-types/src/infer.rs` — Bidirectional inference engine
-- `crates/gala-types/src/effect.rs` — Effect lattice, subsumption, polymorphism
-- `crates/gala-types/src/linearity.rs` — Ownership/liveness analysis
-- `crates/gala-types/src/const_generic.rs` — Const generic solving for `Qubits<N>`
-- `crates/gala-types/src/unify.rs` — Unification with `ena`
-- `crates/gala-types/src/diagnostic.rs` — Type/effect/linearity diagnostic codes (E02xx, E03xx, E04xx)
-- `crates/gala-types/src/db.rs` — Salsa queries for type checking
+- `crates/gala-types/src/lib.rs` — Type inference, effect checking, linearity checking, unification
 
 ## Common Tasks
 
 ### Add new type / type constructor
-1. Add to `TyKind` in `infer.rs` (or shared type definition)
-2. Add unification case in `unify.rs`
-3. Add inference rules in `infer.rs` (check/synth)
+1. Add to `Ty` enum in `lib.rs`
+2. Add unification case in `unify_types`
+3. Add inference rules in `check_hir_expr`
 4. Add effect if quantum-relevant
 5. Add const generic handling if size-parametric
 6. Update linearity rules if linear
 7. Add conformance tests in `tests/conformance/types/`
 
 ### Modify effect system
-- Effect lattice in `effect.rs`: `pure < quantum < prob`
+- Effect lattice in `Effect` enum: `Pure < Quantum < Prob`
 - Subsumption: `quantum` may call `pure`; `prob` may call `quantum`/`pure`
 - Effect polymorphism: generic `fn map<E>(...) -> ... E`
 - Measurement (`measure`) has effect `prob` — boundary crossing
 
 ### Fix linearity diagnostic / add new linearity rule
-1. Edit `linearity.rs` ownership/liveness analysis
-2. Add diagnostic code in `diagnostic.rs` (E04xx range)
+1. Edit linearity checking in `lib.rs` (`check_linearity`, `check_block_linearity`)
+2. Add diagnostic code in `crates/gala-diagnostics/src/lib.rs` (E04xx range)
 3. Ensure teaching-grade `help:` text explains quantum principle
 4. Test: use-after-consume, duplication, implicit-drop, aliasing
 
 ### Add const generic constraint
-1. Edit `const_generic.rs` for solving `N` in `Qubits<N>`
+1. Edit `ast_type_to_ty` for solving `N` in `Qubits<N>`
 2. Handle bounds, inference from usage
 3. Add conformance tests for size mismatches
 
@@ -80,15 +76,17 @@ cargo run --bin gala -- --emit typed-hir examples/hello_world.gala  # Debug type
 enum Effect { Pure, Quantum, Prob }  // Pure ⊑ Quantum ⊑ Prob
 
 // Type kinds (simplified)
-enum TyKind {
-    Bool, Int, Float, Complex,
+enum Ty {
+    Bool, Int, Float, Complex, String, Unit, Params,
     Qubit,
-    Qubits(ConstGeneric),  // Qubits<N>
+    Qubits(u64),  // Qubits<N>
     Measured(Box<Ty>),     // Measured<T>
-    Fn(Vec<Ty>, Ty, Effect),
     Tuple(Vec<Ty>),
-    Array(Ty, ConstGeneric),
-    // ... structs, enums, type vars
+    Array(Box<Ty>, u64),
+    Fn { params: Vec<Ty>, ret: Box<Ty>, effect: Effect },
+    Named(DefId, Vec<Ty>),
+    Var(TyVar),
+    TyError,
 }
 ```
 

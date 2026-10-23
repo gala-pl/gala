@@ -13,29 +13,28 @@ $ARGUMENTS
 
 Gala's classical codegen (`crates/gala-codegen-classical`) compiles the **classical orchestration layer** (loops, optimizers, data handling, gradient descent) to native code. Uses **Cranelift** for fast debug builds, **LLVM (via inkwell)** for optimized releases.
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-codegen-classical/src/lib.rs`. As it matures it may be split into `cranelift.rs`, `llvm.rs`, `lower.rs`, `runtime.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-codegen-classical/src/cranelift.rs` — Cranelift backend
-- `crates/gala-codegen-classical/src/llvm.rs` — LLVM backend (inkwell)
-- `crates/gala-codegen-classical/src/lower.rs` — GIR classical ops → backend IR
-- `crates/gala-codegen-classical/src/runtime.rs` — Runtime interface (memory, calls)
+- `crates/gala-codegen-classical/src/lib.rs` — Classical lowering, Cranelift/LLVM backends
 
 ## Common Tasks
 
 ### Add classical op lowering
-1. Edit `lower.rs` — map GIR classical `OpKind` (Add, Mul, Call, etc.) to backend IR
+1. Edit `lib.rs` — map GIR classical `NodeKind` (Add, Mul, Call, etc.) to backend IR
 2. Implement for both Cranelift and LLVM backends
 3. Handle calling convention for Gala → Rust FFI
 4. Test: compile and run classical-only function
 
 ### Optimize codegen for release
-1. Edit `llvm.rs` — add LLVM optimization passes (inline, vectorize, etc.)
+1. Edit `lib.rs` — add LLVM optimization passes (inline, vectorize, etc.)
 2. Ensure `pure` functions get optimized aggressively
 3. Benchmark: orchestration binary perf vs interpreted baseline
 
 ### Add runtime intrinsic
-1. Edit `runtime.rs` — define host function signature
+1. Edit `lib.rs` — define host function signature
 2. Implement in `gala-runtime` (Rust side)
-3. Lower call in `lower.rs` to runtime function
+3. Lower call to runtime function
 4. Test: end-to-end hybrid program
 
 ### Switch default backend
@@ -57,7 +56,7 @@ cargo run --bin gala -- build examples/classical_only.gala --target native  # De
 - **Orchestration layer only** — quantum ops go to QIR/sim, not here
 - **Cranelift for speed** — fast incremental debug builds
 - **LLVM for perf** — optimized release artifacts
-- **Shared lowering** — `lower.rs` feeds both backends
+- **Shared lowering** — `lib.rs` feeds both backends
 - **FFI-compatible** — Gala calls Rust runtime, Rust calls Gala entry points
 - No `unwrap()` on user paths
 
@@ -65,12 +64,11 @@ cargo run --bin gala -- build examples/classical_only.gala --target native  # De
 
 ```rust
 // Classical GIR ops → backend IR
-fn lower_op(builder: &mut Builder, op: &Op) {
+fn lower_op(builder: &mut Builder, op: &GirNode) {
     match op.kind {
-        OpKind::Add => builder.ins().fadd(op.inputs[0], op.inputs[1]),
-        OpKind::Mul => builder.ins().fmul(op.inputs[0], op.inputs[1]),
-        OpKind::Call(func_id) => lower_call(builder, func_id, op.inputs),
-        OpKind::Return => builder.ins().return_(&op.inputs),
+        NodeKind::Classical(ClassicalOp::Add) => builder.ins().fadd(op.operands[0], op.operands[1]),
+        NodeKind::Classical(ClassicalOp::Mul) => builder.ins().fmul(op.operands[0], op.operands[1]),
+        NodeKind::Classical(ClassicalOp::Call(func_id)) => lower_call(builder, func_id, &op.operands),
         // ... control flow, memory, etc.
     }
 }

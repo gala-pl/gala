@@ -16,35 +16,33 @@ Gala's differentiation pass (`crates/gala-diff`) lowers `grad(f, wrt: p)` to GIR
 - **Classical parameters** → **reverse-mode autodiff**
 - **Chain rule composition** at quantum/classical boundary
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-diff/src/lib.rs`. As it matures it may be split into `lower.rs`, `param_shift.rs`, `autodiff.rs`, `compose.rs`, `gradient.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-diff/src/lower.rs` — `grad` lowering entry point
-- `crates/gala-diff/src/param_shift.rs` — Parameter-shift rule for quantum gates
-- `crates/gala-diff/src/autodiff.rs` — Reverse-mode AD for classical ops
-- `crates/gala-diff/src/compose.rs` — Chain rule at boundary
-- `crates/gala-diff/src/gradient.rs` — Gradient function representation
+- `crates/gala-diff/src/lib.rs` — `grad` lowering, parameter-shift, reverse-mode autodiff, chain rule
 
 ## Common Tasks
 
 ### Add parameter-shift for new quantum gate
-1. Edit `param_shift.rs` — add shift rule for gate's parameter
+1. Edit `lib.rs` — add shift rule for gate's parameter
 2. For `RX(θ)`, `RY(θ)`, `RZ(θ)`: shift by ±π/2, evaluate, combine
 3. For controlled variants: ensure control qubit handled correctly
 4. Add test in `tests/conformance/diff/` with known gradient
 
 ### Extend classical autodiff
-1. Edit `autodiff.rs` — add reverse-mode rule for new classical op
+1. Edit `lib.rs` — add reverse-mode rule for new classical op
 2. Define `vjp` (vector-Jacobian product) for the op
 3. Handle higher-order derivatives if needed
 4. Test against finite differences
 
 ### Modify chain rule composition
-1. Edit `compose.rs` — handles quantum output → classical input boundary
+1. Edit `lib.rs` — handles quantum output → classical input boundary
 2. Parameter-shift produces classical gradients; autodiff consumes them
 3. Ensure correct gradient flow through hybrid functions
 
 ### Add new `grad` feature (e.g., Hessian, Jacobian)
-1. Extend `gradient.rs` representation
-2. Add lowering in `lower.rs`
+1. Extend gradient representation in `lib.rs`
+2. Add lowering
 3. Update `grad_matches` property test harness
 
 ## Testing
@@ -70,21 +68,22 @@ cargo test --workspace -- grad_matches
 
 ```rust
 // Parameter-shift for RX(θ): d/dθ RX(θ) = 0.5 * (RX(θ+π/2) - RX(θ-π/2))
-fn param_shift_rx(theta: Value) -> (Value, Value) {
-    let plus = theta + Const(PI/2);
-    let minus = theta - Const(PI/2);
-    // Evaluate circuit at both, combine results
-}
+pub fn param_shift_gradient_gir(
+    gir: &Gir,
+    func_id: FuncId,
+    param_idx: usize,
+    shift: f64,
+) -> Result<Gir, Diagnostics>
 
 // Reverse-mode autodiff for classical: build adjoint computation graph
-fn autodiff_add(a: Value, b: Value, grad_out: Value) -> (Value, Value) {
-    (grad_out, grad_out)  // d/da (a+b) = 1, d/db (a+b) = 1
-}
+pub fn reverse_mode_autodiff_gir(
+    gir: &Gir,
+    source_id: FuncId,
+    param_indices: &[usize],
+) -> Result<(Gir, Vec<ValueId>), Diagnostics>
 
-// Chain rule at boundary: quantum grad → classical autodiff
-fn compose(quantum_grad: Value, classical_vjp: Value) -> Value {
-    // quantum_grad is dL/dθ; classical_vjp propagates to upstream params
-}
+// Main entry point: lower all gradients for pure functions
+pub fn lower_gradients(gir: &mut Gir)
 ```
 
 ## Debugging

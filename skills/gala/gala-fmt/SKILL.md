@@ -13,30 +13,30 @@ $ARGUMENTS
 
 Gala's formatter (`crates/gala-fmt`) operates on the **lossless CST** from the parser (preserves comments, whitespace). Produces **one canonical style**, is **idempotent** (`fmt(fmt(x)) == fmt(x)`), and supports `--check`, `--diff`, `--stdin` for CI.
 
+> **Note on file layout:** The crate currently lives in `crates/gala-fmt/src/lib.rs` + `crates/gala-fmt/src/main.rs`. As it matures it may be split into `format.rs`, `shape.rs`, `rewrite.rs`, `config.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-fmt/src/format.rs` — Main formatting logic, CST → formatted string
-- `crates/gala-fmt/src/shape.rs` — Layout shapes (line width, indentation, breaks)
-- `crates/gala-fmt/src/rewrite.rs` — CST rewriting with trivia preservation
-- `crates/gala-fmt/src/config.rs` — Configuration (minimal: line width only)
+- `crates/gala-fmt/src/lib.rs` — Main formatting logic, CST → formatted string
+- `crates/gala-fmt/src/main.rs` — CLI entry point
 
 ## Common Tasks
 
 ### Adjust formatting style
-1. Edit `shape.rs` — modify `Shape` for constructs (fn, let, match, call, etc.)
+1. Edit `lib.rs` — modify `Shape` for constructs (fn, let, match, call, etc.)
 2. Line width: default 100, configurable via `--width`
 3. Indentation: 4 spaces (fixed, not configurable)
 4. Test idempotence: `fmt(fmt(x)) == fmt(x)`
 
 ### Fix formatting bug
 1. Reproduce: `cargo run --bin gala -- fmt --check examples/broken.gala`
-2. Check `rewrite.rs` for trivia handling (comments, whitespace)
+2. Check `lib.rs` for trivia handling (comments, whitespace)
 3. Ensure comments stay attached to correct nodes
 4. Test on stdlib: `cargo run --bin gala -- fmt --check library/std/`
 
 ### Add formatting for new syntax
 1. Parser must produce CST nodes for new syntax (in `gala-parser`)
-2. Add case in `format.rs` `format_node` match
-3. Define `Shape` in `shape.rs`
+2. Add case in `lib.rs` formatting match
+3. Define `Shape`
 4. Test with new syntax examples
 
 ### CI integration
@@ -61,7 +61,7 @@ cargo run --bin gala -- fmt examples/hello_world.gala --stdin < examples/hello_w
 - **CST-based** — never loses comments or original whitespace intent
 - **One style** — no configuration beyond line width
 - **Idempotent** — `fmt(fmt(x)) == fmt(x)` always
-- **Fast** — incremental via salsa not needed; formats whole file
+- **Fast** — formats whole file
 - **Deterministic** — same input = same output
 - No `unwrap()` on user paths
 

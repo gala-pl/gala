@@ -20,10 +20,14 @@ $ARGUMENTS
    `cargo test --workspace -- <test-name>`
 
 3. Trace through the compiler pipeline to find where the issue originates:
-   - Lexer (`compiler/src/lexer.rs`)
-   - Parser (`compiler/src/parser.rs`)  
-   - AST/IR (`compiler/src/ast.rs`, `compiler/src/ir.rs`)
-   - Codegen (`compiler/src/codegen.rs`)
+   - Lexer (`crates/gala-lexer/src/lib.rs`)
+   - Parser (`crates/gala-parser/src/lib.rs`)
+   - AST (`crates/gala-ast/src/lib.rs`)
+   - HIR (`crates/gala-hir/src/lib.rs`)
+   - Types/Effects (`crates/gala-types/src/lib.rs`)
+   - Uncomputation (`crates/gala-uncompute/src/lib.rs`)
+   - GIR (`crates/gala-gir/src/lib.rs`)
+   - Codegen (`crates/gala-codegen-classical/src/lib.rs`)
 
 4. Look at existing tests for similar features to understand the pattern
 

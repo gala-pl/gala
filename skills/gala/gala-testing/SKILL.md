@@ -22,7 +22,6 @@ Key files:
 - `tests/conformance/` — Source + expectation pairs by category
 - `tests/conformance_test_parse.rs` — Conformance test harness
 - `tests/integration_test.rs` — End-to-end integration tests
-- `crates/gala-test/` (if exists) — Property test harness
 - `crates/*/tests/` — Per-crate unit/property tests
 
 ## Common Tasks

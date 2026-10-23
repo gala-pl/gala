@@ -5,14 +5,14 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const srcDir = resolve(__dirname, '../src/schemas');
+const srcDir = resolve(__dirname, '../../../schemas/v1');
 const destDir = resolve(__dirname, '../dist');
 
 if (!existsSync(destDir)) {
   mkdirSync(destDir, { recursive: true });
 }
 
-const files = ['diagnostic.v1.json', 'gir.v1.json', 'property_result.v1.json'];
+const files = ['diagnostic.json', 'gir.json', 'property_result.json'];
 
 for (const file of files) {
   const src = join(srcDir, file);

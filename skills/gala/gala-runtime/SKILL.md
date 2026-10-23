@@ -18,36 +18,34 @@ Gala's runtime (`crates/gala-runtime`) coordinates **hybrid program execution** 
 - **Gradient batching** — batches parameter-shift evaluations
 - **Caching** — memoizes identical circuit submissions
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-runtime/src/lib.rs`. As it matures it may be split into `dispatch.rs`, `measurement.rs`, `batching.rs`, `cache.rs`, `backend.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-runtime/src/dispatch.rs` — Backend dispatch, kernel submission
-- `crates/gala-runtime/src/measurement.rs` — Mid-circuit measurement handling
-- `crates/gala-runtime/src/batching.rs` — Parameter-shift batching
-- `crates/gala-runtime/src/cache.rs` — Circuit submission cache
-- `crates/gala-runtime/src/backend.rs` — Backend registry, capability descriptors
+- `crates/gala-runtime/src/lib.rs` — Backend dispatch, runtime program/result types, simulator backend
 
 ## Common Tasks
 
 ### Add new backend
-1. Implement `Backend` trait in `backend.rs`
+1. Implement `Backend` trait in `lib.rs`
 2. Define `BackendCapabilities` (qubits, gates, connectivity, mid-circuit, noise)
 3. Implement `submit_circuit` / `submit_batch` for the backend
 4. Register in backend registry
 5. Add capability checking in `gala-qir` / `gala-sim`
 
 ### Improve gradient batching
-1. Edit `batching.rs` — group parameter-shift evaluations
+1. Edit `lib.rs` — group parameter-shift evaluations
 2. Single submission for all shifted circuits (major cost saver)
 3. Handle result unpacking and gradient assembly
 4. Benchmark: submissions/grad vs unbatched
 
 ### Add mid-circuit measurement support
-1. Edit `measurement.rs` — handle `measure` in middle of circuit
+1. Edit `lib.rs` — handle `measure` in middle of circuit
 2. For adaptive profile: submit measurement, get result, conditionally submit next kernel
 3. For base profile: reject at compile time (handled in `gala-qir`)
 4. Test: adaptive teleportation, repeat-until-success
 
 ### Implement caching strategy
-1. Edit `cache.rs` — hash circuit + parameters for memoization
+1. Edit `lib.rs` — hash circuit + parameters for memoization
 2. Invalidate on backend capability change
 3. Configurable TTL / size limits
 4. Test: repeated `grad` calls hit cache
@@ -73,19 +71,33 @@ cargo run --bin gala -- run examples/hybrid.gala --backend simulator  # Debug
 ## Key Traits
 
 ```rust
-trait Backend {
-    fn capabilities(&self) -> BackendCapabilities;
-    fn submit(&self, circuit: Circuit, shots: u64) -> Result<MeasuredDistribution>;
-    fn submit_batch(&self, circuits: Vec<Circuit>, shots: u64) -> Result<Vec<MeasuredDistribution>>;
+pub trait Backend: Send + Sync {
+    fn capability(&self) -> &BackendCapability;
+    fn execute(&self, program: &RuntimeProgram) -> Result<RuntimeResult, Diagnostics>;
 }
 
-struct BackendCapabilities {
-    max_qubits: usize,
-    native_gates: HashSet<GateName>,
-    connectivity: ConnectivityGraph,
-    supports_mid_circuit_measure: bool,
-    supports_adaptive: bool,
-    noise_model: Option<NoiseModel>,
+struct BackendCapability {
+    name: String,
+    num_qubits: usize,
+    native_gates: Vec<String>,
+    connectivity: Vec<(usize, usize)>,
+    supports_mid_circuit_measurement: bool,
+    supports_reset: bool,
+}
+
+struct RuntimeProgram {
+    operations: Vec<RuntimeOp>,
+    num_qubits: usize,
+    num_clbits: usize,
+    shots: u64,
+}
+
+enum RuntimeOp {
+    Gate { gate: String, qubits: Vec<usize>, params: Vec<f64> },
+    Measure { qubit: usize, clbit: usize },
+    Reset { qubit: usize },
+    Barrier { qubits: Vec<usize> },
+    Conditional { condition: RuntimeCondition, body: Vec<RuntimeOp> },
 }
 ```
 

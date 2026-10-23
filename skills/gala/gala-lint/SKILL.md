@@ -11,7 +11,11 @@ $ARGUMENTS
 
 ## Context
 
-`gala-lint` is a standalone linter binary + library. Key files: `crates/gala-lint/src/lib.rs`, `crates/gala-lint/src/main.rs`.
+`gala-lint` is a standalone linter binary + library.
+
+Key files:
+- `crates/gala-lint/src/lib.rs` — Lint rules
+- `crates/gala-lint/src/main.rs` — CLI binary
 
 ## Common Tasks
 

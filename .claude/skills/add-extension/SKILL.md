@@ -31,15 +31,26 @@ Add or update a Gala editor extension following the existing patterns.
 ### Requirements
 
 1. Study an existing extension (e.g., Vim or Helix) to understand the keyword set and syntax patterns
-2. Check `examples/` for valid `.gala` sample programs to test against
+2. Check `tests/fixtures/` for valid `.gala` sample programs to test against
 3. Implement the syntax definitions following the target editor's conventions
 4. Test with `python -m unittest tests/test_*.py` if tests exist for this extension
 5. Register the extension in the project README if applicable
 
 ### Gala Language Keywords
 
-Keywords: `let`, `mut`, `fn`, `if`, `else`, `match`, `while`, `for`, `in`, `return`, `true`, `false`, `unit`, `qbit`, `measure`, `hadamard`, `cnot`, `phase`, `toffoli`, `uncompute`, `property`
+Keywords (from `docs/LANGUAGE_SPEC.md` §2):
+`fn`, `let`, `mut`, `if`, `else`, `match`, `for`, `in`, `while`, `return`, `import`, `as`, `struct`, `enum`, `trait`, `impl`, `type`, `const`, `pure`, `quantum`, `prob`, `true`, `false`
 
-Types: `Bool`, `Int`, `Float`, `String`, `Qbit`, `Unit`
+Reserved quantum keywords:
+`qubit`, `qubits`, `measure`, `reverse`, `adjoint`, `control`, `grad`, `drop`
 
-Attributes: `#[property(unitary)]`, `#[property(reversible)]`, `#[property(uncomputes)]`, `#[property(grad_matches)]`
+Types:
+`Bool`, `Int`, `Float`, `Complex`, `String`, `Unit`, `Params`, `Measured`, `Qubit`, `Qubits`, `Vec`
+
+Attributes:
+`#[property(unitary)]`, `#[property(reversible)]`, `#[property(uncomputes)]`, `#[property(grad_matches)]`
+
+Built-in gates:
+`h`, `x`, `y`, `z`, `s`, `t`, `rx`, `ry`, `rz`, `cx`, `cz`, `swap`
+
+Error codes: `E01xx`–`E06xx` (for diagnostic highlighting)

@@ -13,35 +13,32 @@ $ARGUMENTS
 
 Gala's parser (`crates/gala-parser`) uses **chumsky** for parser combinators with **error recovery**. It produces both an AST (semantic) and a CST (concrete syntax tree) for the formatter and LSP.
 
+> **Note on file layout:** The crate currently lives in a single `crates/gala-parser/src/lib.rs`. As it matures it may be split into `parser.rs`, `expr.rs`, `stmt.rs`, `item.rs`, `recovery.rs` (see `docs/ARCHITECTURE.md`). When in doubt, search for the relevant code in `lib.rs`.
+
 Key files:
-- `crates/gala-parser/src/parser.rs` — Main parser construction
-- `crates/gala-parser/src/expr.rs` — Expression parsing
-- `crates/gala-parser/src/stmt.rs` — Statement parsing
-- `crates/gala-parser/src/item.rs` — Top-level item parsing (fn, struct, etc.)
-- `crates/gala-parser/src/recovery.rs` — Error recovery strategies
+- `crates/gala-parser/src/lib.rs` — Main parser construction, expression/statement/item parsing, error recovery
 - `crates/gala-ast/` — AST node definitions (shared crate)
-- `crates/gala-parser/tests/` — Parsing tests (golden, recovery)
 
 ## Common Tasks
 
 ### Add new syntax / grammar rule
 1. Define AST node in `gala-ast` if new construct
-2. Add parser function in appropriate module (`expr.rs`, `stmt.rs`, `item.rs`)
-3. Wire into main parser in `parser.rs`
+2. Add parser function in `lib.rs`
+3. Wire into main parser
 4. Add error recovery for the new construct
-5. Add conformance tests in `tests/conformance/parser/` or relevant category
+5. Add conformance tests in `tests/conformance/` or relevant category
 6. Test error recovery: feed broken code, verify partial AST + diagnostics
 
 ### Fix parsing bug / improve error recovery
 1. Reproduce with `cargo run --bin gala -- <file.gala>`
-2. Check `recovery.rs` for recovery strategies (delimiters, panic mode)
+2. Check error recovery strategies in `lib.rs`
 3. Ensure diagnostics have correct `E01xx` codes and spans
 4. Test that LSP still works on broken files (partial AST)
 
 ### Extend expression grammar
-- Operator precedence defined in `expr.rs` via `precedence!` macro
+- Operator precedence defined in `lib.rs`
 - Add new binary/unary operators with correct precedence
-- Update `TokenKind` in `gala-lexer` if new tokens needed
+- Update `Token` in `gala-lexer` if new tokens needed
 
 ## Testing
 
