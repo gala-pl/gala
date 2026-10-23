@@ -49,11 +49,32 @@ fn diag(code: gala_diagnostics::DiagnosticCode, msg: impl Into<String>) -> Diagn
     d
 }
 
-/// Gate occurrences whose angle is the parameter slot (or a copy of it), by `(block, index)`.
-fn occurrences(gir: &Gir, func: usize, param_slot: Slot) -> Result<Vec<(u32, usize)>, Diagnostics> {
+/// A rotation gate whose angle depends on the differentiated parameter: `(function, block, index)`.
+type Site = (usize, u32, usize);
+
+/// Rotation gates whose angle depends on `param_slot` of `func`, following the parameter through
+/// copies and through calls to other functions (the callee's matching parameter is followed in
+/// turn). Arithmetic on the parameter is rejected, because its chain rule is not implemented.
+fn occurrences(gir: &Gir, func: usize, param_slot: Slot) -> Result<Vec<Site>, Diagnostics> {
+    let mut out = Vec::new();
+    let mut seen: HashSet<(usize, Slot)> = HashSet::new();
+    collect_sites(gir, func, param_slot, &mut seen, &mut out, 0)?;
+    Ok(out)
+}
+
+fn collect_sites(
+    gir: &Gir,
+    func: usize,
+    param_slot: Slot,
+    seen: &mut HashSet<(usize, Slot)>,
+    out: &mut Vec<Site>,
+    depth: usize,
+) -> Result<(), Diagnostics> {
+    if depth > 32 || !seen.insert((func, param_slot)) {
+        return Ok(());
+    }
     let f = &gir.funcs[func];
     let mut dep: HashSet<Slot> = HashSet::from([param_slot]);
-    // Propagate through copies; arithmetic on the parameter is not differentiated yet.
     let mut arithmetic: HashSet<Slot> = HashSet::new();
     for b in &f.blocks {
         for inst in &b.insts {
@@ -73,30 +94,38 @@ fn occurrences(gir: &Gir, func: usize, param_slot: Slot) -> Result<Vec<(u32, usi
             }
         }
     }
-    let mut out = Vec::new();
     for (bi, b) in f.blocks.iter().enumerate() {
         for (ii, inst) in b.insts.iter().enumerate() {
-            if let Inst::Gate { gate, angle: Some(a), .. } = inst {
-                if !dep.contains(a) {
-                    continue;
+            match inst {
+                Inst::Gate { gate, angle: Some(a), .. } if dep.contains(a) => {
+                    if arithmetic.contains(a) {
+                        return Err(diag(
+                            codes::UNSUPPORTED_FEATURE,
+                            "the parameter is combined arithmetically before reaching a gate; only direct use is differentiated",
+                        ));
+                    }
+                    if !matches!(gate, GateKind::Rx | GateKind::Ry | GateKind::Rz) {
+                        return Err(diag(
+                            codes::UNSUPPORTED_FEATURE,
+                            format!("parameter-shift is implemented for rx, ry, rz; `{}` uses a different rule", gate.name()),
+                        ));
+                    }
+                    out.push((func, bi as u32, ii));
                 }
-                if arithmetic.contains(a) {
-                    return Err(diag(
-                        codes::UNSUPPORTED_FEATURE,
-                        "the parameter is combined arithmetically before reaching a gate; only direct use is differentiated",
-                    ));
+                Inst::Call { func: callee, args, .. } => {
+                    for (i, a) in args.iter().enumerate() {
+                        if dep.contains(a) {
+                            if let Some(&callee_param) = gir.funcs[*callee].params.get(i) {
+                                collect_sites(gir, *callee, callee_param, seen, out, depth + 1)?;
+                            }
+                        }
+                    }
                 }
-                if !matches!(gate, GateKind::Rx | GateKind::Ry | GateKind::Rz) {
-                    return Err(diag(
-                        codes::UNSUPPORTED_FEATURE,
-                        format!("parameter-shift is implemented for rx, ry, rz; `{}` uses a different rule", gate.name()),
-                    ));
-                }
-                out.push((bi as u32, ii));
+                _ => {}
             }
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Gradient of `E` with respect to argument `param` of function `func`, at `args`.
@@ -116,9 +145,9 @@ pub fn gradient(
     let mut submissions = 0u64;
     for site in &sites {
         let mut plus = ShiftPlan::new();
-        plus.insert((func, site.0, site.1), FRAC_PI_2);
+        plus.insert(*site, FRAC_PI_2);
         let mut minus = ShiftPlan::new();
-        minus.insert((func, site.0, site.1), -FRAC_PI_2);
+        minus.insert(*site, -FRAC_PI_2);
         let e_plus = expectation(gir, func, args, cfg, &plus)?;
         let e_minus = expectation(gir, func, args, cfg, &minus)?;
         submissions += 2;
@@ -331,5 +360,64 @@ mod tests {
         let first = report.loss_history.first().copied().unwrap_or(0.0);
         let last = report.loss_history.last().copied().unwrap_or(0.0);
         assert!(last < first, "loss decreases: {first} -> {last}");
+    }
+}
+
+/// Gradient computed as one batched device submission.
+///
+/// The shifted circuits of a gradient are independent, so the device API accepts them together:
+/// every circuit is run with the same configuration as in [`gradient`], and the whole batch counts
+/// as one submission. The value equals the unbatched gradient exactly.
+pub fn gradient_batched(
+    gir: &Gir,
+    func: usize,
+    param: usize,
+    args: &[Value],
+    cfg: &SimConfig,
+) -> Result<Gradient, Diagnostics> {
+    let f = &gir.funcs[func];
+    let param_slot = *f.params.get(param).ok_or_else(|| {
+        diag(codes::RUNTIME_ERROR, format!("`{}` has no parameter #{param}", f.name))
+    })?;
+    let sites = occurrences(gir, func, param_slot)?;
+    // One batch: every plus and minus circuit, in site order.
+    let mut batch: Vec<ShiftPlan> = Vec::with_capacity(2 * sites.len());
+    for site in &sites {
+        let mut plus = ShiftPlan::new();
+        plus.insert(*site, FRAC_PI_2);
+        let mut minus = ShiftPlan::new();
+        minus.insert(*site, -FRAC_PI_2);
+        batch.push(plus);
+        batch.push(minus);
+    }
+    let estimates: Vec<f64> = batch
+        .iter()
+        .map(|plan| expectation(gir, func, args, cfg, plan))
+        .collect::<Result<_, _>>()?;
+    let total: f64 = estimates.chunks(2).map(|pair| (pair[0] - pair[1]) / 2.0).sum();
+    Ok(Gradient { value: total, occurrences: sites.len(), submissions: 1 })
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    #[test]
+    fn batched_gradient_equals_unbatched_in_one_submission() {
+        let mut sources = gala_driver::Sources::default();
+        let gir = gala_driver::compile_source(
+            "fn classify(x: Float, theta: Float) -> Measured<Bool> prob {\n    let q = qubit()\n    ry(q, x)\n    ry(q, theta)\n    measure(q)\n}\nfn main() -> Int { 0 }\n",
+            &mut sources,
+        )
+        .expect("compiles")
+        .gir;
+        let func = gir.func_named("classify").unwrap();
+        let args = vec![Value::Float(0.4), Value::Float(0.9)];
+        let cfg = SimConfig { shots: 4_000, seed: 21, ..Default::default() };
+        let plain = gradient(&gir, func, 1, &args, &cfg).unwrap();
+        let batched = gradient_batched(&gir, func, 1, &args, &cfg).unwrap();
+        assert!((plain.value - batched.value).abs() < 1e-12, "same value");
+        assert_eq!(batched.submissions, 1, "one submission for the whole gradient");
+        assert_eq!(plain.submissions, 2 * plain.occurrences as u64);
     }
 }
