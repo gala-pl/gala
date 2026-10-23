@@ -362,6 +362,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "gala-ast",
+ "gala-codegen-classical",
  "gala-diagnostics",
  "gala-diff",
  "gala-driver",
@@ -379,10 +380,15 @@ dependencies = [
 name = "gala-codegen-classical"
 version = "0.1.0"
 dependencies = [
+ "gala-ast",
  "gala-diagnostics",
  "gala-gir",
+ "gala-hir",
  "gala-opt",
+ "gala-parser",
+ "gala-sim",
  "gala-span",
+ "gala-types",
  "inkwell",
 ]
 
@@ -430,6 +436,7 @@ dependencies = [
  "gala-uncompute",
  "insta",
  "proptest",
+ "salsa",
  "serde_json",
 ]
 
