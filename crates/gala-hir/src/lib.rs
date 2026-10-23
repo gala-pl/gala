@@ -1152,6 +1152,11 @@ pub fn const_int(c: &ConstExpr) -> Option<i64> {
     }
 }
 
+/// The integer value of a constant expression, if it has one.
+fn gala_hir_const_value(c: &ConstExpr) -> Option<i64> {
+    const_int(c)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1241,9 +1246,4 @@ mod tests {
         let (pkg, _) = lower("fn f() -> Int { 1 + 2 * 3 }");
         assert!(pkg.expr_count >= 5);
     }
-}
-
-/// The integer value of a constant expression, if it has one.
-fn gala_hir_const_value(c: &ConstExpr) -> Option<i64> {
-    const_int(c)
 }

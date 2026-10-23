@@ -281,13 +281,10 @@ fn weighted_path(
     let mut prev: Vec<Option<usize>> = vec![None; n];
     let mut done = vec![false; n];
     dist[from] = 0.0;
-    loop {
-        let Some(u) = (0..n)
-            .filter(|&i| !done[i] && dist[i].is_finite())
-            .min_by(|&a, &b| dist[a].total_cmp(&dist[b]))
-        else {
-            break;
-        };
+    while let Some(u) = (0..n)
+        .filter(|&i| !done[i] && dist[i].is_finite())
+        .min_by(|&a, &b| dist[a].total_cmp(&dist[b]))
+    {
         done[u] = true;
         for &(a, b) in &topology.edges {
             let v = if a == u {
