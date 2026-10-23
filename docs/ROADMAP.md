@@ -2,7 +2,7 @@
 
 Phased milestones from an empty repo to fault-tolerant-era readiness. Phases are outcome-defined,
 not date-defined; rough durations assume a small, focused team. The work-package breakdown that
-executes these phases is in [AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md).
+executes these phases is in [PLAN.md](./PLAN.md).
 
 ## Phase 0 — Bootstrap & spec (0–2 months)
 **Outcome:** the repo, the workspace skeleton, and a frozen v0 spec.

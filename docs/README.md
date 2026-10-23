@@ -33,7 +33,7 @@ Read in order for a full picture; each doc is self-contained enough to reference
 | 07 | [STANDARD_LIBRARY.md](./STANDARD_LIBRARY.md) | Standard library layering: core, gates, algorithms, ml, noise, hardware |
 | 08 | [TESTING_QA.md](./TESTING_QA.md) | Test strategy, quantum-aware property testing, CI, conformance suite |
 | 09 | [ROADMAP.md](./ROADMAP.md) | Phased milestones from bootstrap to fault-tolerant readiness |
-| 10 | [AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md) | **The agentic build plan** — epics, work packages, agent prompts, acceptance criteria, dependency graph |
+| 10 | [PLAN.md](./PLAN.md) | **The agentic build plan** — epics, work packages, agent prompts, acceptance criteria, dependency graph |
 | 11 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Dev workflow, conventions, definition of done, agent operating rules |
 | 12 | [GLOSSARY.md](./GLOSSARY.md) | Quantum + PL + compiler terminology |
 
@@ -62,7 +62,7 @@ memory-safe, single-binary toolchain.
 
 Concept / pre-implementation. This suite is the design-of-record and the executable plan. Start
 with [VISION.md](./VISION.md), then jump to
-[AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md) to begin building.
+[PLAN.md](./PLAN.md) to begin building.
 
 ## License & governance (intended)
 

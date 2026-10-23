@@ -35,11 +35,6 @@ fuzz/coverage/
 .DS_Store
 Thumbs.db
 
-## IDE
-.kilo/
-.opencode/
-skills/
-
 ## Temporary files
 # Single character filenames
 ?
