@@ -80,6 +80,11 @@ pub enum Value {
     Qubit(u32),
     /// A register: an ordered list of live qubit IDs.
     Register(Vec<u32>),
+    /// A quantum backend (see `backend.simulator()`).
+    Backend {
+        kind: String,
+        noise: f64,
+    },
     Tuple(Vec<Value>),
     Vec(Vec<Value>),
 }
@@ -95,6 +100,7 @@ impl fmt::Display for Value {
             Value::Complex(re, im) => write!(f, "{re}+{im}i"),
             Value::Qubit(id) => write!(f, "<qubit {id}>"),
             Value::Register(ids) => write!(f, "<register of {}>", ids.len()),
+            Value::Backend { kind, .. } => write!(f, "<backend {kind}>"),
             Value::Tuple(items) => {
                 let parts: Vec<String> = items.iter().map(|v| v.to_string()).collect();
                 write!(f, "({})", parts.join(", "))
@@ -641,6 +647,23 @@ impl<'g, 'r, 's> Machine<'g, 'r, 's> {
                     args.iter().map(|s| slots[*s as usize].to_string()).collect();
                 self.output.push(parts.join(" "));
             }
+            Inst::Run { dst, func, shots, backend } => {
+                let (kind, noise) = match &slots[*backend as usize] {
+                    Value::Backend { kind, noise } => (kind.clone(), *noise),
+                    other => return Err(bad_operand("run", other)),
+                };
+                if let Some(device) = kind.strip_prefix("hardware:") {
+                    return Err(SimError::new(
+                        codes::HARDWARE_UNAVAILABLE,
+                        format!("the hardware backend `{device}` is not reachable from this build"),
+                    ));
+                }
+                let n = as_index(&slots[*shots as usize])? as u64;
+                let cfg = SimConfig { shots: n, seed: 0, depolarizing: noise };
+                let report = run_function(self.gir, *func, Vec::new(), &cfg, &ShiftPlan::new())?;
+                let ones = report.histogram.get("true").copied().unwrap_or(0);
+                slots[*dst as usize] = Value::Int(ones as i64);
+            }
         }
         Ok(())
     }
@@ -657,6 +680,7 @@ fn qubit_ids<'v>(values: impl Iterator<Item = &'v Value>) -> Result<Vec<u32>, Si
 
 fn from_const(c: &Const) -> Value {
     match c {
+        Const::Backend { kind, noise } => Value::Backend { kind: kind.clone(), noise: *noise },
         Const::Unit => Value::Unit,
         Const::Int(v) => Value::Int(*v),
         Const::Float(v) => Value::Float(*v),
@@ -1067,4 +1091,122 @@ mod basis_tests {
         let one = basis_action(&gir, func, 1, 1, false).unwrap_err();
         assert_eq!(one.code.to_string(), "E0530");
     }
+}
+
+/// Sample final measurements of a unitary circuit on `num_qubits` qubits, factorized by
+/// connectivity.
+///
+/// Qubits that no two-qubit gate connects are independent, so the circuit splits into connected
+/// components. Each component is simulated exactly on its own state vector (so only the largest
+/// component must fit under [`MAX_QUBITS`]), and bitstrings are assembled from independent
+/// samples of each component. This is not a tensor-network simulator: entanglement that spans
+/// the register still needs one component of that size. Returns counts keyed by the bitstring,
+/// with qubit 0 first.
+pub fn sample_factored(
+    num_qubits: usize,
+    ops: &[(GateKind, Vec<u32>, f64)],
+    shots: u64,
+    seed: u64,
+) -> Result<BTreeMap<String, u64>, SimError> {
+    // Union-find over qubits, joined by every multi-qubit gate.
+    let mut parent: Vec<usize> = (0..num_qubits).collect();
+    fn find(p: &mut [usize], x: usize) -> usize {
+        let mut r = x;
+        while p[r] != r {
+            r = p[r];
+        }
+        let mut y = x;
+        while p[y] != r {
+            let next = p[y];
+            p[y] = r;
+            y = next;
+        }
+        r
+    }
+    for (_, qs, _) in ops {
+        if qs.len() > 1 {
+            for q in &qs[1..] {
+                let (a, b) = (find(&mut parent, qs[0] as usize), find(&mut parent, *q as usize));
+                parent[a] = b;
+            }
+        }
+    }
+    let mut components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for q in 0..num_qubits {
+        let root = find(&mut parent, q);
+        components.entry(root).or_default().push(q);
+    }
+    // Simulate each component on local indices and collect its outcome distribution.
+    let mut component_probs: Vec<(Vec<usize>, Vec<f64>)> = Vec::new();
+    for members in components.values() {
+        let local: HashMap<usize, u32> =
+            members.iter().enumerate().map(|(i, &q)| (q, i as u32)).collect();
+        let local_ops: Vec<(GateKind, Vec<u32>, f64)> = ops
+            .iter()
+            .filter(|(_, qs, _)| qs.iter().all(|q| local.contains_key(&(*q as usize))))
+            .map(|(g, qs, a)| (*g, qs.iter().map(|q| local[&(*q as usize)]).collect(), *a))
+            .collect();
+        let probs = exact_probabilities(members.len(), &local_ops)?;
+        component_probs.push((members.clone(), probs));
+    }
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    for _ in 0..shots {
+        let mut bits = vec![false; num_qubits];
+        for (members, probs) in &component_probs {
+            let mut r: f64 = rng.gen();
+            let mut index = probs.len() - 1;
+            for (i, p) in probs.iter().enumerate() {
+                if r < *p {
+                    index = i;
+                    break;
+                }
+                r -= p;
+            }
+            for (local, &q) in members.iter().enumerate() {
+                bits[q] = index >> local & 1 == 1;
+            }
+        }
+        let key: String = bits.iter().map(|b| if *b { '1' } else { '0' }).collect();
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    Ok(counts)
+}
+
+#[cfg(test)]
+mod factored_tests {
+    use super::*;
+
+    #[test]
+    fn forty_qubits_of_bell_pairs_run_where_a_state_vector_cannot() {
+        // 20 disjoint Bell pairs: 40 qubits, far beyond the state-vector limit.
+        let mut ops = Vec::new();
+        for i in 0..20u32 {
+            ops.push((GateKind::H, vec![2 * i], 0.0));
+            ops.push((GateKind::Cx, vec![2 * i, 2 * i + 1], 0.0));
+        }
+        assert!(
+            exact_probabilities(40, &ops).is_err(),
+            "a single state vector cannot hold 40 qubits"
+        );
+        let counts = sample_factored(40, &ops, 400, 5).unwrap();
+        for key in counts.keys() {
+            let bytes = key.as_bytes();
+            for i in 0..20 {
+                assert_eq!(bytes[2 * i], bytes[2 * i + 1], "each pair is correlated: {key}");
+            }
+        }
+        assert_eq!(counts.values().sum::<u64>(), 400);
+        assert!(counts.len() > 1, "outcomes vary");
+    }
+}
+
+/// The 2×2 unitary of a single-qubit gate, as `[[(re, im); 2]; 2]`. Used by the optimizer to fuse
+/// gates; rotation gates take their angle, and other gates ignore it.
+pub fn gate_matrix(gate: GateKind, angle: f64) -> [[(f64, f64); 2]; 2] {
+    let m = matrix1(gate, angle, false);
+    [
+        [(m[0][0].re, m[0][0].im), (m[0][1].re, m[0][1].im)],
+        [(m[1][0].re, m[1][0].im), (m[1][1].re, m[1][1].im)],
+    ]
 }

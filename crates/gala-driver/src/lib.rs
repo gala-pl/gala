@@ -4,6 +4,8 @@
 //! GIR lowering → optimization. A pass whose errors would make later passes meaningless stops
 //! the pipeline, but all the errors it found are returned.
 
+pub mod query;
+
 use gala_ast::Item;
 use gala_diagnostics::{Diagnostic, Diagnostics};
 use gala_gir::Gir;
@@ -343,6 +345,9 @@ pub fn gir_json(program: &Program) -> serde_json::Value {
             Inst::Measure { dst, target } => json!({"op": "measure", "dst": dst, "target": target}),
             Inst::Release { target } => json!({"op": "release", "target": target}),
             Inst::Print { args } => json!({"op": "print", "args": slot_list(args)}),
+            Inst::Run { dst, func, shots, backend } => json!({
+                "op": "run", "dst": dst, "func": func, "shots": shots, "backend": backend
+            }),
         }
     };
     let term_json = |t: &Term| -> Value {
@@ -484,6 +489,9 @@ fn const_json(c: &gala_gir::Const) -> serde_json::Value {
         Const::Bool(v) => json!({"kind": "bool", "value": v}),
         Const::Str(v) => json!({"kind": "str", "value": v}),
         Const::Complex(re, im) => json!({"kind": "complex", "re": re, "im": im}),
+        Const::Backend { kind, noise } => {
+            json!({"kind": "backend", "backend": kind, "noise": noise})
+        }
     }
 }
 
@@ -497,6 +505,10 @@ fn const_from_json(v: &serde_json::Value) -> Result<gala_gir::Const, String> {
         "bool" => Const::Bool(v["value"].as_bool().ok_or("bad bool")?),
         "str" => Const::Str(v["value"].as_str().ok_or("bad str")?.to_string()),
         "complex" => Const::Complex(f("re")?, f("im")?),
+        "backend" => Const::Backend {
+            kind: v["backend"].as_str().ok_or("bad backend")?.to_string(),
+            noise: f("noise")?,
+        },
         other => return Err(format!("unknown constant kind `{other}`")),
     })
 }
@@ -637,6 +649,12 @@ fn inst_from_json(i: &serde_json::Value) -> Result<gala_gir::Inst, String> {
         "measure" => Inst::Measure { dst: dst()?, target: slot_field(i, "target")? },
         "release" => Inst::Release { target: slot_field(i, "target")? },
         "print" => Inst::Print { args: slots_from_json(&i["args"])? },
+        "run" => Inst::Run {
+            dst: slot_field(i, "dst")?,
+            func: usize_field(i, "func")?,
+            shots: slot_field(i, "shots")?,
+            backend: slot_field(i, "backend")?,
+        },
         other => return Err(format!("unknown instruction `{other}`")),
     })
 }

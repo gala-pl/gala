@@ -34,17 +34,22 @@ enum Expect {
     Ok,
     Codes(Vec<String>),
     Output(String),
+    /// Compiles, then fails at run time with this code.
+    RunError(String),
 }
 
 fn expectation(text: &str) -> Option<Expect> {
     let mut output: Vec<String> = Vec::new();
     let mut codes: Option<Vec<String>> = None;
     let mut ok = false;
+    let mut run_error: Option<String> = None;
     for line in text.lines() {
         let Some(rest) = line.strip_prefix("//") else { continue };
         let rest = rest.trim();
         if let Some(v) = rest.strip_prefix("expect-output:") {
             output.push(v.trim_start().to_string());
+        } else if let Some(v) = rest.strip_prefix("expect-run-error:") {
+            run_error = Some(v.trim().to_string());
         } else if let Some(v) = rest.strip_prefix("expect:") {
             let v = v.trim();
             if v == "ok" {
@@ -54,7 +59,9 @@ fn expectation(text: &str) -> Option<Expect> {
             }
         }
     }
-    if !output.is_empty() {
+    if let Some(code) = run_error {
+        Some(Expect::RunError(code))
+    } else if !output.is_empty() {
         Some(Expect::Output(output.join("\n")))
     } else if let Some(c) = codes {
         Some(Expect::Codes(c))
@@ -108,6 +115,25 @@ fn check_case(path: &Path) -> Option<String> {
         (Expect::Output(_), Err(d)) => {
             let codes: Vec<String> = d.errors().iter().map(|e| e.code.to_string()).collect();
             Some(format!("{}: expected output, got errors {codes:?}", path.display()))
+        }
+        (Expect::RunError(want), Ok(program)) => {
+            match gala_sim::run_entry(
+                &program.gir,
+                &gala_sim::SimConfig { shots: 1, seed: 1, ..Default::default() },
+            ) {
+                Err(e) if e.code.to_string() == want => None,
+                Err(e) => {
+                    Some(format!("{}: expected run error {want}, got {}", path.display(), e.code))
+                }
+                Ok(_) => Some(format!("{}: expected run error {want}, but it ran", path.display())),
+            }
+        }
+        (Expect::RunError(want), Err(d)) => {
+            let codes: Vec<String> = d.errors().iter().map(|e| e.code.to_string()).collect();
+            Some(format!(
+                "{}: expected run error {want}, got compile errors {codes:?}",
+                path.display()
+            ))
         }
     }
 }

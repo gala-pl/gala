@@ -1,0 +1,14 @@
+// only the backend line changed: hardware is unreachable here
+// expect-run-error: E0603
+fn flip() -> Measured<Bool> prob {
+    let q = qubit()
+    x(q)
+    measure(q)
+}
+
+fn main() -> Int prob {
+    let backend = backend.hardware("ionq.aria")
+    let ones = run(flip, on: backend, shots: 100)
+    print(ones)
+    0
+}
