@@ -16,7 +16,14 @@ classical = ["inkwell"]
 
 [dependencies]
 inkwell = { version = "0.2", features = ["llvm10-0", "target-x86", "target-aarch64"], optional = true }
+gala-ast.workspace = true
 gala-gir.workspace = true
 gala-opt.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
+
+[dev-dependencies]
+gala-hir.workspace = true
+gala-parser.workspace = true
+gala-types.workspace = true
+gala-sim.workspace = true

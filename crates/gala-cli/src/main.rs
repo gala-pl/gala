@@ -80,7 +80,8 @@ enum Commands {
     /// Compile a program and print or write its IR
     Build {
         file: PathBuf,
-        /// `gir` (text) or `gir=json` (schema gir.v1)
+        /// `gir` (text), `gir=json` (schema gir.v1), `rust` (classical Rust source), or `native`
+        /// (classical executable, needs -o)
         #[arg(long, default_value = "gir")]
         emit: String,
         #[arg(short, long)]
@@ -135,6 +136,32 @@ enum Commands {
     /// line is the prompt, the source is the completion, and the expectation header is recorded
     /// in `properties`.
     Corpus { dir: PathBuf },
+    /// Call a function with Float arguments and print the result as JSON
+    Call {
+        file: PathBuf,
+        function: String,
+        #[arg(long, allow_negative_numbers = true, num_args = 0..)]
+        args: Vec<f64>,
+        #[arg(long, default_value_t = 1024)]
+        shots: u64,
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+    },
+    /// Gradient of a function's measured expectation with respect to one Float argument
+    /// (parameter-shift; prints JSON with the value and its cost)
+    Grad {
+        file: PathBuf,
+        function: String,
+        /// Index of the differentiated argument
+        #[arg(long)]
+        wrt: usize,
+        #[arg(long, allow_negative_numbers = true, num_args = 0..)]
+        args: Vec<f64>,
+        #[arg(long, default_value_t = 20000)]
+        shots: u64,
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+    },
     /// Package management with JSON output (gala-pkg schema)
     Pkg {
         #[command(subcommand)]
@@ -182,6 +209,12 @@ fn main() {
         Commands::Add { name, version, path } => add(&name, version, path),
         Commands::Repl { json } => repl(json),
         Commands::Pkg { cmd } => pkg_cmd(cmd),
+        Commands::Call { file, function, args, shots, seed } => {
+            call_fn(&file, &function, &args, shots, seed)
+        }
+        Commands::Grad { file, function, wrt, args, shots, seed } => {
+            grad_fn(&file, &function, wrt, &args, shots, seed)
+        }
         Commands::Corpus { dir } => corpus(&dir),
         Commands::Fix { file, apply, json } => fix_cmd(&file, apply, json),
     };
@@ -311,8 +344,32 @@ fn build(path: &Path, emit: &str, output: Option<&Path>) -> i32 {
             return 1;
         }
     };
+    // Native targets write files instead of printing.
+    if emit == "native" {
+        let Some(out) = output else {
+            eprintln!("error: --emit native needs -o <executable>");
+            return 2;
+        };
+        return match gala_codegen_classical::compile_native(&program.gir, out) {
+            Ok(()) => {
+                println!("wrote {}", out.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                1
+            }
+        };
+    }
     let text = match emit {
         "gir" => program.gir.dump(),
+        "rust" => match gala_codegen_classical::emit_rust(&program.gir) {
+            Ok(src) => src,
+            Err(d) => {
+                report(&d, &sources);
+                return 1;
+            }
+        },
         "gir=json" => match serde_json::to_string_pretty(&gala_driver::gir_json(&program)) {
             Ok(s) => s + "\n",
             Err(e) => {
@@ -955,4 +1012,100 @@ fn worst_roundtrip(
         }
     }
     Ok(worst)
+}
+
+/// Index of the named function in the program, with a clear error when it is missing.
+fn function_index(program: &gala_driver::Program, name: &str) -> Result<usize, String> {
+    program
+        .hir
+        .fns
+        .iter()
+        .position(|f| f.name.as_str() == name)
+        .ok_or_else(|| format!("no function named `{name}`"))
+}
+
+fn call_fn(path: &Path, function: &str, args: &[f64], shots: u64, seed: u64) -> i32 {
+    let mut sources = Sources::default();
+    let program = match compile_or_report(path, &mut sources) {
+        Ok(p) => p,
+        Err(d) => {
+            report(&d, &sources);
+            return 1;
+        }
+    };
+    let idx = match function_index(&program, function) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 2;
+        }
+    };
+    let values: Vec<gala_sim::Value> = args.iter().map(|v| gala_sim::Value::Float(*v)).collect();
+    match gala_sim::run_function(
+        &program.gir,
+        idx,
+        values,
+        &SimConfig { shots, seed, ..Default::default() },
+        &Default::default(),
+    ) {
+        Ok(r) => {
+            let out = json!({
+                "schema": "gala.call.v1",
+                "function": function,
+                "shots": r.shots,
+                "histogram": r.histogram,
+                "output": r.output,
+                "result": r.first_result.as_ref().map(|v| v.to_string()),
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+            0
+        }
+        Err(e) => {
+            eprintln!("error[{}]: {}", e.code, e.message);
+            1
+        }
+    }
+}
+
+fn grad_fn(path: &Path, function: &str, wrt: usize, args: &[f64], shots: u64, seed: u64) -> i32 {
+    let mut sources = Sources::default();
+    let program = match compile_or_report(path, &mut sources) {
+        Ok(p) => p,
+        Err(d) => {
+            report(&d, &sources);
+            return 1;
+        }
+    };
+    let idx = match function_index(&program, function) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 2;
+        }
+    };
+    let values: Vec<gala_sim::Value> = args.iter().map(|v| gala_sim::Value::Float(*v)).collect();
+    match gala_diff::gradient(
+        &program.gir,
+        idx,
+        wrt,
+        &values,
+        &SimConfig { shots, seed, ..Default::default() },
+    ) {
+        Ok(g) => {
+            let out = json!({
+                "schema": "gala.grad.v1",
+                "function": function,
+                "wrt": wrt,
+                "value": g.value,
+                "occurrences": g.occurrences,
+                "submissions": g.submissions,
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+            0
+        }
+        Err(d) => {
+            report(&d, &sources);
+            1
+        }
+    }
 }
