@@ -20,6 +20,7 @@ gala-parser.workspace = true
 gala-span.workspace = true
 gala-types.workspace = true
 gala-uncompute.workspace = true
+salsa.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
