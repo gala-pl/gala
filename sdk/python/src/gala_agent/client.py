@@ -16,10 +16,6 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 # <repo>/sdk/python/src/gala_agent/client.py -> parents[4] is the repo root.
 _DEFAULT_GALA_BIN = Path(__file__).resolve().parents[4] / "target" / "debug" / "gala"
 
-_GRAD_REASON = (
-    "The gala CLI exposes no gradient command yet (no `gala grad`), so gradients cannot be "
-    "computed. No value is returned rather than a fabricated one."
-)
 
 
 class GalaError(RuntimeError):
@@ -49,8 +45,13 @@ class RunResult:
 
 @dataclass
 class GradResult:
+    """supported=True with `value` (the parameter-shift gradient) when the CLI computed it."""
+
     supported: bool
-    reason: str
+    reason: Optional[str] = None
+    value: Optional[float] = None
+    occurrences: Optional[int] = None
+    submissions: Optional[int] = None
 
 
 @dataclass
@@ -142,10 +143,33 @@ class GalaAgent:
             )
         return RunResult(ok=True, exit_code=0, stderr=stderr, **parse_run_stdout(proc.stdout))
 
-    def grad(self, fn: str, wrt: Union[str, Sequence[str]]) -> GradResult:
-        """Gradient of `fn` with respect to `wrt`. Always unsupported: the CLI has no gradient command."""
-        del fn, wrt
-        return GradResult(supported=False, reason=_GRAD_REASON)
+    def grad(
+        self,
+        code: str,
+        fn: str,
+        wrt: int,
+        args: Sequence[float] = (),
+        shots: int = 20000,
+        seed: int = 0,
+    ) -> GradResult:
+        """Parameter-shift gradient of `fn`'s measured expectation with respect to argument `wrt`.
+
+        Runs `gala grad`; the value is shot-estimated, so it carries sampling noise.
+        """
+        with self._source_file(code, None) as path:
+            proc = self._exec(
+                ["grad", str(path), fn, "--wrt", str(wrt), "--shots", str(shots),
+                 "--seed", str(seed), "--args", *[str(a) for a in args]]
+            )
+        doc = _parse_json_object(proc.stdout)
+        if proc.returncode != 0 or doc is None or not isinstance(doc.get("value"), (int, float)):
+            return GradResult(supported=False, reason=self._describe_failure("grad", proc))
+        return GradResult(
+            supported=True,
+            value=float(doc["value"]),
+            occurrences=doc.get("occurrences"),
+            submissions=doc.get("submissions"),
+        )
 
     def verify_properties(self, code: str, properties: Sequence[str]) -> PropertyVerification:
         """Runs the `#[property(...)]` functions through `gala test --property --json` and reports

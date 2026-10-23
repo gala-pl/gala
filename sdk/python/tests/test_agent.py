@@ -1,3 +1,4 @@
+import math
 """Run with: cd sdk/python && python3 -m unittest discover -s tests -v"""
 
 import sys
@@ -32,10 +33,17 @@ class GalaAgentTests(unittest.TestCase):
         self.assertEqual(result.output[0], "true")
         self.assertEqual(result.result, "0")
 
-    def test_grad_is_unsupported(self) -> None:
-        result = self.agent.grad("f", "theta")
-        self.assertFalse(result.supported)
-        self.assertTrue(result.reason)
+    def test_grad_returns_the_parameter_shift_value(self) -> None:
+        source = (
+            "fn classify(x: Float, theta: Float) -> Measured<Bool> prob {\n"
+            "    let q = qubit()\n    ry(q, x)\n    ry(q, theta)\n    measure(q)\n}\n\n"
+            "fn main() -> Int { 0 }\n"
+        )
+        result = self.agent.grad(source, "classify", 1, args=[0.4, 0.9], shots=40000)
+        self.assertTrue(result.supported)
+        # Analytic value: -sin(0.4 + 0.9), about -0.9636.
+        self.assertLess(abs(result.value - (-math.sin(1.3))), 0.05)
+        self.assertEqual(result.occurrences, 1)
 
     def test_verify_properties_runs_runnable_and_reports_the_rest(self) -> None:
         source = (
