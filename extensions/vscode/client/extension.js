@@ -1,9 +1,34 @@
 const vscode = require('vscode');
+const { LanguageClient, TransportKind } = require('vscode-languageclient/node');
 
 let diagnosticCollection;
+let client;
+
+/**
+ * Starts gala-lsp over stdio. The server publishes diagnostics as you type, and answers hover,
+ * go-to-definition, completion, and the gala/* custom methods.
+ */
+function startLanguageServer(context) {
+  const command = vscode.workspace.getConfiguration('gala').get('lspPath') || 'gala-lsp';
+  const serverOptions = {
+    run: { command, transport: TransportKind.stdio },
+    debug: { command, transport: TransportKind.stdio },
+  };
+  const clientOptions = {
+    documentSelector: [{ scheme: 'file', language: 'gala' }],
+  };
+  client = new LanguageClient('gala', 'Gala Language Server', serverOptions, clientOptions);
+  context.subscriptions.push({ dispose: () => client && client.stop() });
+  client.start().catch(err => {
+    vscode.window.showWarningMessage(
+      `Gala language server did not start (${command}): ${err.message}. Set gala.lspPath in settings.`
+    );
+  });
+}
 
 function activate(context) {
   diagnosticCollection = vscode.languages.createDiagnosticCollection('gala');
+  startLanguageServer(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('gala.check', () => checkFile()),
@@ -165,4 +190,9 @@ function escapeHtml(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-exports.activate = activate;
+
+function deactivate() {
+  return client ? client.stop() : undefined;
+}
+
+module.exports = { activate, deactivate };

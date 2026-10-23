@@ -1,4 +1,10 @@
-// Valid linear usage: qubit used exactly once
-fn f(q: Qubit) -> Qubit {
-    return q;
+// expect: ok
+// every qubit is consumed exactly once
+fn f() -> Measured<Bool> prob {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    drop(b)
+    measure(a)
 }

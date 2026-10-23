@@ -1,5 +1,5 @@
-// Gala conformance test: syntax errors
-
-fn missing_paren( -> Int {
-    return 0;
-}
+// expect: E0101
+// a call with a missing closing parenthesis
+fn f() -> Int {
+    g(1, 2
+    }

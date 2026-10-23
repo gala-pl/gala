@@ -1,0 +1,5 @@
+// expect: E0202
+// a name with no definition
+fn f() -> Int {
+    missing + 1
+}

@@ -1,3 +1,6 @@
-fn f() -> Int quantum {
-    42
+// expect: ok
+// a unitary function declared quantum
+fn prep() -> Qubit quantum {
+    let q = qubit()
+    h(q)
 }

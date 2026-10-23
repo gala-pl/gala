@@ -1,152 +1,48 @@
-# Gala MCP Server
+# gala-mcp
 
-Model Context Protocol server for the Gala quantum-classical programming language. Exposes Gala's compiler, simulator, and analysis tools to AI agents.
+Model Context Protocol server for the Gala language. Speaks JSON-RPC 2.0 over stdio
+(newline-delimited). Written in TypeScript for Bun with no third-party dependencies.
 
-## Installation
+## Run
 
-```bash
-# From the gala repo root
+```sh
 cd tools/gala-mcp
-npm install
-npm run build
+bun src/index.ts                       # serves MCP on stdin/stdout
+GALA_BIN=/path/to/gala bun src/index.ts  # override the binary
 ```
 
-## Usage
-
-### With Claude Desktop
-
-Add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "gala": {
-      "command": "npx",
-      "args": ["gala-mcp"],
-      "cwd": "/path/to/gala/tools/gala-mcp"
-    }
-  }
-}
-```
-
-### With VS Code (via MCP extension)
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "gala": {
-        "command": "npx",
-        "args": ["gala-mcp"],
-        "cwd": "/path/to/gala/tools/gala-mcp"
-      }
-    }
-  }
-}
-```
-
-### Direct stdio
-
-```bash
-npx gala-mcp
-```
+The default binary is `<repo>/target/debug/gala`. Build it with `cargo build --bin gala`.
 
 ## Tools
 
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `gala_check` | Type-check + linearity + effects | `{source, file_path?}` | `{diagnostics, gir?}` |
-| `gala_build` | Build with optional GIR/QIR emission | `{source, emit_gir?, gir_version?, target?}` | `{gir}` |
-| `gala_run` | Execute on simulator | `{source, shots?, seed?}` | `{results, circuit?}` |
-| `gala_test` | Run quantum property tests | `{source, properties[]}` | `{passed, results[]}` |
-| `gala_fix` | Apply suggested fixes | `{source}` | `{applied[], remaining[]}` |
-| `gala_explain` | Get error explanation | `{code: "E0412"}` | `{markdown, examples[]}` |
-| `gala_gir` | Get GIR for semantic analysis | `{source}` | `{gir, version}` |
-| `gala_lsp_query` | Query LSP (hover, completion, GIR at position) | `{source, file_path, position, query_type}` | `{hover?, completion?, ...}` |
+| Tool | Status |
+| --- | --- |
+| `gala_check` | Implemented. Returns `gala.check.v1` JSON, validated against `diagnostic.v1`. |
+| `gala_build` | Implemented for text IR. `emit_gir: true` returns an error result (no GIR JSON in the CLI). |
+| `gala_run` | Implemented. Returns prints, the result line, and any histogram. |
+| `gala_test` | Runs `#[test]` functions. Property checks return an error result (no property runner). |
+| `gala_explain` | Implemented via `gala explain --json`. |
+| `gala_fix` | Not implemented. The CLI has no `fix` subcommand; returns an error result. |
+| `gala_gir` | Not implemented. The CLI cannot emit `gir.v1` JSON; returns an error result. |
+| `gala_lsp_query` | Not available. This server does not connect to `gala-lsp`; returns an error result. |
 
 ## Resources
 
-| URI | Description |
-|-----|-------------|
-| `gala://schema/diagnostic.v1` | JSON schema for diagnostics |
-| `gala://schema/gir.v1` | JSON schema for GIR |
-| `gala://schema/property_result.v1` | JSON schema for property test results |
+- `gala://diagnostics/{file}`: check output for an absolute path to a `.gala` file (percent-encoded)
+- `gala://gir/{file}`: not available
+- `gala://schema/diagnostic.v1`, `gala://schema/gir.v1`, `gala://schema/property_result.v1`
 
 ## Prompts
 
-| Prompt | Description |
-|--------|-------------|
-| `gala/debug-error` | Explain a diagnostic's quantum physics and suggest fixes |
-| `gala/write-quantum-fn` | Generate Gala code for a quantum algorithm |
-| `gala/optimize-circuit` | Optimize a circuit for a specific backend |
+- `gala/debug-error` (`file`): diagnostics plus source, with a request to explain them
+- `gala/write-quantum-fn` (`task`, `constraints?`)
+- `gala/optimize-circuit` (`file`, `objectives?`): source plus text IR
 
-## Example Usage
+## Test
 
-### Type-check code
-```json
-{
-  "tool": "gala_check",
-  "arguments": {
-    "source": "fn bell() -> Qubits<2> quantum { let q = qalloc(2); h(q[0]); cx(q[0], q[1]); q }"
-  }
-}
+```sh
+cd tools/gala-mcp && bun test
 ```
 
-### Run on simulator
-```json
-{
-  "tool": "gala_run",
-  "arguments": {
-    "source": "fn main() -> Measured<Bool> prob { let q = qalloc(1); h(q[0]); measure(q[0]) }",
-    "shots": 1024
-  }
-}
-```
-
-### Verify unitarity
-```json
-{
-  "tool": "gala_test",
-  "arguments": {
-    "source": "#[property(unitary)] fn qft4(q: Qubits<4>) -> Qubits<4> quantum { ... }",
-    "properties": ["unitary", "reversible"]
-  }
-}
-```
-
-### Get GIR for analysis
-```json
-{
-  "tool": "gala_gir",
-  "arguments": {
-    "source": "fn bell() -> Qubits<2> quantum { ... }"
-  }
-}
-```
-
-## Prerequisites
-
-- Gala compiler binary (`gala`) in PATH or at `../../target/release/gala`
-- Build with: `cargo build --release --workspace` from repo root
-
-## Schema Versioning
-
-All JSON schemas are versioned (`v1`, `v2`, etc.) and published at:
-- `https://gala-lang.org/schemas/diagnostic.v1.json`
-- `https://gala-lang.org/schemas/gir.v1.json`
-- `https://gala-lang.org/schemas/property_result.v1.json`
-
-Agents should pin to a specific schema version for stability.
-
-## Development
-
-```bash
-# Watch mode
-npm run dev
-
-# Run tests
-npm test
-
-# Inspect with MCP Inspector
-npm run inspect
-```
+The tests start the server over stdio and cover `initialize`, `tools/list`, `gala_check` (E0412),
+`gala_run` (bell_run prints `true`), error results for unavailable tools, resources, and prompts.

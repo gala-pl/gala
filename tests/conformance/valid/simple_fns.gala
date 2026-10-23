@@ -1,7 +1,8 @@
-fn main() -> Int {
-    return 0;
+// expect: ok
+fn add(a: Int, b: Int) -> Int {
+    a + b
 }
 
-fn add() -> Int {
-    return 42;
+fn twice(x: Int) -> Int {
+    add(x, x)
 }

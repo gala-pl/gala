@@ -1,0 +1,13 @@
+// expect-output: [false, true, true]
+// The same generic definition at another size: a 3-qubit round trip.
+import gala.algorithms.{ qft, iqft }
+
+fn main() -> Int prob {
+    let q = qubits<3>()
+    x(q[1])
+    x(q[2])
+    let q = qft<3>(q)
+    let q = iqft<3>(q)
+    print(measure(q))
+    0
+}

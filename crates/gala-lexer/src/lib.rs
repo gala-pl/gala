@@ -92,6 +92,15 @@ pub enum Token {
     RAngle,
     Pipe,
     FatArrow,
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    Hash,
+    Amp,
+
+    /// A character that is not part of the Gala lexical grammar. Reported by the parser.
+    Invalid(char),
 
     // End of file
     Eof,
@@ -120,13 +129,18 @@ impl Token {
 /// Hand-written lexer with source position tracking.
 pub struct Lexer {
     chars: Vec<char>,
+    /// Byte offset of each character, plus the end of the source. Spans are byte offsets, so
+    /// character positions are converted through this table.
+    byte_offsets: Vec<u32>,
     pos: usize,
     file_id: FileId,
 }
 
 impl<'a> Lexer {
     pub fn new(file_id: FileId, source: &'a str) -> Self {
-        Lexer { chars: source.chars().collect(), pos: 0, file_id }
+        let mut byte_offsets: Vec<u32> = source.char_indices().map(|(i, _)| i as u32).collect();
+        byte_offsets.push(source.len() as u32);
+        Lexer { chars: source.chars().collect(), byte_offsets, pos: 0, file_id }
     }
 
     fn peek(&self) -> Option<char> {
@@ -197,7 +211,7 @@ impl<'a> Lexer {
             if c.is_ascii_digit() {
                 s.push(c);
                 self.advance();
-            } else if c == '.' && !is_float {
+            } else if c == '.' && !is_float && self.peek_n(1).is_some_and(|d| d.is_ascii_digit()) {
                 is_float = true;
                 s.push(c);
                 self.advance();
@@ -211,7 +225,9 @@ impl<'a> Lexer {
                         self.advance();
                     }
                 }
-            } else if c == 'i' || c == 'j' || c == 'I' || c == 'J' {
+            } else if (c == 'i' || c == 'j' || c == 'I' || c == 'J')
+                && !self.peek_n(1).is_some_and(|d| d.is_alphanumeric() || d == '_')
+            {
                 // Complex number - the imaginary unit follows the number
                 let num = s.parse::<f64>().unwrap_or(0.0);
                 self.advance();
@@ -319,16 +335,34 @@ impl<'a> Lexer {
             '0'..='9' => self.read_number(c),
             'a'..='z' | 'A'..='Z' | '_' | '\u{0391}'..='\u{03C9}' => self.read_ident(c),
             '"' => self.read_string(),
-            '+' => Token::Plus,
+            '+' => {
+                if matches!(self.peek(), Some('=')) {
+                    self.advance();
+                    Token::PlusEq
+                } else {
+                    Token::Plus
+                }
+            }
             '-' => {
                 if matches!(self.peek(), Some('>')) {
                     self.advance();
                     Token::Arrow
+                } else if matches!(self.peek(), Some('=')) {
+                    self.advance();
+                    Token::MinusEq
                 } else {
                     Token::Minus
                 }
             }
-            '*' => Token::Star,
+            '*' => {
+                if matches!(self.peek(), Some('=')) {
+                    self.advance();
+                    Token::StarEq
+                } else {
+                    Token::Star
+                }
+            }
+            '#' => Token::Hash,
             '/' => {
                 if matches!(self.peek(), Some('/')) {
                     while self.advance().is_some() && self.peek() != Some('\n') {}
@@ -355,6 +389,9 @@ impl<'a> Lexer {
                         }
                     }
                     return self.next_token();
+                } else if matches!(self.peek(), Some('=')) {
+                    self.advance();
+                    Token::SlashEq
                 } else {
                     Token::Slash
                 }
@@ -400,7 +437,7 @@ impl<'a> Lexer {
                     self.advance();
                     Token::AndAnd
                 } else {
-                    return self.next_token(); // Skip single &
+                    Token::Amp
                 }
             }
             '|' => {
@@ -431,11 +468,13 @@ impl<'a> Lexer {
             }
             '[' => Token::LBracket,
             ']' => Token::RBracket,
-            _ => return self.next_token(), // Skip unknown characters
+            other => Token::Invalid(other),
         };
 
         let end = self.pos;
-        let byte_span = ByteSpan { start: start as u32, end: end as u32 };
+        // `advance` may step past the end at EOF, so clamp to the table.
+        let at = |i: usize| self.byte_offsets[i.min(self.byte_offsets.len() - 1)];
+        let byte_span = ByteSpan { start: at(start), end: at(end) };
         Some((token, Span::new(self.file_id, byte_span)))
     }
 

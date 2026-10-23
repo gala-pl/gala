@@ -1,0 +1,9 @@
+// expect: E0303
+// a quantum function may not call a prob function
+fn m(q: Qubit) -> Measured<Bool> prob {
+    measure(q)
+}
+
+fn f(q: Qubit) -> Measured<Bool> quantum {
+    m(q)
+}

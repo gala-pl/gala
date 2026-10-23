@@ -1,0 +1,11 @@
+// expect-output: [true, false]
+import gala.algorithms.{ qft2, iqft2 }
+
+fn main() -> Int prob {
+    let q = qubits<2>()
+    x(q[0])
+    let q = qft2(q)
+    let q = iqft2(q)
+    print(measure(q))
+    0
+}

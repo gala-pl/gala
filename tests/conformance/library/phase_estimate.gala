@@ -1,0 +1,8 @@
+// one-counting-qubit phase estimation of Z's eigenphase 1/2
+// expect-output: [true, true]
+import gala.algorithms.{ phase_estimate_z }
+
+fn main() -> Int prob {
+    print(phase_estimate_z())
+    0
+}

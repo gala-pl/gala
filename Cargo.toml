@@ -25,6 +25,7 @@ members = [
     "crates/gala-lint",
     "crates/gala-std",
     "crates/gala-fuzz",
+    "crates/gala-doc",
     # "extensions/tree-sitter-gala",
 ]
 

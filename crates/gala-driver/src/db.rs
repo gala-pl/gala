@@ -1,21 +1,19 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use gala_span::{FileId, Span};
 use gala_diagnostics::{Diagnostic, Diagnostics};
-use gala_diff::lower_gradients;
-use gala_gir::{lower_hir_to_gir, Gir};
+use gala_lexer::{Lexer, Token};
+use gala_parser::parse;
 use gala_hir::{
-    build_module_graph, desugar_file, CrateId, DefId, HirFile, HirFnDef, ModuleGraph, Resolution,
+    build_module_graph, desugar_file, CrateId, DefId, HirFnDef, HirFile, ModuleGraph, Resolution,
     Resolver,
 };
-use gala_lexer::{Lexer, Token};
+use gala_types::{check_linearity, type_check_fn, Effect as TyEffect, Ty};
+use gala_uncompute::{analyze_provenance, synthesize_uncompute, UncomputePlan};
+use gala_gir::{lower_hir_to_gir, Gir};
+use gala_diff::lower_gradients;
 use gala_opt::optimize_gir;
-use gala_parser::parse;
-use gala_span::{FileId, Span};
-use gala_types::{
-    check_linearity, function_type, type_check_fn_with_functions, Effect as TyEffect, Ty,
-};
-use gala_uncompute::{analyze_provenance, insert_uncompute, synthesize_uncompute, UncomputePlan};
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Salsa inputs
@@ -93,7 +91,11 @@ impl GalaDatabaseImpl {
     }
 
     fn get_def_input(&self, def_id: &DefId) -> Option<DefIdInput> {
-        self.def_index.lock().unwrap().get(&(def_id.crate_id.0 .0, def_id.index)).copied()
+        self.def_index
+            .lock()
+            .unwrap()
+            .get(&(def_id.crate_id.0 .0, def_id.index))
+            .copied()
     }
 
     // ── Convenience wrappers (retain existing public API) ────────────────
@@ -115,7 +117,10 @@ impl GalaDatabaseImpl {
         }
     }
 
-    pub fn linearity_diagnostics(&self, def_id: &DefId) -> Result<Diagnostics, Arc<Diagnostics>> {
+    pub fn linearity_diagnostics(
+        &self,
+        def_id: &DefId,
+    ) -> Result<Diagnostics, Arc<Diagnostics>> {
         match self.get_def_input(def_id) {
             Some(input) => match linearity_check_query(self, input) {
                 Ok(diags) => Ok((*diags).clone()),
@@ -125,7 +130,10 @@ impl GalaDatabaseImpl {
         }
     }
 
-    pub fn uncompute_plan(&self, def_id: &DefId) -> Result<Arc<UncomputePlan>, Arc<Diagnostics>> {
+    pub fn uncompute_plan(
+        &self,
+        def_id: &DefId,
+    ) -> Result<Arc<UncomputePlan>, Arc<Diagnostics>> {
         match self.get_def_input(def_id) {
             Some(input) => uncompute_query(self, input),
             None => Err(Arc::new(Diagnostics::new())),
@@ -210,7 +218,10 @@ pub fn hir_file_resolved(db: &dyn salsa::Database, file: SourceFile) -> Arc<HirF
 }
 
 #[salsa::tracked(returns(ref), no_eq)]
-pub fn hir_functions(db: &dyn salsa::Database, file: SourceFile) -> Arc<HashMap<DefId, HirFnDef>> {
+pub fn hir_functions(
+    db: &dyn salsa::Database,
+    file: SourceFile,
+) -> Arc<HashMap<DefId, HirFnDef>> {
     let hir = hir_file_resolved(db, file);
     let mut funcs = HashMap::new();
     for item in &hir.items {
@@ -285,9 +296,7 @@ pub fn type_of_query(
     let funcs = hir_functions(db, file);
     let hir_def_id = DefId { crate_id: CrateId(FileId(file.file_id(db))), index: def_id.index(db) };
     if let Some(func) = funcs.get(&hir_def_id) {
-        let function_types =
-            funcs.iter().map(|(id, function)| (id.clone(), function_type(function))).collect();
-        match type_check_fn_with_functions(func, &function_types) {
+        match type_check_fn(func) {
             Ok(ty) => Ok(Arc::new(ty)),
             Err(diags) => Err(Arc::new(diags)),
         }
@@ -359,10 +368,8 @@ pub fn gir_query(
     let funcs = hir_functions(db, file);
     let mut type_of_map = HashMap::new();
     let mut effect_of_map = HashMap::new();
-    let function_types: HashMap<DefId, Ty> =
-        funcs.iter().map(|(id, function)| (id.clone(), function_type(function))).collect();
     for (did, func) in funcs.iter() {
-        if let Ok(ty) = type_check_fn_with_functions(func, &function_types) {
+        if let Ok(ty) = type_check_fn(func) {
             type_of_map.insert(did.clone(), ty);
         }
         let eff = match &func.effect {
@@ -372,16 +379,7 @@ pub fn gir_query(
         };
         effect_of_map.insert(did.clone(), eff);
     }
-    let mut hir_funcs: HashMap<DefId, HirFnDef> = funcs.as_ref().clone();
-    for hir_fn in hir_funcs.values_mut() {
-        let provenance = analyze_provenance(hir_fn);
-        match synthesize_uncompute(hir_fn, &provenance) {
-            Ok(plan) => {
-                *hir_fn = insert_uncompute(hir_fn, plan);
-            }
-            Err(diags) => return Err(Arc::new(diags)),
-        }
-    }
+    let hir_funcs: HashMap<DefId, HirFnDef> = funcs.as_ref().clone();
     match lower_hir_to_gir(&hir_funcs, &type_of_map, &effect_of_map) {
         Ok(g) => Ok(Arc::new(g)),
         Err(e) => Err(Arc::new(e)),
@@ -427,12 +425,10 @@ pub fn gir_opt_query(
 #[salsa::tracked(returns(ref), no_eq)]
 pub fn diagnostics(db: &dyn salsa::Database, file: SourceFile) -> Arc<Vec<Diagnostic>> {
     let funcs = hir_functions(db, file);
-    let function_types: HashMap<DefId, Ty> =
-        funcs.iter().map(|(id, function)| (id.clone(), function_type(function))).collect();
     let mut all_diags = Vec::new();
 
     for (_def_id, func) in funcs.iter() {
-        if let Err(diags) = type_check_fn_with_functions(func, &function_types) {
+        if let Err(diags) = type_check_fn(func) {
             all_diags.extend(diags.diagnostics);
         }
         let lin_diags = check_linearity(func);
@@ -450,7 +446,10 @@ pub fn diagnostics(db: &dyn salsa::Database, file: SourceFile) -> Arc<Vec<Diagno
 // Legacy parse helper (used by compile_source in lib.rs)
 // ════════════════════════════════════════════════════════════════════════════════
 
-pub fn parse_file(file_id: FileId, source: &str) -> Result<Vec<gala_ast::Item>, Diagnostics> {
+pub fn parse_file(
+    file_id: FileId,
+    source: &str,
+) -> Result<Vec<gala_ast::Item>, Diagnostics> {
     let lexer = Lexer::new(file_id, source);
     let tokens = lexer.collect_all();
     parse(tokens.as_slice())
@@ -493,10 +492,7 @@ mod tests {
         let file = db.source_file(fid).unwrap();
 
         let mg = module_graph(&db, file);
-        assert!(
-            mg.modules.contains_key(&gala_hir::ModuleId(0)),
-            "module graph should contain root module"
-        );
+        assert!(mg.modules.contains_key(&gala_hir::ModuleId(0)), "module graph should contain root module");
 
         // Second call returns cached
         let mg2 = module_graph(&db, file);

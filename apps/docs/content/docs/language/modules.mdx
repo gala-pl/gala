@@ -1,52 +1,59 @@
 ---
-title: Modules and packages
-description: Organize Gala source and declare dependencies with gala.toml.
+title: Modules & Imports
+description: Organizing code, packages, and the import system
 ---
 
-The language model uses dotted module paths and imports:
+Gala organizes code into **packages** and **modules**, with a standard import system.
 
-```gala
-import gala.core.*
-import gala.gates.{ h, cx }
-import mypkg.encoding as encoding
-```
+## Packages
 
-The AST and HIR include import nodes, module identifiers, definitions, and a module-graph builder.
-The package crate provides the manifest and lockfile data structures.
-
-## Project layout
-
-```text
-my-project/
-├── gala.toml
-├── gala.lock
-├── src/
-│   ├── main.gala
-│   └── helpers.gala
-└── tests/
-```
-
-## Manifest
-
-`gala-pkg` reads a TOML manifest with a `[package]` table and optional `[dependencies]` and
-`[dev-dependencies]` tables:
+A package is a directory with a `gala.toml` manifest:
 
 ```toml
 [package]
-name = "my-project"
+name = "my-vqa"
 version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0"
 
 [dependencies]
-gala-std = "0.1.0"
+gala = "0.1.0"
 ```
 
-The current resolver can serialize simple, git, and path dependencies into a lockfile-shaped
-structure. Registry fetching and a complete dependency graph resolver are still planned.
+The standard library (`gala.core`, `gala.gates`, `gala.vqa`, etc.) is versioned with the
+toolchain and available by default.
 
-## Standard library source
+## Imports
 
-The repository’s Gala-source library lives under `library/std`. The Rust `gala-std` crate currently
-provides classical helper modules; the Gala-source files are the intended home for core, gates,
-algorithms, VQA, noise, and hardware layers as they mature.
+```
+import gala.core.*
+import gala.vqa.{ angle_encode, layered_ansatz }
+import mypkg.foo as f
+```
+
+- `import gala.core.*` — import everything from `gala.core`
+- `import gala.vqa.{ angle_encode, Params }` — import specific items
+- `import mypkg.foo as f` — import with an alias
+
+## Module paths
+
+Module paths mirror directory structure. A file at `src/utils/encoding.gala` defines the module
+`utils.encoding`.
+
+## Project layout
+
+```
+myproject/
+├── gala.toml              # package manifest
+├── gala.lock              # lockfile for reproducible builds
+├── src/
+│   ├── main.gala          # entry point (or lib.gala for libraries)
+│   └── ...
+└── tests/
+    └── ...
+```
+
+Use `gala new <name>` to scaffold this layout automatically.
+
+## See also
+
+- [Toolchain & CLI](/docs/toolchain/cli) — `gala new`, `gala add`, package management
+- [Standard Library](/docs/stdlib) — the layered stdlib hierarchy

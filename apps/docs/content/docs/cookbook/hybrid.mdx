@@ -1,30 +1,17 @@
 ---
-title: Hybrid workflow
-description: The intended shape of a variational quantum-classical program.
+title: Hybrid Recipes
+description: Quantum-classical machine learning with Gala
 ---
 
-The language design treats a hybrid model as classical data preparation plus a measurement-free
-quantum kernel plus probabilistic readout:
+Parameterized circuits, gradients, and the ML standard library.
 
-```gala
-fn encode(value: Float, q: Qubit) -> Qubit quantum {
-    return ry(q, value);
-}
+| Recipe | What you'll learn |
+|--------|-------------------|
+| parameterized_circuits | Rotation gates with trainable parameters (`Params`) |
+| variational_classifier | End-to-end variational classifier — encode, ansatz, measure |
+| gradient_computation | Using `grad` to compute parameter-shift gradients |
+| hybrid_classical_quantum | Classical pre/post-processing around quantum kernels |
 
-fn classify(value: Float, q: Qubit) -> Measured<Bool> prob {
-    let q = encode(value, q);
-    return measure(q);
-}
-```
+**Prerequisites:** Quantum recipes or familiarity with qubits and gates.
 
-The future differentiation path is intended to lower quantum parameters with parameter-shift
-evaluations and classical operations with reverse-mode autodiff. `gala-diff` currently exposes the
-API shape and returns cloned GIR functions, so use this page as a model for the planned language,
-not as a runnable training example.
-
-## Design checklist
-
-- keep encoding and quantum evolution in `quantum` functions;
-- make measurement the explicit transition to `prob`;
-- keep classical optimization outside the kernel;
-- add property tests for reversibility and gradient agreement when the runtime supports them.
+**See also:** [Type System](/docs/type-system), [Standard Library](/docs/standard-library)

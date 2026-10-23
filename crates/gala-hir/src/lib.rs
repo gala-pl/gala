@@ -1,1536 +1,1249 @@
-//! HIR with desugaring and name resolution for Gala.
+//! High-level IR: name-resolved, desugared Gala.
+//!
+//! Lowering from the AST does three things:
+//! - resolves every name to a local, a function definition, or a compiler builtin, reporting
+//!   `E0202` for names that do not resolve;
+//! - gives every local binding and every expression a stable ID so later passes can attach
+//!   types, effects, and linearity facts in side tables;
+//! - turns imports into bindings, looking modules up in a [`ModuleTable`].
 
-use gala_ast::*;
+use gala_ast::{self as ast, BinOp, ConstExpr, Effect, Ident, Literal, TypeArg, UnOp};
 use gala_diagnostics::{codes, Diagnostic, Diagnostics};
 use gala_span::{FileId, Span};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-/// A crate in the compilation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CrateId(pub FileId);
-
-/// Module graph representing the crate structure.
-#[derive(Debug, Clone, Default)]
-pub struct ModuleGraph {
-    pub modules: HashMap<ModuleId, ModuleData>,
-    pub root: ModuleId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct ModuleId(pub u32);
-
-#[derive(Debug, Clone)]
-pub struct ModuleData {
-    pub id: ModuleId,
-    pub name: Ident,
-    pub parent: Option<ModuleId>,
-    pub children: Vec<ModuleId>,
-    pub items: Vec<DefId>,
-}
-
-/// Definition ID - stable identifier for a definition.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DefId {
-    pub crate_id: CrateId,
-    pub index: u32,
-}
-
-/// Resolution result.
-#[derive(Debug, Clone)]
-pub enum Resolution {
-    Def(DefId),
-    Local(LocalId),
-    Builtin(BuiltinDef),
-    Error(Diagnostic),
-}
-
-/// Local variable ID.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A local variable binding within one function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocalId(pub u32);
 
-/// Built-in definitions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinDef {
-    QubitAlloc,
-    QubitsAlloc,
+/// A top-level function definition in the package.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DefId(pub u32);
+
+/// An expression node, unique across the package.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExprId(pub u32);
+
+/// Compiler-provided operations. Library declarations without a body bind to these by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Builtin {
+    /// `qubit() -> Qubit quantum`: allocate one qubit in |0⟩.
+    Qubit,
+    /// `qubits<N>() -> Qubits<N> quantum`: allocate a register in |0…0⟩.
+    Qubits,
+    H,
+    X,
+    Y,
+    Z,
+    S,
+    T,
+    Rx,
+    Ry,
+    Rz,
+    Cx,
+    Cz,
+    Swap,
+    /// `cp(c, t, θ)`: controlled phase.
+    Cp,
+    /// `measure(q) -> Measured<Bool> prob` (or `Measured<Vec<Bool>>` for a register).
     Measure,
+    /// `drop(q) quantum`: release a qubit after synthesized uncomputation.
     Drop,
-    HGate,
-    XGate,
-    YGate,
-    ZGate,
-    SGate,
-    TGate,
-    RxGate,
-    RyGate,
-    RzGate,
-    CXGate,
-    CZGate,
-    SwapGate,
+    /// `print(x)`: classical output, effect `pure`.
+    Print,
+    /// `clone(q)`: always an error; qubits cannot be copied (E0401).
+    Clone,
+    /// `grad(f, wrt: p)`: declared, not implemented yet.
+    Grad,
+    /// `backend.simulator()`: the full state-vector simulator.
+    BackendSimulator,
+    /// `backend.base()`: a simulator that only accepts base-profile programs (no branching on
+    /// measurement results).
+    BackendBase,
+    /// `backend.noisy(p)`: the simulator with depolarizing error `p` after every gate.
+    BackendNoisy,
+    /// `backend.hardware("name")`: a hardware device. None is reachable from this build.
+    BackendHardware,
+    /// `run(f, on: backend, shots: n) -> Int`: run a probabilistic function `n` times on a backend
+    /// and return how many shots measured `true`.
+    Run,
 }
 
-/// Stable IDs used when builtins are represented in resolved HIR.  Keeping
-/// builtins distinct from user definitions prevents them from colliding with
-/// the first function in a file (the old resolver used index 0 for both).
-pub fn builtin_def_id(file_id: FileId, builtin: BuiltinDef) -> DefId {
-    DefId { crate_id: CrateId(file_id), index: 10_000 + builtin as u32 }
+impl Builtin {
+    /// The builtin bound to a prelude or library name, if any.
+    pub fn from_name(name: &str) -> Option<Builtin> {
+        Some(match name {
+            "qubit" => Builtin::Qubit,
+            "qubits" => Builtin::Qubits,
+            "h" => Builtin::H,
+            "x" => Builtin::X,
+            "y" => Builtin::Y,
+            "z" => Builtin::Z,
+            "s" => Builtin::S,
+            "t" => Builtin::T,
+            "rx" => Builtin::Rx,
+            "ry" => Builtin::Ry,
+            "rz" => Builtin::Rz,
+            "cx" => Builtin::Cx,
+            "cz" => Builtin::Cz,
+            "swap" => Builtin::Swap,
+            "cp" => Builtin::Cp,
+            "measure" => Builtin::Measure,
+            "drop" => Builtin::Drop,
+            "print" => Builtin::Print,
+            "clone" => Builtin::Clone,
+            "grad" => Builtin::Grad,
+            "run" => Builtin::Run,
+            _ => return None,
+        })
+    }
+
+    /// Source name of the builtin.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Builtin::Qubit => "qubit",
+            Builtin::Qubits => "qubits",
+            Builtin::H => "h",
+            Builtin::X => "x",
+            Builtin::Y => "y",
+            Builtin::Z => "z",
+            Builtin::S => "s",
+            Builtin::T => "t",
+            Builtin::Rx => "rx",
+            Builtin::Ry => "ry",
+            Builtin::Rz => "rz",
+            Builtin::Cx => "cx",
+            Builtin::Cz => "cz",
+            Builtin::Swap => "swap",
+            Builtin::Cp => "cp",
+            Builtin::Measure => "measure",
+            Builtin::Drop => "drop",
+            Builtin::Print => "print",
+            Builtin::Clone => "clone",
+            Builtin::Grad => "grad",
+            Builtin::BackendSimulator => "backend.simulator",
+            Builtin::BackendBase => "backend.base",
+            Builtin::BackendNoisy => "backend.noisy",
+            Builtin::BackendHardware => "backend.hardware",
+            Builtin::Run => "run",
+        }
+    }
+
+    /// True for unitary gates that take qubits and return the same qubits.
+    pub fn is_gate(&self) -> bool {
+        matches!(
+            self,
+            Builtin::H
+                | Builtin::X
+                | Builtin::Y
+                | Builtin::Z
+                | Builtin::S
+                | Builtin::T
+                | Builtin::Rx
+                | Builtin::Ry
+                | Builtin::Rz
+                | Builtin::Cx
+                | Builtin::Cz
+                | Builtin::Swap
+                | Builtin::Cp
+        )
+    }
+
+    /// Number of qubit arguments a gate takes (0 for non-gates).
+    pub fn qubit_arity(&self) -> usize {
+        match self {
+            Builtin::H
+            | Builtin::X
+            | Builtin::Y
+            | Builtin::Z
+            | Builtin::S
+            | Builtin::T
+            | Builtin::Rx
+            | Builtin::Ry
+            | Builtin::Rz => 1,
+            Builtin::Cx | Builtin::Cz | Builtin::Swap | Builtin::Cp => 2,
+            _ => 0,
+        }
+    }
+
+    /// Number of classical angle arguments a gate takes after its qubits.
+    pub fn angle_arity(&self) -> usize {
+        match self {
+            Builtin::Rx | Builtin::Ry | Builtin::Rz | Builtin::Cp => 1,
+            _ => 0,
+        }
+    }
 }
 
-/// Definition-ID range reserved for locals after name resolution. Function
-/// definitions use the low IDs allocated by the resolver, so locals must not
-/// share that namespace.
-pub const LOCAL_DEF_ID_BASE: u32 = 1_000_000;
-
-pub fn local_def_id(file_id: FileId, local_id: LocalId) -> DefId {
-    DefId { crate_id: CrateId(file_id), index: LOCAL_DEF_ID_BASE + local_id.0 }
-}
-
-pub fn local_id_from_def_id(def_id: &DefId) -> Option<LocalId> {
-    def_id.index.checked_sub(LOCAL_DEF_ID_BASE).map(LocalId)
-}
-
-/// HIR file with desugared AST.
+/// A module in the package, identified by its dotted path (`""` for the root file).
 #[derive(Debug, Clone)]
-pub struct HirFile {
-    pub file_id: FileId,
-    pub items: Vec<HirItem>,
+pub struct SourceModule {
+    /// Dotted module path, for example `gala.algorithms` or `mypkg.math`.
+    pub path: String,
+    /// File the items came from.
+    pub file: FileId,
+    /// Parsed items.
+    pub items: Vec<ast::Item>,
 }
 
-/// HIR item (desugared).
-#[derive(Debug, Clone)]
-pub enum HirItem {
-    FnDef(HirFnDef),
-    StructDef(HirStructDef),
-    EnumDef(HirEnumDef),
-    TraitDef(HirTraitDef),
-    ImplBlock(HirImplBlock),
-    TypeAlias(HirTypeAlias),
-    ConstDef(HirConstDef),
-    Import(HirImport),
+/// Every module the program can import, keyed by dotted path.
+#[derive(Debug, Clone, Default)]
+pub struct ModuleTable {
+    modules: HashMap<String, SourceModule>,
 }
 
-/// Desugared function definition.
+impl ModuleTable {
+    /// Build a table from a list of modules.
+    pub fn new(modules: Vec<SourceModule>) -> Self {
+        ModuleTable { modules: modules.into_iter().map(|m| (m.path.clone(), m)).collect() }
+    }
+
+    /// Look up a module by dotted path.
+    pub fn get(&self, path: &str) -> Option<&SourceModule> {
+        self.modules.get(path)
+    }
+}
+
+/// A resolved function, lowered to HIR.
 #[derive(Debug, Clone)]
-pub struct HirFnDef {
-    pub def_id: DefId,
-    pub ident: Ident,
-    pub generics: Vec<GenericParam>,
+pub struct HirFn {
+    /// This function's ID.
+    pub def: DefId,
+    /// Module the function was declared in.
+    pub module: String,
+    /// Source name.
+    pub name: Ident,
+    /// Attributes (`#[property(...)]`), kept for the test harness.
+    pub attributes: Vec<ast::Attribute>,
+    /// Parameters, in order.
     pub params: Vec<HirParam>,
-    pub ret_ty: Option<Type>,
-    pub effect: Effect,
-    pub is_extern: bool,
-    pub body: HirBlock,
+    /// Declared return type, if written.
+    pub ret_ty: Option<ast::Type>,
+    /// Declared effect, if written.
+    pub declared_effect: Option<Effect>,
+    /// Body; `None` for intrinsic declarations.
+    pub body: Option<HirBlock>,
+    /// The builtin this declaration maps to when it has no body.
+    pub intrinsic: Option<Builtin>,
+    /// Generic parameters (const generics are recorded but not solved yet).
+    pub generics: Vec<ast::GenericParam>,
+    /// Source span of the declaration.
     pub span: Span,
 }
 
-/// HIR parameter.
+/// A function parameter.
 #[derive(Debug, Clone)]
 pub struct HirParam {
-    pub local_id: LocalId,
-    pub mutable: bool,
-    pub pattern: Pattern,
-    pub ty: Type,
+    /// The binding this parameter introduces.
+    pub local: LocalId,
+    /// Source name (for diagnostics).
+    pub name: String,
+    /// Declared type.
+    pub ty: ast::Type,
+    /// Span of the parameter.
     pub span: Span,
 }
 
-/// HIR block.
+/// A block of statements with an optional tail expression.
 #[derive(Debug, Clone)]
 pub struct HirBlock {
+    /// Statements in order.
     pub stmts: Vec<HirStmt>,
+    /// Tail expression, whose value is the block's value.
     pub tail: Option<Box<HirExpr>>,
+    /// Span of the block.
     pub span: Span,
 }
 
-/// HIR statement.
+/// A statement.
 #[derive(Debug, Clone)]
 pub enum HirStmt {
-    Let(HirLetStmt),
+    /// `let pat [: ty] = init`.
+    Let { pat: HirPat, ty: Option<ast::Type>, init: HirExpr, span: Span },
+    /// An expression evaluated for effect.
     Expr(HirExpr),
-    Item(HirItem),
-    Return(Option<Box<HirExpr>>),
+    /// `return value`.
+    Return { value: Option<HirExpr>, span: Span },
 }
 
-/// HIR let statement.
+/// An expression with its ID and span.
 #[derive(Debug, Clone)]
-pub struct HirLetStmt {
-    pub local_id: LocalId,
-    /// Local IDs for each identifier leaf in `pattern`, in source order.
-    /// `local_id` remains the first binding for compatibility with older
-    /// consumers that only understand a single binding.
-    pub local_ids: Vec<LocalId>,
-    pub mutable: bool,
-    pub pattern: Pattern,
-    pub ty: Option<Type>,
-    pub init: HirExpr,
+pub struct HirExpr {
+    /// Unique ID; keys the side tables computed by later passes.
+    pub id: ExprId,
+    /// What the expression is.
+    pub kind: HirExprKind,
+    /// Source span.
     pub span: Span,
 }
 
-/// HIR expression (desugared).
+/// Resolved expression kinds.
 #[derive(Debug, Clone)]
-pub enum HirExpr {
-    Literal(Literal),
-    Ident(Ident, DefId, bool),
-    Binary(HirBinaryExpr),
-    Unary(HirUnaryExpr),
-    Call(HirCallExpr),
-    MethodCall(HirMethodCallExpr),
-    If(HirIfExpr),
-    Match(HirMatchExpr),
-    For(HirForExpr),
-    While(HirWhileExpr),
+pub enum HirExprKind {
+    Lit(Literal),
+    Local(LocalId, String),
+    Fn(DefId),
+    Builtin(Builtin),
+    /// A top-level constant, by index into [`HirPackage::consts`].
+    Const(usize),
+    Call {
+        callee: Box<HirExpr>,
+        generics: Vec<TypeArg>,
+        args: Vec<HirExpr>,
+        names: Vec<Option<Ident>>,
+    },
+    Unary {
+        op: UnOp,
+        expr: Box<HirExpr>,
+    },
+    Binary {
+        op: BinOp,
+        lhs: Box<HirExpr>,
+        rhs: Box<HirExpr>,
+    },
+    If {
+        cond: Box<HirExpr>,
+        then_block: HirBlock,
+        else_expr: Option<Box<HirExpr>>,
+    },
+    For {
+        pat: HirPat,
+        iterable: Box<HirExpr>,
+        body: HirBlock,
+    },
+    While {
+        cond: Box<HirExpr>,
+        body: HirBlock,
+    },
     Block(HirBlock),
     Tuple(Vec<HirExpr>),
     Array(Vec<HirExpr>),
-    Lambda(HirLambdaExpr),
-    Field(HirFieldExpr),
-    Index(HirIndexExpr),
-    Let(HirLetExpr),
-    Return(Option<Box<HirExpr>>),
+    Index {
+        base: Box<HirExpr>,
+        index: Box<HirExpr>,
+    },
+    Assign {
+        target: Box<HirExpr>,
+        op: Option<BinOp>,
+        value: Box<HirExpr>,
+    },
+    Match {
+        scrutinee: Box<HirExpr>,
+        arms: Vec<HirArm>,
+    },
+    /// Placeholder for an expression that failed to resolve. Compilation has already failed.
+    Error,
 }
 
+/// A `match` arm.
 #[derive(Debug, Clone)]
-pub struct HirBinaryExpr {
-    pub lhs: Box<HirExpr>,
-    pub op: BinOp,
-    pub rhs: Box<HirExpr>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirUnaryExpr {
-    pub op: UnOp,
-    pub expr: Box<HirExpr>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirCallExpr {
-    pub callee: Box<HirExpr>,
-    pub args: Vec<HirExpr>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirMethodCallExpr {
-    pub receiver: Box<HirExpr>,
-    pub method: Ident,
-    pub args: Vec<HirExpr>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirIfExpr {
-    pub cond: Box<HirExpr>,
-    pub then_branch: HirBlock,
-    pub else_branch: Option<Box<HirExpr>>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirMatchExpr {
-    pub scrutinee: Box<HirExpr>,
-    pub arms: Vec<HirMatchArm>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirMatchArm {
-    pub pattern: Pattern,
+pub struct HirArm {
+    /// Pattern.
+    pub pat: HirPat,
+    /// Optional guard.
     pub guard: Option<HirExpr>,
+    /// Arm body.
     pub body: HirExpr,
-    pub span: Span,
 }
 
+/// A binding pattern.
 #[derive(Debug, Clone)]
-pub struct HirForExpr {
-    pub pattern: Pattern,
-    pub iterable: Box<HirExpr>,
-    pub body: HirBlock,
-    pub span: Span,
+pub enum HirPat {
+    /// Binds a new local.
+    Bind { local: LocalId, name: String, mutable: bool, span: Span },
+    /// `_`.
+    Wild,
+    /// `(p1, p2, …)`.
+    Tuple(Vec<HirPat>, Span),
+    /// A literal to match against.
+    Lit(Literal, Span),
 }
 
+/// The output of lowering a whole package.
+#[derive(Debug, Clone, Default)]
+pub struct HirPackage {
+    /// Every function in every module, indexed by `DefId`.
+    pub fns: Vec<HirFn>,
+    /// Name of each local, indexed by `LocalId`.
+    pub local_names: Vec<String>,
+    /// Number of expression IDs allocated.
+    pub expr_count: u32,
+    /// The `main` function of the root module, if any.
+    pub main: Option<DefId>,
+    /// Top-level constants: name → (module, initializer).
+    pub consts: Vec<HirConst>,
+}
+
+/// A top-level constant (`let x = …` or `const x: T = …`).
 #[derive(Debug, Clone)]
-pub struct HirWhileExpr {
-    pub cond: Box<HirExpr>,
-    pub body: HirBlock,
+pub struct HirConst {
+    /// Module the constant was declared in.
+    pub module: String,
+    /// Source name.
+    pub name: String,
+    /// Declared type, if written.
+    pub ty: Option<ast::Type>,
+    /// Initializer, lowered as a body with no parameters.
+    pub value: HirExpr,
+    /// Span of the declaration.
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
-pub struct HirLambdaExpr {
-    pub params: Vec<HirParam>,
-    pub ret_ty: Option<Type>,
-    pub effect: Option<Effect>,
-    pub body: Box<HirExpr>,
-    pub span: Span,
+impl HirPackage {
+    /// Function by ID.
+    pub fn func(&self, def: DefId) -> Option<&HirFn> {
+        self.fns.get(def.0 as usize)
+    }
+
+    /// Name of a local.
+    pub fn local_name(&self, local: LocalId) -> &str {
+        self.local_names.get(local.0 as usize).map(|s| s.as_str()).unwrap_or("?")
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct HirFieldExpr {
-    pub base: Box<HirExpr>,
-    pub field: Ident,
-    pub span: Span,
+/// Lower every module of a package to HIR. `root` is the module whose `main` becomes the entry.
+pub fn lower_package(modules: &[SourceModule], root: &str) -> (HirPackage, Diagnostics) {
+    let mut lowerer = Lowerer::new(modules);
+    lowerer.run(root);
+    (lowerer.pkg, lowerer.diags)
 }
 
-#[derive(Debug, Clone)]
-pub struct HirIndexExpr {
-    pub base: Box<HirExpr>,
-    pub index: Box<HirExpr>,
-    pub span: Span,
+/// Lower a single file as the root module.
+pub fn lower_file(file: FileId, items: Vec<ast::Item>) -> (HirPackage, Diagnostics) {
+    lower_package(&[SourceModule { path: String::new(), file, items }], "")
 }
 
-#[derive(Debug, Clone)]
-pub struct HirLetExpr {
-    pub local_id: LocalId,
-    pub pattern: Pattern,
-    pub ty: Option<Type>,
-    pub init: Box<HirExpr>,
-    pub span: Span,
+/// Per-module symbol table: which names are defined or imported here.
+#[derive(Debug, Default, Clone)]
+struct ModuleScope {
+    fns: HashMap<String, DefId>,
+    consts: HashMap<String, usize>,
+    imports: HashMap<String, Binding>,
 }
 
-/// Desugar the AST to HIR.
-pub fn desugar_file(ast: &[Item], file_id: FileId) -> HirFile {
-    let mut desugarer = Desugarer::new(file_id);
-    let items = ast.iter().map(|item| desugarer.desugar_item(item)).collect();
-    HirFile { file_id, items }
+#[derive(Debug, Clone, Copy)]
+enum Binding {
+    Def(DefId),
+    Builtin(Builtin),
 }
 
-struct Desugarer {
-    file_id: FileId,
-    local_counter: u32,
-    in_place_vars: HashMap<Ident, LocalId>,
+struct Lowerer<'a> {
+    modules: &'a [SourceModule],
+    pkg: HirPackage,
+    diags: Diagnostics,
+    scopes: HashMap<String, ModuleScope>,
+    /// Stack of local-name scopes for the function being lowered.
+    locals: Vec<HashMap<String, LocalId>>,
+    next_expr: u32,
+    current_module: String,
+    /// Constant values of the generic parameters being instantiated (`N` ↦ 4).
+    const_env: HashMap<String, i64>,
+    /// Generic functions (with const parameters), by DefId, with their module.
+    generic_fns: HashMap<DefId, (String, ast::FnDef)>,
+    /// Instances already created: (generic function, sizes) ↦ instantiated function.
+    instances: HashMap<(DefId, Vec<i64>), DefId>,
 }
 
-impl Desugarer {
-    fn new(file_id: FileId) -> Self {
-        Desugarer { file_id, local_counter: 0, in_place_vars: HashMap::new() }
+/// Substitute const parameters in a constant expression.
+fn subst_const(c: &ConstExpr, env: &HashMap<String, i64>) -> ConstExpr {
+    match c {
+        ConstExpr::Ident(n) => match env.get(n.as_str()) {
+            Some(v) => ConstExpr::Int(*v),
+            None => c.clone(),
+        },
+        ConstExpr::Binary { lhs, op, rhs } => ConstExpr::Binary {
+            lhs: Box::new(subst_const(lhs, env)),
+            op: *op,
+            rhs: Box::new(subst_const(rhs, env)),
+        },
+        ConstExpr::Int(_) => c.clone(),
     }
+}
 
-    fn fresh_local(&mut self) -> LocalId {
-        let id = LocalId(self.local_counter);
-        self.local_counter += 1;
-        id
+fn subst_type_arg(a: &TypeArg, env: &HashMap<String, i64>) -> TypeArg {
+    match a {
+        TypeArg::Const(c) => TypeArg::Const(subst_const(c, env)),
+        TypeArg::Type(t) => TypeArg::Type(subst_type(t, env)),
     }
+}
 
-    fn desugar_item(&mut self, item: &Item) -> HirItem {
-        match item {
-            Item::FnDef(f) => HirItem::FnDef(self.desugar_fn_def(f)),
-            Item::StructDef(s) => HirItem::StructDef(self.desugar_struct_def(s)),
-            Item::EnumDef(e) => HirItem::EnumDef(self.desugar_enum_def(e)),
-            Item::TraitDef(t) => HirItem::TraitDef(self.desugar_trait_def(t)),
-            Item::ImplBlock(i) => HirItem::ImplBlock(self.desugar_impl_block(i)),
-            Item::TypeAlias(t) => HirItem::TypeAlias(self.desugar_type_alias(t)),
-            Item::ConstDef(c) => HirItem::ConstDef(self.desugar_const_def(c)),
-            Item::Import(i) => HirItem::Import(self.desugar_import(i)),
+/// Substitute const parameters throughout a type.
+fn subst_type(t: &ast::Type, env: &HashMap<String, i64>) -> ast::Type {
+    use ast::Type as T;
+    match t {
+        T::Qubit => T::Qubit,
+        T::Qubits(c) => T::Qubits(Box::new(subst_const(c, env))),
+        T::Measured(inner) => T::Measured(Box::new(subst_type(inner, env))),
+        T::Tuple(items) => T::Tuple(items.iter().map(|i| subst_type(i, env)).collect()),
+        T::Array(elem, len) => {
+            T::Array(Box::new(subst_type(elem, env)), Box::new(subst_const(len, env)))
+        }
+        T::Named(name, args) => {
+            T::Named(name.clone(), args.iter().map(|a| subst_type(a, env)).collect())
+        }
+        T::Path(path) => {
+            let mut path = path.clone();
+            for seg in &mut path.segments {
+                seg.type_args = seg.type_args.iter().map(|a| subst_type_arg(a, env)).collect();
+            }
+            T::Path(path)
+        }
+        T::Fn { .. } => t.clone(),
+    }
+}
+
+impl<'a> Lowerer<'a> {
+    fn new(modules: &'a [SourceModule]) -> Self {
+        Lowerer {
+            modules,
+            pkg: HirPackage::default(),
+            diags: Diagnostics::new(),
+            scopes: HashMap::new(),
+            locals: Vec::new(),
+            next_expr: 0,
+            current_module: String::new(),
+            const_env: HashMap::new(),
+            generic_fns: HashMap::new(),
+            instances: HashMap::new(),
         }
     }
 
-    fn desugar_fn_def(&mut self, f: &FnDef) -> HirFnDef {
-        let def_id = DefId { crate_id: CrateId(self.file_id), index: 0 };
-        let mut params = Vec::new();
-        for p in &f.params {
-            params.push(HirParam {
-                local_id: self.fresh_local(),
-                mutable: p.mutable,
-                pattern: p.pattern.clone(),
-                ty: p.ty.clone(),
-                span: p.span,
-            });
-        }
-        let body = self.desugar_block(&f.body);
-        HirFnDef {
-            def_id,
-            ident: f.ident.clone(),
-            generics: f.generics.clone(),
-            params,
-            ret_ty: f.ret_ty.clone(),
-            effect: f.effect.unwrap_or(Effect::Pure),
-            body,
-            is_extern: false,
-            span: f.span,
-        }
-    }
-
-    fn desugar_block(&mut self, block: &Block) -> HirBlock {
-        let mut stmts = Vec::new();
-        for stmt in &block.stmts {
-            stmts.push(self.desugar_stmt(stmt));
-        }
-        let tail = block.tail.as_ref().map(|e| Box::new(self.desugar_expr(e)));
-        HirBlock { stmts, tail, span: block.span }
-    }
-
-    fn desugar_stmt(&mut self, stmt: &Stmt) -> HirStmt {
-        match stmt {
-            Stmt::Let(l) => HirStmt::Let(self.desugar_let_stmt(l)),
-            Stmt::Expr(e) => HirStmt::Expr(self.desugar_expr(e)),
-            Stmt::Item(i) => HirStmt::Item(self.desugar_item(i)),
-            Stmt::Return(e) => HirStmt::Return(e.as_ref().map(|e| Box::new(self.desugar_expr(e)))),
-        }
-    }
-
-    fn desugar_let_stmt(&mut self, l: &LetStmt) -> HirLetStmt {
-        let mut local_ids = Vec::new();
-        collect_pattern_local_ids(&l.pattern, self, &mut local_ids);
-        if local_ids.is_empty() {
-            local_ids.push(self.fresh_local());
-        }
-        let local_id = local_ids[0];
-        let init = l
-            .init
-            .as_ref()
-            .map(|e| self.desugar_expr(e))
-            .unwrap_or_else(|| HirExpr::Literal(Literal::Unit));
-        HirLetStmt {
-            local_id,
-            local_ids,
-            mutable: l.mutable,
-            pattern: l.pattern.clone(),
-            ty: l.ty.clone(),
-            init,
-            span: l.span,
-        }
-    }
-
-    fn desugar_expr(&mut self, expr: &Expr) -> HirExpr {
-        match expr {
-            Expr::Literal(l) => HirExpr::Literal(l.clone()),
-            Expr::Ident(ident) => {
-                if let Some(local_id) = self.in_place_vars.get(ident) {
-                    HirExpr::Ident(ident.clone(), local_def_id(self.file_id, *local_id), false)
-                } else {
-                    HirExpr::Ident(
-                        ident.clone(),
-                        DefId { crate_id: CrateId(self.file_id), index: 0 },
-                        false,
-                    )
+    fn run(&mut self, root: &str) {
+        // Pass 1: allocate DefIds for every function so calls can refer forward.
+        for module in self.modules {
+            let mut scope = ModuleScope::default();
+            for item in &module.items {
+                if let ast::Item::FnDef(f) = item {
+                    let def = DefId(self.pkg.fns.len() as u32);
+                    scope.fns.insert(f.ident.as_str().to_string(), def);
+                    // Generic bodies are lowered per instantiation; callers may come first.
+                    if f.generics.iter().any(|g| matches!(g, ast::GenericParam::Const { .. })) {
+                        self.generic_fns.insert(def, (module.path.clone(), f.clone()));
+                    }
+                    // Placeholder, replaced in pass 2.
+                    self.pkg.fns.push(HirFn {
+                        def,
+                        module: module.path.clone(),
+                        name: f.ident.clone(),
+                        attributes: f.attributes.clone(),
+                        params: Vec::new(),
+                        ret_ty: f.ret_ty.clone(),
+                        declared_effect: f.effect,
+                        body: None,
+                        // A signature-only declaration whose name is a builtin is an intrinsic.
+                        intrinsic: if f.body.is_none() {
+                            Builtin::from_name(f.ident.as_str())
+                        } else {
+                            None
+                        },
+                        generics: f.generics.clone(),
+                        span: f.span,
+                    });
                 }
             }
-            Expr::Binary(b) => HirExpr::Binary(HirBinaryExpr {
-                lhs: Box::new(self.desugar_expr(&b.lhs)),
-                op: b.op,
-                rhs: Box::new(self.desugar_expr(&b.rhs)),
-                span: b.span,
-            }),
-            Expr::Unary(u) => HirExpr::Unary(HirUnaryExpr {
-                op: u.op,
-                expr: Box::new(self.desugar_expr(&u.expr)),
-                span: u.span,
-            }),
-            Expr::Call(c) => HirExpr::Call(HirCallExpr {
-                callee: Box::new(self.desugar_expr(&c.callee)),
-                args: c.args.iter().map(|a| self.desugar_expr(a)).collect(),
-                span: c.span,
-            }),
-            Expr::MethodCall(m) => HirExpr::MethodCall(HirMethodCallExpr {
-                receiver: Box::new(self.desugar_expr(&m.receiver)),
-                method: m.method.clone(),
-                args: m.args.iter().map(|a| self.desugar_expr(a)).collect(),
-                span: m.span,
-            }),
-            Expr::If(i) => HirExpr::If(HirIfExpr {
-                cond: Box::new(self.desugar_expr(&i.cond)),
-                then_branch: self.desugar_block(&i.then_branch),
-                else_branch: i.else_branch.as_ref().map(|e| Box::new(self.desugar_expr(e))),
-                span: i.span,
-            }),
-            Expr::Match(m) => HirExpr::Match(HirMatchExpr {
-                scrutinee: Box::new(self.desugar_expr(&m.scrutinee)),
-                arms: m.arms.iter().map(|a| self.desugar_match_arm(a)).collect(),
-                span: m.span,
-            }),
-            Expr::For(f) => HirExpr::For(HirForExpr {
-                pattern: f.pattern.clone(),
-                iterable: Box::new(self.desugar_expr(&f.iterable)),
-                body: self.desugar_block(&f.body),
-                span: f.span,
-            }),
-            Expr::While(w) => HirExpr::While(HirWhileExpr {
-                cond: Box::new(self.desugar_expr(&w.cond)),
-                body: self.desugar_block(&w.body),
-                span: w.span,
-            }),
-            Expr::Block(b) => HirExpr::Block(self.desugar_block(b)),
-            Expr::Tuple(es) => HirExpr::Tuple(es.iter().map(|e| self.desugar_expr(e)).collect()),
-            Expr::Array(es) => HirExpr::Array(es.iter().map(|e| self.desugar_expr(e)).collect()),
-            Expr::Lambda(l) => HirExpr::Lambda(self.desugar_lambda(l)),
-            Expr::Field(f) => HirExpr::Field(HirFieldExpr {
-                base: Box::new(self.desugar_expr(&f.base)),
-                field: f.field.clone(),
-                span: f.span,
-            }),
-            Expr::Index(i) => HirExpr::Index(HirIndexExpr {
-                base: Box::new(self.desugar_expr(&i.base)),
-                index: Box::new(self.desugar_expr(&i.index)),
-                span: i.span,
-            }),
-            Expr::Let(l) => HirExpr::Let(self.desugar_let_expr(l)),
+            self.scopes.insert(module.path.clone(), scope);
         }
+
+        // Pass 2: imports, then constants, then function bodies.
+        for module in self.modules {
+            self.resolve_imports(module);
+        }
+        for module in self.modules {
+            self.current_module = module.path.clone();
+            self.lower_consts(module);
+        }
+        let mut fn_index = 0usize;
+        for module in self.modules {
+            self.current_module = module.path.clone();
+            for item in &module.items {
+                if let ast::Item::FnDef(f) = item {
+                    let def = DefId(fn_index as u32);
+                    fn_index += 1;
+                    // A generic function is lowered per instantiation, not as written.
+                    if self.generic_fns.contains_key(&def) {
+                        continue;
+                    }
+                    let lowered = self.lower_fn(def, f);
+                    self.pkg.fns[def.0 as usize] = lowered;
+                }
+            }
+        }
+
+        if let Some(scope) = self.scopes.get(root) {
+            self.pkg.main = scope.fns.get("main").copied();
+        }
+        self.pkg.expr_count = self.next_expr;
     }
 
-    fn desugar_match_arm(&mut self, arm: &MatchArm) -> HirMatchArm {
-        HirMatchArm {
-            pattern: arm.pattern.clone(),
-            guard: arm.guard.as_ref().map(|g| self.desugar_expr(g)),
-            body: self.desugar_expr(&arm.body),
-            span: arm.span,
-        }
-    }
+    fn resolve_imports(&mut self, module: &SourceModule) {
+        for item in &module.items {
+            let ast::Item::Import(imp) = item else { continue };
+            let segs: Vec<String> =
+                imp.path.segments.iter().map(|s| s.ident.as_str().to_string()).collect();
+            let names: Vec<String> = match (&imp.items, imp.glob) {
+                (Some(items), _) => items.iter().map(|i| i.as_str().to_string()).collect(),
+                (None, true) => Vec::new(),
+                (None, false) => {
+                    // `import a.b.c` binds the last segment (or the alias).
+                    segs.last().cloned().into_iter().collect()
+                }
+            };
+            // The module path is everything before the imported names.
+            let module_path = if imp.items.is_some() || imp.glob {
+                segs.join(".")
+            } else {
+                segs[..segs.len().saturating_sub(1)].join(".")
+            };
 
-    fn desugar_lambda(&mut self, l: &LambdaExpr) -> HirLambdaExpr {
-        let mut params = Vec::new();
-        for p in &l.params {
-            params.push(HirParam {
-                local_id: self.fresh_local(),
-                mutable: p.mutable,
-                pattern: p.pattern.clone(),
-                ty: p.ty.clone(),
-                span: p.span,
-            });
-        }
-        let body = Box::new(self.desugar_expr(&l.body));
-        HirLambdaExpr { params, ret_ty: l.ret_ty.clone(), effect: l.effect, body, span: l.span }
-    }
+            let is_builtin_module =
+                module_path.starts_with("gala") || module_path.starts_with("gala_std");
+            let known = self.modules.iter().find(|m| m.path == module_path);
 
-    fn desugar_let_expr(&mut self, l: &LetExpr) -> HirLetExpr {
-        let local_id = self.fresh_local();
-        HirLetExpr {
-            local_id,
-            pattern: l.pattern.clone(),
-            ty: l.ty.clone(),
-            init: Box::new(self.desugar_expr(&l.init)),
-            span: l.span,
-        }
-    }
+            if imp.glob {
+                if let Some(target) = known {
+                    let defs = self.scope_fns(&target.path);
+                    for (name, def) in defs {
+                        self.bind_import(module, &name, Binding::Def(def));
+                    }
+                } else if !is_builtin_module {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNRESOLVED_NAME,
+                            format!("unresolved module `{module_path}`"),
+                        )
+                        .with_primary_label(imp.span, "no such module")
+                        .with_help("check the module path or add the module to the package"),
+                    );
+                } else {
+                    // Glob over a builtin library: everything in the prelude is already visible.
+                }
+                continue;
+            }
 
-    fn desugar_struct_def(&mut self, s: &StructDef) -> HirStructDef {
-        let def_id = DefId { crate_id: CrateId(self.file_id), index: 0 };
-        HirStructDef {
-            def_id,
-            ident: s.ident.clone(),
-            generics: s.generics.clone(),
-            fields: s
-                .fields
-                .iter()
-                .map(|f| StructField { ident: f.ident.clone(), ty: f.ty.clone(), span: f.span })
-                .collect(),
-            span: s.span,
-        }
-    }
-
-    fn desugar_enum_def(&mut self, e: &EnumDef) -> HirEnumDef {
-        let def_id = DefId { crate_id: CrateId(self.file_id), index: 0 };
-        HirEnumDef {
-            def_id,
-            ident: e.ident.clone(),
-            generics: e.generics.clone(),
-            variants: e
-                .variants
-                .iter()
-                .map(|v| EnumVariant {
-                    ident: v.ident.clone(),
-                    fields: v.fields.clone(),
-                    span: v.span,
-                })
-                .collect(),
-            span: e.span,
-        }
-    }
-
-    fn desugar_trait_def(&mut self, t: &TraitDef) -> HirTraitDef {
-        let def_id = DefId { crate_id: CrateId(self.file_id), index: 0 };
-        HirTraitDef {
-            def_id,
-            ident: t.ident.clone(),
-            generics: t.generics.clone(),
-            items: t
-                .items
-                .iter()
-                .map(|i| match i {
-                    gala_ast::TraitItem::Fn(sig) => gala_ast::TraitItem::Fn(gala_ast::FnSig {
-                        ident: sig.ident.clone(),
-                        generics: sig.generics.clone(),
-                        params: sig
-                            .params
-                            .iter()
-                            .map(|p| gala_ast::Param {
-                                mutable: p.mutable,
-                                pattern: p.pattern.clone(),
-                                ty: p.ty.clone(),
-                                span: p.span,
-                            })
-                            .collect(),
-                        ret_ty: sig.ret_ty.clone(),
-                        effect: sig.effect,
-                        span: sig.span,
-                    }),
-                })
-                .collect(),
-            span: t.span,
-        }
-    }
-
-    fn desugar_impl_block(&mut self, i: &ImplBlock) -> HirImplBlock {
-        HirImplBlock {
-            ty: i.ty.clone(),
-            effect: i.effect,
-            items: i
-                .items
-                .iter()
-                .filter_map(|item| {
-                    if let Item::FnDef(f) = item {
-                        Some(self.desugar_fn_def(f))
+            for name in names {
+                let binding = if known.is_some() {
+                    self.scope_fns(&module_path).get(&name).copied().map(Binding::Def)
+                } else {
+                    None
+                };
+                let binding = binding.or_else(|| {
+                    if is_builtin_module {
+                        Builtin::from_name(&name).map(Binding::Builtin)
                     } else {
                         None
                     }
-                })
-                .collect(),
-            span: i.span,
-        }
-    }
-
-    fn desugar_type_alias(&mut self, t: &TypeAlias) -> HirTypeAlias {
-        HirTypeAlias {
-            ident: t.ident.clone(),
-            generics: t.generics.clone(),
-            ty: t.ty.clone(),
-            span: t.span,
-        }
-    }
-
-    fn desugar_const_def(&mut self, c: &ConstDef) -> HirConstDef {
-        HirConstDef {
-            ident: c.ident.clone(),
-            ty: c.ty.clone(),
-            value: self.desugar_expr(&c.value),
-            span: c.span,
-        }
-    }
-
-    fn desugar_import(&mut self, i: &Import) -> HirImport {
-        HirImport {
-            path: i.path.clone(),
-            alias: i.alias.clone(),
-            items: i.items.clone(),
-            glob: i.glob,
-            span: i.span,
-        }
-    }
-}
-
-fn collect_pattern_local_ids(pattern: &Pattern, desugarer: &mut Desugarer, ids: &mut Vec<LocalId>) {
-    match pattern {
-        Pattern::Ident(_) => ids.push(desugarer.fresh_local()),
-        Pattern::Tuple(patterns) => {
-            for pattern in patterns {
-                collect_pattern_local_ids(pattern, desugarer, ids);
+                });
+                match binding {
+                    Some(b) => {
+                        let local_name = imp
+                            .alias
+                            .as_ref()
+                            .filter(|_| imp.items.is_none())
+                            .map(|a| a.as_str().to_string())
+                            .unwrap_or_else(|| name.clone());
+                        self.bind_import(module, &local_name, b);
+                    }
+                    None => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::UNRESOLVED_NAME,
+                                format!("unresolved import `{name}` from `{module_path}`"),
+                            )
+                            .with_primary_label(imp.span, "not found")
+                            .with_help("check the spelling and that the module exports this name"),
+                        );
+                    }
+                }
             }
         }
-        Pattern::Struct { fields, .. } => {
-            for (_, pattern) in fields {
-                collect_pattern_local_ids(pattern, desugarer, ids);
+    }
+
+    /// The value a function name denotes: intrinsic declarations are their builtin.
+    fn def_value(&self, def: DefId) -> HirExprKind {
+        match self.pkg.fns.get(def.0 as usize).and_then(|f| f.intrinsic) {
+            Some(b) => HirExprKind::Builtin(b),
+            None => HirExprKind::Fn(def),
+        }
+    }
+
+    fn scope_fns(&self, module: &str) -> HashMap<String, DefId> {
+        self.scopes.get(module).map(|s| s.fns.clone()).unwrap_or_default()
+    }
+
+    fn bind_import(&mut self, module: &SourceModule, name: &str, binding: Binding) {
+        if let Some(scope) = self.scopes.get_mut(&module.path) {
+            scope.imports.insert(name.to_string(), binding);
+        }
+    }
+
+    fn lower_consts(&mut self, module: &SourceModule) {
+        for item in &module.items {
+            let ast::Item::ConstDef(c) = item else { continue };
+            self.locals.push(HashMap::new());
+            let value = self.lower_expr(&c.value);
+            self.locals.pop();
+            let idx = self.pkg.consts.len();
+            self.pkg.consts.push(HirConst {
+                module: module.path.clone(),
+                name: c.ident.as_str().to_string(),
+                ty: c.ty.clone(),
+                value,
+                span: c.span,
+            });
+            if let Some(scope) = self.scopes.get_mut(&module.path) {
+                scope.consts.insert(c.ident.as_str().to_string(), idx);
             }
         }
-        Pattern::Wildcard | Pattern::Literal(_) => {}
-    }
-}
-
-// HIR item definitions
-#[derive(Debug, Clone)]
-pub struct HirStructDef {
-    pub def_id: DefId,
-    pub ident: Ident,
-    pub generics: Vec<GenericParam>,
-    pub fields: Vec<StructField>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct StructField {
-    pub ident: Ident,
-    pub ty: Type,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirEnumDef {
-    pub def_id: DefId,
-    pub ident: Ident,
-    pub generics: Vec<GenericParam>,
-    pub variants: Vec<EnumVariant>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirTraitDef {
-    pub def_id: DefId,
-    pub ident: Ident,
-    pub generics: Vec<GenericParam>,
-    pub items: Vec<gala_ast::TraitItem>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirImplBlock {
-    pub ty: Type,
-    pub effect: Option<Effect>,
-    pub items: Vec<HirFnDef>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirTypeAlias {
-    pub ident: Ident,
-    pub generics: Vec<GenericParam>,
-    pub ty: Type,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirConstDef {
-    pub ident: Ident,
-    pub ty: Type,
-    pub value: HirExpr,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirImport {
-    pub path: Path,
-    pub alias: Option<Ident>,
-    pub items: Option<Vec<Ident>>,
-    pub glob: bool,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirFnSig {
-    pub ident: Ident,
-    pub generics: Vec<GenericParam>,
-    pub params: Vec<Param>,
-    pub ret_ty: Option<Type>,
-    pub effect: Option<Effect>,
-    pub span: Span,
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Name Resolution
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// A scope for name resolution.
-#[derive(Debug, Clone)]
-pub struct Scope {
-    pub parent: Option<usize>,
-    pub bindings: HashMap<String, ScopeEntry>,
-    pub depth: u32,
-}
-
-#[derive(Debug, Clone)]
-pub enum ScopeEntry {
-    Local(LocalId),
-    Def(DefId),
-    Builtin(BuiltinDef),
-}
-
-/// Name resolution context.
-#[derive(Debug, Clone)]
-pub struct Resolver {
-    pub scopes: Vec<Scope>,
-    pub current_scope: usize,
-    pub def_counter: u32,
-    pub module_graph: ModuleGraph,
-    pub next_module_id: u32,
-    pub diagnostics: Diagnostics,
-    pub extern_defids: HashSet<DefId>,
-}
-
-impl Default for Resolver {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Resolver {
-    pub fn new() -> Self {
-        let mut resolver = Resolver {
-            scopes: vec![Scope { parent: None, bindings: HashMap::new(), depth: 0 }],
-            current_scope: 0,
-            def_counter: 0,
-            module_graph: ModuleGraph::default(),
-            next_module_id: 1,
-            diagnostics: Diagnostics::new(),
-            extern_defids: HashSet::new(),
-        };
-        resolver.populate_builtins();
-        resolver
     }
 
-    fn populate_builtins(&mut self) {
-        let builtins = [
-            ("qubit", BuiltinDef::QubitAlloc),
-            ("qubits", BuiltinDef::QubitsAlloc),
-            ("measure", BuiltinDef::Measure),
-            ("drop", BuiltinDef::Drop),
-            ("h", BuiltinDef::HGate),
-            ("x", BuiltinDef::XGate),
-            ("y", BuiltinDef::YGate),
-            ("z", BuiltinDef::ZGate),
-            ("s", BuiltinDef::SGate),
-            ("t", BuiltinDef::TGate),
-            ("rx", BuiltinDef::RxGate),
-            ("ry", BuiltinDef::RyGate),
-            ("rz", BuiltinDef::RzGate),
-            ("cx", BuiltinDef::CXGate),
-            ("cz", BuiltinDef::CZGate),
-            ("swap", BuiltinDef::SwapGate),
-        ];
-        for (name, def) in &builtins {
-            self.scopes[0].bindings.insert(name.to_string(), ScopeEntry::Builtin(*def));
+    /// The function a plain name refers to in the current module (directly or by import).
+    fn module_fn(&self, name: &str) -> Option<DefId> {
+        let scope = self.scopes.get(&self.current_module)?;
+        if let Some(def) = scope.fns.get(name) {
+            return Some(*def);
+        }
+        match scope.imports.get(name) {
+            Some(Binding::Def(def)) => Some(*def),
+            _ => None,
         }
     }
 
-    pub fn push_scope(&mut self) -> usize {
-        let id = self.scopes.len();
-        self.scopes.push(Scope {
-            parent: Some(self.current_scope),
-            bindings: HashMap::new(),
-            depth: self.scopes[self.current_scope].depth + 1,
+    /// The instance of generic function `def` for the given sizes, created on first use.
+    fn instantiate(&mut self, def: DefId, values: Vec<i64>, span: Span) -> Option<DefId> {
+        if let Some(inst) = self.instances.get(&(def, values.clone())) {
+            return Some(*inst);
+        }
+        let (module, f) = self.generic_fns.get(&def)?.clone();
+        let consts: Vec<&str> = f
+            .generics
+            .iter()
+            .filter_map(|g| match g {
+                ast::GenericParam::Const { ident, .. } => Some(ident.as_str()),
+                _ => None,
+            })
+            .collect();
+        if consts.len() != values.len() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::CONST_GENERIC_MISMATCH,
+                    format!(
+                        "`{}` takes {} const arguments, found {}",
+                        f.ident,
+                        consts.len(),
+                        values.len()
+                    ),
+                )
+                .with_primary_label(span, "wrong number of const arguments"),
+            );
+            return None;
+        }
+        let env: HashMap<String, i64> =
+            consts.iter().map(|n| n.to_string()).zip(values.iter().copied()).collect();
+        let inst = DefId(self.pkg.fns.len() as u32);
+        self.pkg.fns.push(HirFn {
+            def: inst,
+            module: module.clone(),
+            name: f.ident.clone(),
+            attributes: f.attributes.clone(),
+            params: Vec::new(),
+            ret_ty: None,
+            declared_effect: f.effect,
+            body: None,
+            intrinsic: None,
+            generics: Vec::new(),
+            span: f.span,
         });
-        self.current_scope = id;
-        id
-    }
+        self.instances.insert((def, values), inst);
 
-    pub fn pop_scope(&mut self) {
-        if let Some(parent) = self.scopes[self.current_scope].parent {
-            self.current_scope = parent;
+        // Lower the body with the sizes substituted: the state of the caller is saved and restored.
+        let mut concrete = f.clone();
+        concrete.generics = Vec::new();
+        for p in &mut concrete.params {
+            p.ty = subst_type(&p.ty, &env);
         }
+        concrete.ret_ty = concrete.ret_ty.as_ref().map(|t| subst_type(t, &env));
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_env = std::mem::replace(&mut self.const_env, env);
+        let saved_module = std::mem::replace(&mut self.current_module, module);
+        let lowered = self.lower_fn(inst, &concrete);
+        self.locals = saved_locals;
+        self.const_env = saved_env;
+        self.current_module = saved_module;
+        self.pkg.fns[inst.0 as usize] = lowered;
+        Some(inst)
     }
 
-    pub fn insert_local(&mut self, name: &str, local_id: LocalId) {
-        self.scopes[self.current_scope]
-            .bindings
-            .insert(name.to_string(), ScopeEntry::Local(local_id));
-    }
-
-    pub fn fresh_def_id(&mut self, file_id: FileId) -> DefId {
-        let id = DefId { crate_id: CrateId(file_id), index: self.def_counter };
-        self.def_counter += 1;
-        id
-    }
-
-    pub fn resolve_name(&self, name: &str) -> Option<ScopeEntry> {
-        let mut scope = self.current_scope;
-        loop {
-            if let Some(entry) = self.scopes[scope].bindings.get(name) {
-                return Some(entry.clone());
-            }
-            if let Some(parent) = self.scopes[scope].parent {
-                scope = parent;
-            } else {
-                break;
-            }
-        }
-
-        // If not found in scopes, check for extern names
-        if self.is_extern_name(name) {
-            // Return a special marker for extern names using DefId with max values
-            return Some(ScopeEntry::Def(DefId {
-                crate_id: CrateId(FileId(u32::MAX)),
-                index: u32::MAX,
-            }));
-        }
-
-        None
-    }
-
-    fn is_extern_name(&self, name: &str) -> bool {
-        // Extern names come from known crates (e.g. "gala_std.io.print").
-        name.starts_with("gala_std.")
-    }
-
-    fn is_extern_def_id(&self, def_id: &DefId) -> bool {
-        // Extern names resolve to the sentinel DefId with max crate/index values.
-        def_id.crate_id.0 .0 == u32::MAX
-    }
-
-    /// Resolve all names in a HIR file, returning a new HIR file with resolved DefIds.
-    pub fn resolve_file(&mut self, hir_file: &HirFile) -> HirFile {
-        let mut resolved_items = Vec::new();
-        for item in &hir_file.items {
-            let resolved = self.resolve_item(item, hir_file.file_id);
-            // Skip import items as they've been processed during resolution
-            if !matches!(resolved, HirItem::Import(_)) {
-                resolved_items.push(resolved);
-            }
-        }
-        HirFile { file_id: hir_file.file_id, items: resolved_items }
-    }
-
-    fn resolve_item(&mut self, item: &HirItem, file_id: FileId) -> HirItem {
-        match item {
-            HirItem::FnDef(f) => {
-                let def_id = match self.scopes[0].bindings.get(&f.ident.0) {
-                    Some(ScopeEntry::Def(def_id)) => def_id.clone(),
-                    _ => self.fresh_def_id(file_id),
-                };
-                self.scopes[0].bindings.insert(f.ident.0.clone(), ScopeEntry::Def(def_id.clone()));
-                let resolved = self.resolve_fn_def(f, def_id, file_id);
-                HirItem::FnDef(resolved)
-            }
-            HirItem::StructDef(s) => {
-                let def_id = self.fresh_def_id(file_id);
-                self.scopes[0].bindings.insert(s.ident.0.clone(), ScopeEntry::Def(def_id));
-                HirItem::StructDef(s.clone())
-            }
-            HirItem::EnumDef(e) => {
-                let def_id = self.fresh_def_id(file_id);
-                self.scopes[0].bindings.insert(e.ident.0.clone(), ScopeEntry::Def(def_id));
-                HirItem::EnumDef(e.clone())
-            }
-            HirItem::Import(import) => {
-                // Resolve the import so its names become available in scope.
-                self.resolve_import(import, file_id);
-                HirItem::Import(import.clone())
-            }
-            _ => item.clone(),
-        }
-    }
-
-    fn resolve_fn_def(&mut self, f: &HirFnDef, def_id: DefId, file_id: FileId) -> HirFnDef {
-        let _ = self.push_scope();
-
-        // Insert parameters into scope
-        let mut resolved_params = Vec::new();
+    fn lower_fn(&mut self, def: DefId, f: &ast::FnDef) -> HirFn {
+        self.locals.clear();
+        self.locals.push(HashMap::new());
+        let mut params = Vec::new();
         for p in &f.params {
-            if let Pattern::Ident(ref name) = p.pattern {
-                self.insert_local(&name.0, p.local_id);
+            let (name, span) = pattern_name(&p.pattern, p.span);
+            let local = self.fresh_local(&name);
+            if let Some(scope) = self.locals.last_mut() {
+                scope.insert(name.clone(), local);
             }
-            resolved_params.push(p.clone());
+            params.push(HirParam { local, name, ty: p.ty.clone(), span });
         }
+        let body = f.body.as_ref().map(|b| self.lower_block(b));
 
-        let resolved_body = self.resolve_block(&f.body, file_id);
-        self.pop_scope();
-
-        HirFnDef {
-            def_id,
-            ident: f.ident.clone(),
-            generics: f.generics.clone(),
-            params: resolved_params,
+        // A signature-only declaration in a library module is an intrinsic.
+        let intrinsic = if body.is_none() {
+            let builtin = Builtin::from_name(f.ident.as_str());
+            if builtin.is_none() {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::UNRESOLVED_NAME,
+                        format!(
+                            "function `{}` has no body and is not a compiler intrinsic",
+                            f.ident
+                        ),
+                    )
+                    .with_primary_label(f.span, "declared without a body"),
+                );
+            }
+            builtin
+        } else {
+            None
+        };
+        HirFn {
+            def,
+            module: self.current_module.clone(),
+            name: f.ident.clone(),
+            attributes: f.attributes.clone(),
+            params,
             ret_ty: f.ret_ty.clone(),
-            effect: f.effect,
-            body: resolved_body,
-            is_extern: f.is_extern,
+            declared_effect: f.effect,
+            body,
+            intrinsic,
+            generics: f.generics.clone(),
             span: f.span,
         }
     }
 
-    fn resolve_import(&mut self, import: &HirImport, file_id: FileId) {
-        // Resolve the import path to find the referenced module/items
-        // For now, we only support imports from known extern crates (like gala_std)
-        // In the future, this would be extended to support local modules and other crates
-
-        // Check if this is an import from a known extern crate
-        if !import.path.segments.is_empty() {
-            let first_segment = &import.path.segments[0];
-            let crate_name = &first_segment.ident.0;
-
-            // Check if this is a known extern crate
-            if crate_name == "gala_std" {
-                // Import from gala_std - resolve the items
-                if import.glob {
-                    // Import everything: import gala_std.*;
-                    // For now, we'll import a predefined set of items
-                    self.add_glob_import_from_gala_std(file_id);
-                } else if let Some(items) = &import.items {
-                    // Import specific items: import gala_std.{ item1, item2 };
-                    self.add_named_imports_from_gala_std(items, file_id);
-                } else {
-                    // Import module: import gala_std;
-                    // This makes the module name available, but not its contents
-                    // For simplicity, we'll treat this as importing the module itself
-                    self.add_module_import("gala_std", file_id);
-                }
-            }
-        }
+    fn fresh_local(&mut self, name: &str) -> LocalId {
+        let id = LocalId(self.pkg.local_names.len() as u32);
+        self.pkg.local_names.push(name.to_string());
+        id
     }
 
-    fn add_glob_import_from_gala_std(&mut self, _file_id: FileId) {
-        // Add all public items from gala_std to the current scope
-        // These are the known public items from gala_std
-        let gala_std_items = [
-            ("io", "gala_std.io"),   // module
-            ("str", "gala_std.str"), // module
-            ("vec", "gala_std.vec"), // module
-            // io module items
-            ("print", "gala_std.io.print"),
-        ];
-
-        for (local_name, _full_path) in gala_std_items.iter() {
-            // Check if this name is already in scope to avoid warnings/errors
-            if !self.scopes[0].bindings.contains_key(*local_name) {
-                // Create a DefId pointing to the extern location
-                let extern_def_id = DefId {
-                    crate_id: CrateId(FileId(u32::MAX)),
-                    index: self.extern_defids.len() as u32, // Simple counter for now
-                };
-                self.extern_defids.insert(extern_def_id.clone());
-
-                // Add to scope
-                self.scopes[0]
-                    .bindings
-                    .insert(local_name.to_string(), ScopeEntry::Def(extern_def_id));
-            }
-        }
+    fn fresh_expr(&mut self) -> ExprId {
+        let id = ExprId(self.next_expr);
+        self.next_expr += 1;
+        id
     }
 
-    fn add_named_imports_from_gala_std(&mut self, items: &[Ident], _file_id: FileId) {
-        // Map of simple names to their full paths in gala_std
-        let item_map = [
-            ("io", "gala_std.io"),
-            ("str", "gala_std.str"),
-            ("vec", "gala_std.vec"),
-            ("print", "gala_std.io.print"),
-        ];
-
-        for item in items {
-            let item_name = &item.0;
-            if let Some(_full_path) =
-                item_map.iter().find_map(
-                    |(simple, full)| if *simple == *item_name { Some(*full) } else { None },
-                )
-            {
-                // Check if this name is already in scope to avoid warnings/errors
-                if !self.scopes[0].bindings.contains_key(item_name) {
-                    // Create a DefId pointing to the extern location
-                    let extern_def_id = DefId {
-                        crate_id: CrateId(FileId(u32::MAX)),
-                        index: self.extern_defids.len() as u32, // Simple counter for now
-                    };
-                    self.extern_defids.insert(extern_def_id.clone());
-
-                    // Add to scope
-                    self.scopes[0]
-                        .bindings
-                        .insert(item_name.to_string(), ScopeEntry::Def(extern_def_id));
-                }
-            }
-        }
-    }
-
-    fn add_module_import(&mut self, module_name: &str, _file_id: FileId) {
-        // For module imports like "import gala_std;", we make the module name available
-        // but not its contents. This is useful for qualified access like gala_std.io.print
-        if !self.scopes[0].bindings.contains_key(module_name) {
-            // Create a DefId for the module itself
-            let extern_def_id = DefId {
-                crate_id: CrateId(FileId(u32::MAX)),
-                index: self.extern_defids.len() as u32,
-            };
-            self.extern_defids.insert(extern_def_id.clone());
-
-            // Add to scope
-            self.scopes[0].bindings.insert(module_name.to_string(), ScopeEntry::Def(extern_def_id));
-        }
-    }
-
-    fn resolve_block(&mut self, block: &HirBlock, file_id: FileId) -> HirBlock {
-        let _scope = self.push_scope();
-        let mut resolved_stmts = Vec::new();
+    fn lower_block(&mut self, block: &ast::Block) -> HirBlock {
+        self.locals.push(HashMap::new());
+        let mut stmts = Vec::new();
         for stmt in &block.stmts {
             match stmt {
-                HirStmt::Let(l) => {
-                    let resolved_init = self.resolve_expr(&l.init, file_id);
-                    let mut cursor = 0;
-                    bind_pattern_locals(&l.pattern, &l.local_ids, &mut cursor, self);
-                    resolved_stmts.push(HirStmt::Let(HirLetStmt {
-                        local_id: l.local_id,
-                        local_ids: l.local_ids.clone(),
-                        mutable: l.mutable,
-                        pattern: l.pattern.clone(),
-                        ty: l.ty.clone(),
-                        init: resolved_init,
-                        span: l.span,
-                    }));
+                ast::Stmt::Let(l) => {
+                    // Lower the initializer before binding the pattern, so `let a = h(a)` refers
+                    // to the old `a` on the right-hand side.
+                    let init = match &l.init {
+                        Some(e) => self.lower_expr(e),
+                        None => {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::UNEXPECTED_TOKEN,
+                                    "`let` requires an initializer",
+                                )
+                                .with_primary_label(l.span, "missing `= value`"),
+                            );
+                            self.error_expr(l.span)
+                        }
+                    };
+                    let pat = self.lower_pattern(&l.pattern, l.mutable, l.span);
+                    let ty = l.ty.as_ref().map(|t| subst_type(t, &self.const_env));
+                    stmts.push(HirStmt::Let { pat, ty, init, span: l.span });
                 }
-                HirStmt::Expr(e) => {
-                    resolved_stmts.push(HirStmt::Expr(self.resolve_expr(e, file_id)));
+                ast::Stmt::Expr(e) => stmts.push(HirStmt::Expr(self.lower_expr(e))),
+                ast::Stmt::Return(v) => {
+                    let value = v.as_ref().map(|e| self.lower_expr(e));
+                    stmts.push(HirStmt::Return { value, span: block.span });
                 }
-                HirStmt::Return(e) => {
-                    resolved_stmts.push(HirStmt::Return(
-                        e.as_ref().map(|e| Box::new(self.resolve_expr(e, file_id))),
-                    ));
-                }
-                _ => {
-                    resolved_stmts.push(stmt.clone());
-                }
+                ast::Stmt::Item(_) => {}
             }
         }
-        let tail = block.tail.as_ref().map(|e| Box::new(self.resolve_expr(e, file_id)));
-        self.pop_scope();
-        HirBlock { stmts: resolved_stmts, tail, span: block.span }
+        let tail = block.tail.as_ref().map(|e| Box::new(self.lower_expr(e)));
+        self.locals.pop();
+        HirBlock { stmts, tail, span: block.span }
     }
 
-    fn resolve_expr(&mut self, expr: &HirExpr, file_id: FileId) -> HirExpr {
-        match expr {
-            HirExpr::Ident(name, _, _) => {
-                let resolved_def = match self.resolve_name(&name.0) {
-                    Some(entry) => match entry {
-                        ScopeEntry::Local(local_id) => local_def_id(file_id, local_id),
-                        ScopeEntry::Def(def_id) => def_id,
-                        ScopeEntry::Builtin(builtin) => builtin_def_id(file_id, builtin),
-                    },
-                    None => {
-                        let msg = format!("unresolved name: {}", name.0);
-                        self.diagnostics.push(Diagnostic::error(codes::UNKNOWN_TYPE, msg));
-                        DefId { crate_id: CrateId(file_id), index: 0 }
-                    }
+    fn error_expr(&mut self, span: Span) -> HirExpr {
+        HirExpr { id: self.fresh_expr(), kind: HirExprKind::Error, span }
+    }
+
+    fn lower_pattern(&mut self, pat: &ast::Pattern, mutable: bool, span: Span) -> HirPat {
+        match pat {
+            ast::Pattern::Ident(name) => {
+                let local = self.fresh_local(name.as_str());
+                if let Some(scope) = self.locals.last_mut() {
+                    scope.insert(name.as_str().to_string(), local);
+                }
+                HirPat::Bind { local, name: name.as_str().to_string(), mutable, span }
+            }
+            ast::Pattern::Wildcard => HirPat::Wild,
+            ast::Pattern::Tuple(items) => HirPat::Tuple(
+                items.iter().map(|p| self.lower_pattern(p, mutable, span)).collect(),
+                span,
+            ),
+            ast::Pattern::Literal(l) => HirPat::Lit(l.clone(), span),
+            ast::Pattern::Struct { .. } => {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::UNEXPECTED_TOKEN,
+                        "struct patterns are not supported yet",
+                    )
+                    .with_primary_label(span, "here"),
+                );
+                HirPat::Wild
+            }
+        }
+    }
+
+    /// Resolve a single-name reference.
+    fn resolve_name(&mut self, name: &str, span: Span) -> HirExprKind {
+        for scope in self.locals.iter().rev() {
+            if let Some(local) = scope.get(name) {
+                return HirExprKind::Local(*local, name.to_string());
+            }
+        }
+        // A const parameter of the function being instantiated is its value.
+        if let Some(v) = self.const_env.get(name) {
+            return HirExprKind::Lit(Literal::Int(*v));
+        }
+        let module = self.current_module.clone();
+        if let Some(scope) = self.scopes.get(&module) {
+            if let Some(def) = scope.fns.get(name) {
+                return self.def_value(*def);
+            }
+            if let Some(binding) = scope.imports.get(name) {
+                return match binding {
+                    Binding::Def(d) => self.def_value(*d),
+                    Binding::Builtin(b) => HirExprKind::Builtin(*b),
                 };
-                // Check if this is an extern function
-                let is_extern = self.is_extern_def_id(&resolved_def);
-                HirExpr::Ident(name.clone(), resolved_def, is_extern)
             }
-            HirExpr::Binary(b) => HirExpr::Binary(HirBinaryExpr {
-                lhs: Box::new(self.resolve_expr(&b.lhs, file_id)),
+            if let Some(idx) = scope.consts.get(name) {
+                return HirExprKind::Const(*idx);
+            }
+        }
+        if let Some(builtin) = Builtin::from_name(name) {
+            return HirExprKind::Builtin(builtin);
+        }
+        self.diags.push(
+            Diagnostic::error(
+                codes::UNRESOLVED_NAME,
+                format!("cannot find `{name}` in this scope"),
+            )
+            .with_primary_label(span, "not found here")
+            .with_help("declare it with `let`, define a `fn`, or import it"),
+        );
+        HirExprKind::Error
+    }
+
+    fn lower_expr(&mut self, e: &ast::Expr) -> HirExpr {
+        let span = e.span;
+        let kind = match &e.kind {
+            ast::ExprKind::Literal(l) => HirExprKind::Lit(l.clone()),
+            ast::ExprKind::Ident(name) => self.resolve_name(name.as_str(), span),
+            ast::ExprKind::Binary(b) => HirExprKind::Binary {
                 op: b.op,
-                rhs: Box::new(self.resolve_expr(&b.rhs, file_id)),
-                span: b.span,
-            }),
-            HirExpr::Block(b) => {
-                let resolved = self.resolve_block(b, file_id);
-                HirExpr::Block(resolved)
-            }
-            HirExpr::Call(c) => HirExpr::Call(HirCallExpr {
-                callee: Box::new(self.resolve_expr(&c.callee, file_id)),
-                args: c.args.iter().map(|a| self.resolve_expr(a, file_id)).collect(),
-                span: c.span,
-            }),
-            HirExpr::Tuple(items) => {
-                HirExpr::Tuple(items.iter().map(|item| self.resolve_expr(item, file_id)).collect())
-            }
-            HirExpr::Array(items) => {
-                HirExpr::Array(items.iter().map(|item| self.resolve_expr(item, file_id)).collect())
-            }
-            HirExpr::If(i) => HirExpr::If(HirIfExpr {
-                cond: Box::new(self.resolve_expr(&i.cond, file_id)),
-                then_branch: self.resolve_block(&i.then_branch, file_id),
-                else_branch: i
-                    .else_branch
-                    .as_ref()
-                    .map(|e| Box::new(self.resolve_expr(e, file_id))),
-                span: i.span,
-            }),
-            _ => expr.clone(),
-        }
-    }
-
-    pub fn build_and_resolve(&mut self, hir_file: &HirFile) -> HirFile {
-        self.populate_builtins();
-
-        // First pass: register all top-level definitions
-        for item in &hir_file.items {
-            match item {
-                HirItem::FnDef(f) => {
-                    let def_id = self.fresh_def_id(hir_file.file_id);
-                    self.scopes[0].bindings.insert(f.ident.0.clone(), ScopeEntry::Def(def_id));
-                }
-                HirItem::StructDef(s) => {
-                    let def_id = self.fresh_def_id(hir_file.file_id);
-                    self.scopes[0].bindings.insert(s.ident.0.clone(), ScopeEntry::Def(def_id));
-                }
-                HirItem::EnumDef(e) => {
-                    let def_id = self.fresh_def_id(hir_file.file_id);
-                    self.scopes[0].bindings.insert(e.ident.0.clone(), ScopeEntry::Def(def_id));
-                }
-                _ => {}
-            }
-        }
-
-        // Second pass: resolve names in each item
-        let mut resolved_items = Vec::new();
-        for item in &hir_file.items {
-            resolved_items.push(self.resolve_item(item, hir_file.file_id));
-        }
-
-        // Build module graph
-        let root_id = ModuleId(0);
-        self.module_graph.root = root_id;
-        self.module_graph.modules.insert(
-            root_id,
-            ModuleData {
-                id: root_id,
-                name: Ident::new("root"),
-                parent: None,
-                children: Vec::new(),
-                items: Vec::new(),
+                lhs: Box::new(self.lower_expr(&b.lhs)),
+                rhs: Box::new(self.lower_expr(&b.rhs)),
             },
-        );
-
-        HirFile { file_id: hir_file.file_id, items: resolved_items }
+            ast::ExprKind::Unary(u) => {
+                HirExprKind::Unary { op: u.op, expr: Box::new(self.lower_expr(&u.expr)) }
+            }
+            ast::ExprKind::Call(c) => {
+                // `f<4>(…)` on a generic function: instantiate it for these sizes.
+                if let (false, ast::ExprKind::Ident(name)) = (c.generics.is_empty(), &c.callee.kind)
+                {
+                    if let Some(def) =
+                        self.module_fn(name.as_str()).filter(|d| self.generic_fns.contains_key(d))
+                    {
+                        let values: Option<Vec<i64>> = c
+                            .generics
+                            .iter()
+                            .map(|g| match g {
+                                TypeArg::Const(ce) => {
+                                    gala_hir_const_value(&subst_const(ce, &self.const_env))
+                                }
+                                TypeArg::Type(_) => None,
+                            })
+                            .collect();
+                        let inst = match values {
+                            Some(v) => self.instantiate(def, v, span),
+                            None => {
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::CONST_GENERIC_MISMATCH,
+                                        "const arguments must be integers",
+                                    )
+                                    .with_primary_label(span, "not an integer"),
+                                );
+                                None
+                            }
+                        };
+                        let args = c.args.iter().map(|a| self.lower_expr(a)).collect();
+                        let callee = HirExpr {
+                            id: self.fresh_expr(),
+                            kind: match inst {
+                                Some(d) => HirExprKind::Fn(d),
+                                None => HirExprKind::Error,
+                            },
+                            span,
+                        };
+                        return HirExpr {
+                            id: self.fresh_expr(),
+                            kind: HirExprKind::Call {
+                                callee: Box::new(callee),
+                                generics: Vec::new(),
+                                args,
+                                names: c.names.clone(),
+                            },
+                            span,
+                        };
+                    }
+                }
+                let callee = self.lower_expr(&c.callee);
+                let args = c.args.iter().map(|a| self.lower_expr(a)).collect();
+                HirExprKind::Call {
+                    callee: Box::new(callee),
+                    generics: c
+                        .generics
+                        .iter()
+                        .map(|g| subst_type_arg(g, &self.const_env))
+                        .collect(),
+                    args,
+                    names: c.names.clone(),
+                }
+            }
+            ast::ExprKind::MethodCall(m) => {
+                // `backend.simulator()` and friends construct a backend value (unless a local
+                // named `backend` exists, in which case it is an ordinary method call).
+                let backend_builtin = match (&m.receiver.kind, m.method.as_str()) {
+                    (ast::ExprKind::Ident(r), "simulator") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendSimulator)
+                    }
+                    (ast::ExprKind::Ident(r), "base") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendBase)
+                    }
+                    (ast::ExprKind::Ident(r), "noisy") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendNoisy)
+                    }
+                    (ast::ExprKind::Ident(r), "hardware") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendHardware)
+                    }
+                    _ => None,
+                };
+                match backend_builtin {
+                    Some(b) => {
+                        let args = m.args.iter().map(|a| self.lower_expr(a)).collect();
+                        HirExprKind::Call {
+                            callee: Box::new(HirExpr {
+                                id: self.fresh_expr(),
+                                kind: HirExprKind::Builtin(b),
+                                span,
+                            }),
+                            generics: Vec::new(),
+                            args,
+                            names: vec![None; m.args.len()],
+                        }
+                    }
+                    None => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::UNRESOLVED_NAME,
+                                format!("method `{}` is not supported yet", m.method),
+                            )
+                            .with_primary_label(span, "here"),
+                        );
+                        HirExprKind::Error
+                    }
+                }
+            }
+            ast::ExprKind::If(i) => HirExprKind::If {
+                cond: Box::new(self.lower_expr(&i.cond)),
+                then_block: self.lower_block(&i.then_branch),
+                else_expr: i.else_branch.as_ref().map(|e| Box::new(self.lower_expr(e))),
+            },
+            ast::ExprKind::Match(m) => {
+                let scrutinee = Box::new(self.lower_expr(&m.scrutinee));
+                let arms = m
+                    .arms
+                    .iter()
+                    .map(|arm| {
+                        self.locals.push(HashMap::new());
+                        let pat = self.lower_pattern(&arm.pattern, false, arm.span);
+                        let guard = arm.guard.as_ref().map(|g| self.lower_expr(g));
+                        let body = self.lower_expr(&arm.body);
+                        self.locals.pop();
+                        HirArm { pat, guard, body }
+                    })
+                    .collect();
+                HirExprKind::Match { scrutinee, arms }
+            }
+            ast::ExprKind::For(f) => {
+                let iterable = Box::new(self.lower_expr(&f.iterable));
+                self.locals.push(HashMap::new());
+                let pat = self.lower_pattern(&f.pattern, false, f.span);
+                let body = self.lower_block(&f.body);
+                self.locals.pop();
+                HirExprKind::For { pat, iterable, body }
+            }
+            ast::ExprKind::While(w) => HirExprKind::While {
+                cond: Box::new(self.lower_expr(&w.cond)),
+                body: self.lower_block(&w.body),
+            },
+            ast::ExprKind::Block(b) => HirExprKind::Block(self.lower_block(b)),
+            ast::ExprKind::Tuple(items) => {
+                HirExprKind::Tuple(items.iter().map(|x| self.lower_expr(x)).collect())
+            }
+            ast::ExprKind::Array(items) => {
+                HirExprKind::Array(items.iter().map(|x| self.lower_expr(x)).collect())
+            }
+            ast::ExprKind::Index(ix) => HirExprKind::Index {
+                base: Box::new(self.lower_expr(&ix.base)),
+                index: Box::new(self.lower_expr(&ix.index)),
+            },
+            ast::ExprKind::Assign(a) => HirExprKind::Assign {
+                target: Box::new(self.lower_expr(&a.target)),
+                op: a.op,
+                value: Box::new(self.lower_expr(&a.value)),
+            },
+            ast::ExprKind::Field(_) | ast::ExprKind::Lambda(_) | ast::ExprKind::Let(_) => {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::UNEXPECTED_TOKEN,
+                        "this expression form is not supported yet",
+                    )
+                    .with_primary_label(span, "here"),
+                );
+                HirExprKind::Error
+            }
+        };
+        HirExpr { id: self.fresh_expr(), kind, span }
     }
 }
 
-fn bind_pattern_locals(
-    pattern: &Pattern,
-    local_ids: &[LocalId],
-    cursor: &mut usize,
-    resolver: &mut Resolver,
-) {
-    match pattern {
-        Pattern::Ident(name) => {
-            if let Some(local_id) = local_ids.get(*cursor).copied() {
-                resolver.insert_local(&name.0, local_id);
-            }
-            *cursor += 1;
-        }
-        Pattern::Tuple(patterns) => {
-            for pattern in patterns {
-                bind_pattern_locals(pattern, local_ids, cursor, resolver);
-            }
-        }
-        Pattern::Struct { fields, .. } => {
-            for (_, pattern) in fields {
-                bind_pattern_locals(pattern, local_ids, cursor, resolver);
-            }
-        }
-        Pattern::Wildcard | Pattern::Literal(_) => {}
+fn pattern_name(p: &ast::Pattern, fallback: Span) -> (String, Span) {
+    match p {
+        ast::Pattern::Ident(i) => (i.as_str().to_string(), fallback),
+        _ => ("_".to_string(), fallback),
     }
 }
 
-/// Build a module graph from a list of files.
-pub fn build_module_graph(files: &[(FileId, &HirFile)]) -> ModuleGraph {
-    let mut graph = ModuleGraph::default();
-    let root_id = ModuleId(0);
-
-    graph.root = root_id;
-    graph.modules.insert(
-        root_id,
-        ModuleData {
-            id: root_id,
-            name: Ident::new("root"),
-            parent: None,
-            children: Vec::new(),
-            items: Vec::new(),
-        },
-    );
-
-    for (idx, (file_id, hir_file)) in files.iter().enumerate() {
-        let module_id = ModuleId(idx as u32 + 1);
-
-        let mut module_items = Vec::new();
-        for item in &hir_file.items {
-            if let HirItem::FnDef(f) = item {
-                module_items.push(DefId { crate_id: CrateId(*file_id), index: f.def_id.index });
+/// Convenience for callers that only need a constant's integer value (for `Qubits<N>`).
+pub fn const_int(c: &ConstExpr) -> Option<i64> {
+    match c {
+        ConstExpr::Int(v) => Some(*v),
+        ConstExpr::Binary { lhs, op, rhs } => {
+            let (a, b) = (const_int(lhs)?, const_int(rhs)?);
+            match op {
+                BinOp::Add => a.checked_add(b),
+                BinOp::Sub => a.checked_sub(b),
+                BinOp::Mul => a.checked_mul(b),
+                _ => None,
             }
         }
-
-        graph.modules.insert(
-            module_id,
-            ModuleData {
-                id: module_id,
-                name: Ident::new(format!("file_{}", file_id.0)),
-                parent: Some(root_id),
-                children: Vec::new(),
-                items: module_items,
-            },
-        );
-
-        if let Some(root) = graph.modules.get_mut(&root_id) {
-            root.children.push(module_id);
-        }
+        ConstExpr::Ident(_) => None,
     }
+}
 
-    graph
+/// The integer value of a constant expression, if it has one.
+fn gala_hir_const_value(c: &ConstExpr) -> Option<i64> {
+    const_int(c)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gala_parser::parse_source;
 
-    #[test]
-    fn test_desugar_simple_fn_def() {
-        let ast = vec![Item::FnDef(gala_ast::FnDef {
-            ident: Ident::new("main"),
-            generics: Vec::new(),
-            params: Vec::new(),
-            ret_ty: Some(gala_ast::Type::Path(gala_ast::Path {
-                segments: vec![gala_ast::PathSegment {
-                    ident: Ident::new("Int"),
-                    type_args: Vec::new(),
-                }],
-                span: Span::dummy(),
-            })),
-            effect: Some(gala_ast::Effect::Pure),
-            body: gala_ast::Block {
-                stmts: vec![gala_ast::Stmt::Return(Some(gala_ast::Expr::Literal(
-                    gala_ast::Literal::Int(42),
-                )))],
-                tail: None,
-                span: Span::dummy(),
-            },
-            span: Span::dummy(),
-        })];
-
-        let hir = desugar_file(&ast, FileId(0));
-        assert_eq!(hir.items.len(), 1);
+    fn lower(src: &str) -> (HirPackage, Diagnostics) {
+        let out = parse_source(FileId(0), src);
+        assert!(!out.diagnostics.has_errors(), "parse failed: {:?}", out.diagnostics);
+        lower_file(FileId(0), out.items)
     }
 
     #[test]
-    fn test_desugar_with_params() {
-        let ast = vec![Item::FnDef(gala_ast::FnDef {
-            ident: Ident::new("add"),
-            generics: Vec::new(),
-            params: vec![
-                gala_ast::Param {
-                    mutable: false,
-                    pattern: gala_ast::Pattern::Ident(Ident::new("x")),
-                    ty: gala_ast::Type::Path(gala_ast::Path {
-                        segments: vec![gala_ast::PathSegment {
-                            ident: Ident::new("Int"),
-                            type_args: Vec::new(),
-                        }],
-                        span: Span::dummy(),
-                    }),
-                    span: Span::dummy(),
-                },
-                gala_ast::Param {
-                    mutable: false,
-                    pattern: gala_ast::Pattern::Ident(Ident::new("y")),
-                    ty: gala_ast::Type::Path(gala_ast::Path {
-                        segments: vec![gala_ast::PathSegment {
-                            ident: Ident::new("Int"),
-                            type_args: Vec::new(),
-                        }],
-                        span: Span::dummy(),
-                    }),
-                    span: Span::dummy(),
-                },
-            ],
-            ret_ty: None,
-            effect: None,
-            body: gala_ast::Block {
-                stmts: Vec::new(),
-                tail: Some(Box::new(gala_ast::Expr::Literal(gala_ast::Literal::Int(0)))),
-                span: Span::dummy(),
-            },
-            span: Span::dummy(),
-        })];
-
-        let hir = desugar_file(&ast, FileId(0));
-        if let HirItem::FnDef(f) = &hir.items[0] {
-            assert_eq!(f.params.len(), 2);
-            assert!(f.ret_ty.is_none());
-        } else {
-            panic!("expected FnDef");
-        }
+    fn resolves_locals_and_builtins() {
+        let (pkg, diags) = lower("fn f() -> Int { let x = 1\n x }");
+        assert!(!diags.has_errors(), "{:?}", diags);
+        let body = pkg.fns[0].body.as_ref().unwrap();
+        let tail = body.tail.as_ref().unwrap();
+        assert!(matches!(tail.kind, HirExprKind::Local(_, _)));
     }
 
     #[test]
-    fn test_desugar_struct_def() {
-        let ast = vec![Item::StructDef(gala_ast::StructDef {
-            ident: Ident::new("Point"),
-            generics: Vec::new(),
-            fields: vec![gala_ast::StructField {
-                ident: Ident::new("x"),
-                ty: gala_ast::Type::Path(gala_ast::Path {
-                    segments: vec![gala_ast::PathSegment {
-                        ident: Ident::new("Float"),
-                        type_args: Vec::new(),
-                    }],
-                    span: Span::dummy(),
-                }),
-                span: Span::dummy(),
-            }],
-            span: Span::dummy(),
-        })];
-
-        let hir = desugar_file(&ast, FileId(0));
-        assert_eq!(hir.items.len(), 1);
+    fn unresolved_name_is_e0202() {
+        let (_, diags) = lower("fn f() -> Int { missing + 1 }");
+        assert!(diags.errors().iter().any(|d| d.code == codes::UNRESOLVED_NAME), "{diags:?}");
     }
 
     #[test]
-    fn test_desugar_local_id_assignment() {
-        let ast = vec![Item::FnDef(gala_ast::FnDef {
-            ident: Ident::new("f"),
-            generics: Vec::new(),
-            params: vec![gala_ast::Param {
-                mutable: false,
-                pattern: gala_ast::Pattern::Ident(Ident::new("a")),
-                ty: gala_ast::Type::Path(gala_ast::Path {
-                    segments: vec![gala_ast::PathSegment {
-                        ident: Ident::new("Int"),
-                        type_args: Vec::new(),
-                    }],
-                    span: Span::dummy(),
-                }),
-                span: Span::dummy(),
-            }],
-            ret_ty: None,
-            effect: None,
-            body: gala_ast::Block {
-                stmts: Vec::new(),
-                tail: Some(Box::new(gala_ast::Expr::Ident(Ident::new("a")))),
-                span: Span::dummy(),
-            },
-            span: Span::dummy(),
-        })];
-
-        let hir = desugar_file(&ast, FileId(0));
-        if let HirItem::FnDef(f) = &hir.items[0] {
-            assert_eq!(f.params[0].local_id, LocalId(0));
-        }
+    fn forward_call_resolves_to_fn() {
+        let (pkg, diags) = lower("fn a() -> Int { b() }\nfn b() -> Int { 1 }");
+        assert!(!diags.has_errors(), "{diags:?}");
+        let body = pkg.fns[0].body.as_ref().unwrap();
+        let HirExprKind::Call { callee, .. } = &body.tail.as_ref().unwrap().kind else { panic!() };
+        assert!(matches!(callee.kind, HirExprKind::Fn(DefId(1))));
     }
 
     #[test]
-    fn test_def_id_equality() {
-        let id1 = DefId { crate_id: CrateId(FileId(0)), index: 0 };
-        let id2 = DefId { crate_id: CrateId(FileId(0)), index: 0 };
-        let id3 = DefId { crate_id: CrateId(FileId(0)), index: 1 };
-        assert_eq!(id1, id2);
-        assert_ne!(id1, id3);
+    fn let_rhs_sees_previous_binding() {
+        // `let a = h(a)` must refer to the old `a` on the right-hand side.
+        let (pkg, diags) = lower("fn f(a: Qubit) -> Qubit quantum { let a = h(a)\n a }");
+        assert!(!diags.has_errors(), "{diags:?}");
+        let body = pkg.fns[0].body.as_ref().unwrap();
+        let HirStmt::Let { init, pat, .. } = &body.stmts[0] else { panic!() };
+        let HirExprKind::Call { args, .. } = &init.kind else { panic!() };
+        let HirExprKind::Local(old, _) = args[0].kind else { panic!() };
+        let HirPat::Bind { local: new, .. } = pat else { panic!() };
+        assert_ne!(old, *new, "new binding must be a fresh local");
+        assert_eq!(old, pkg.fns[0].params[0].local);
     }
 
     #[test]
-    fn test_module_id_default() {
-        let m = ModuleId::default();
-        assert_eq!(m.0, 0);
+    fn intrinsic_declaration_binds_to_builtin() {
+        let (pkg, diags) = lower("fn h(q: Qubit) -> Qubit quantum;");
+        assert!(!diags.has_errors(), "{diags:?}");
+        assert_eq!(pkg.fns[0].intrinsic, Some(Builtin::H));
     }
 
     #[test]
-    fn test_resolver_builtin_qubit() {
-        let resolver = Resolver::new();
-        let entry = resolver.resolve_name("qubit");
-        assert!(entry.is_some());
-        match entry.unwrap() {
-            ScopeEntry::Builtin(b) => assert!(matches!(b, BuiltinDef::QubitAlloc)),
-            _ => panic!("expected Builtin"),
-        }
+    fn bodyless_non_intrinsic_is_an_error() {
+        let (_, diags) = lower("fn notabuiltin(q: Qubit) -> Qubit quantum;");
+        assert!(diags.has_errors());
     }
 
     #[test]
-    fn test_resolver_builtin_cx() {
-        let resolver = Resolver::new();
-        let entry = resolver.resolve_name("cx");
-        assert!(entry.is_some());
-        match entry.unwrap() {
-            ScopeEntry::Builtin(b) => assert!(matches!(b, BuiltinDef::CXGate)),
-            _ => panic!("expected Builtin"),
-        }
+    fn import_from_module_table_binds_function() {
+        let lib_src = "fn helper() -> Int { 7 }";
+        let main_src = "import mylib.{ helper }\nfn main() -> Int { helper() }";
+        let lib = parse_source(FileId(1), lib_src);
+        let main = parse_source(FileId(0), main_src);
+        assert!(!lib.diagnostics.has_errors() && !main.diagnostics.has_errors());
+        let modules = vec![
+            SourceModule { path: String::new(), file: FileId(0), items: main.items },
+            SourceModule { path: "mylib".into(), file: FileId(1), items: lib.items },
+        ];
+        let (pkg, diags) = lower_package(&modules, "");
+        assert!(!diags.has_errors(), "{diags:?}");
+        assert!(pkg.main.is_some());
     }
 
     #[test]
-    fn test_resolver_unknown_name() {
-        let resolver = Resolver::new();
-        let entry = resolver.resolve_name("nonexistent");
-        assert!(entry.is_none());
+    fn unknown_import_is_reported() {
+        let (_, diags) = lower("import nope.{ thing }\nfn main() -> Int { 1 }");
+        assert!(diags.errors().iter().any(|d| d.code == codes::UNRESOLVED_NAME));
     }
 
     #[test]
-    fn test_resolver_scope_push_pop() {
-        // Directly test scope mechanics without using Resolver methods
-        let mut scopes: Vec<Scope> = Vec::new();
-        scopes.push(Scope { parent: None, bindings: HashMap::new(), depth: 0 });
-        let mut current = 0;
-
-        // Push
-        let id = scopes.len();
-        scopes.push(Scope {
-            parent: Some(current),
-            bindings: HashMap::new(),
-            depth: scopes[current].depth + 1,
-        });
-        current = id;
-
-        assert_eq!(current, 1);
-        scopes[1].bindings.insert("x".to_string(), ScopeEntry::Local(LocalId(42)));
-
-        assert!(scopes[1].bindings.contains_key("x"), "scope 1 should have 'x'");
-        assert!(!scopes[0].bindings.contains_key("x"), "scope 0 should NOT have 'x'");
-
-        // Pop
-        if let Some(parent) = scopes[current].parent {
-            current = parent;
-        }
-        assert_eq!(current, 0);
-
-        // Verify resolvable from scope 0
-        let entry = resolve_name_at_scope(0, &scopes, "x");
-        assert!(entry.is_none(), "'x' should not be visible after scope pop");
-    }
-
-    fn resolve_name_at_scope(start: usize, scopes: &[Scope], name: &str) -> Option<ScopeEntry> {
-        let mut scope = start;
-        loop {
-            if let Some(entry) = scopes[scope].bindings.get(name) {
-                return Some(entry.clone());
-            }
-            if let Some(parent) = scopes[scope].parent {
-                scope = parent;
-            } else {
-                return None;
-            }
-        }
-    }
-
-    #[test]
-    fn test_resolver_build_and_resolve_fn() {
-        let ast = vec![Item::FnDef(gala_ast::FnDef {
-            ident: Ident::new("main"),
-            generics: Vec::new(),
-            params: vec![gala_ast::Param {
-                mutable: false,
-                pattern: gala_ast::Pattern::Ident(Ident::new("x")),
-                ty: gala_ast::Type::Path(gala_ast::Path {
-                    segments: vec![gala_ast::PathSegment {
-                        ident: Ident::new("Int"),
-                        type_args: Vec::new(),
-                    }],
-                    span: Span::dummy(),
-                }),
-                span: Span::dummy(),
-            }],
-            ret_ty: None,
-            effect: None,
-            body: gala_ast::Block {
-                stmts: Vec::new(),
-                tail: Some(Box::new(gala_ast::Expr::Ident(Ident::new("x")))),
-                span: Span::dummy(),
-            },
-            span: Span::dummy(),
-        })];
-
-        let hir = desugar_file(&ast, FileId(0));
-        let mut resolver = Resolver::new();
-        let resolved = resolver.build_and_resolve(&hir);
-
-        assert_eq!(resolved.items.len(), 1);
-        // Verify no resolution errors
-        assert!(!resolver.diagnostics.has_errors());
-    }
-
-    #[test]
-    fn test_build_module_graph() {
-        let ast = vec![Item::FnDef(gala_ast::FnDef {
-            ident: Ident::new("main"),
-            generics: Vec::new(),
-            params: Vec::new(),
-            ret_ty: None,
-            effect: None,
-            body: gala_ast::Block { stmts: Vec::new(), tail: None, span: Span::dummy() },
-            span: Span::dummy(),
-        })];
-
-        let hir = desugar_file(&ast, FileId(0));
-        let graph = build_module_graph(&[(FileId(0), &hir)]);
-        assert!(graph.modules.contains_key(&ModuleId(0)));
-        assert!(graph.modules.contains_key(&ModuleId(1)));
-    }
-
-    #[test]
-    fn test_resolver_scope_depth() {
-        let mut resolver = Resolver::new();
-        let s1 = resolver.push_scope();
-        assert_eq!(resolver.scopes[s1].depth, 1);
-        let s2 = resolver.push_scope();
-        assert_eq!(resolver.scopes[s2].depth, 2);
+    fn expression_ids_are_unique() {
+        let (pkg, _) = lower("fn f() -> Int { 1 + 2 * 3 }");
+        assert!(pkg.expr_count >= 5);
     }
 }

@@ -1,167 +1,136 @@
-//! A small, std-only JSON-RPC language server for Gala.
+//! Language Server Protocol implementation for Gala.
+//!
+//! The server speaks JSON-RPC 2.0 over stdio with `Content-Length` framing. It is implemented
+//! directly rather than with tower-lsp, which is not available in the offline cargo cache.
+//! Supported: lifecycle, full-document sync with publishDiagnostics, hover, definition,
+//! completion, and the `gala/*` custom methods. See `README.md`.
 
-use gala_driver::check_file;
-use gala_span::SourceMap;
-use serde_json::{json, Value};
-use std::collections::HashMap;
+pub mod analysis;
+pub mod position;
+pub mod server;
+
+use serde_json::Value;
 use std::io::{self, BufRead, Write};
 
-/// Start the language server and process framed LSP requests until `exit` or
-/// EOF. The implementation intentionally covers the core lifecycle,
-/// diagnostics, and document synchronization methods without requiring an
-/// async runtime.
-pub fn run() {
+pub use server::Server;
+
+/// Serve the language protocol on the process's stdin and stdout until `exit`.
+pub fn run_stdio() {
     let stdin = io::stdin();
-    let mut input = stdin.lock();
     let stdout = io::stdout();
-    let mut output = stdout.lock();
-    let mut documents = HashMap::<String, String>::new();
-
-    while let Some(message) = read_message(&mut input) {
-        let (response, notifications) = handle_message(&message, &mut documents);
-        for notification in notifications {
-            let _ = write_message(&mut output, &notification);
-        }
-        if let Some(response) = response {
-            let _ = write_message(&mut output, &response);
-        }
-        if message.get("method").and_then(Value::as_str) == Some("exit") {
-            break;
-        }
+    if let Err(e) = serve(&mut stdin.lock(), &mut stdout.lock()) {
+        eprintln!("gala-lsp: {e}");
     }
 }
 
-fn read_message<R: BufRead>(reader: &mut R) -> Option<Value> {
-    let mut headers = HashMap::new();
+/// Run the server over any reader and writer. Returns when the client sends `exit` or closes the
+/// input.
+pub fn serve<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
+    let mut server = Server::new();
+    while let Some(body) = read_frame(reader)? {
+        let outgoing = match serde_json::from_slice::<Value>(&body) {
+            Ok(msg) => server.handle(&msg),
+            Err(_) => vec![server::parse_error_response()],
+        };
+        for message in &outgoing {
+            write_frame(writer, message)?;
+        }
+        if server.exit_requested() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Read one framed message body. `Ok(None)` at end of input.
+pub fn read_frame<R: BufRead>(reader: &mut R) -> io::Result<Option<Vec<u8>>> {
+    let mut content_length: Option<usize> = None;
+    let mut line = String::new();
     loop {
-        let mut line = String::new();
-        let count = reader.read_line(&mut line).ok()?;
-        if count == 0 {
-            return None;
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            return Ok(None);
         }
-        if line == "\r\n" || line == "\n" {
+        let header = line.trim_end_matches(['\r', '\n']);
+        if header.is_empty() {
             break;
         }
-        if let Some((name, value)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
-        } else if let Ok(value) = serde_json::from_str::<Value>(line.trim()) {
-            return Some(value);
+        if let Some((name, value)) = header.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse().ok();
+            }
         }
     }
-    let length = headers.get("content-length")?.parse::<usize>().ok()?;
-    let mut body = vec![0_u8; length];
-    reader.read_exact(&mut body).ok()?;
-    serde_json::from_slice(&body).ok()
+    let len = content_length
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing Content-Length"))?;
+    let mut body = vec![0; len];
+    reader.read_exact(&mut body)?;
+    Ok(Some(body))
 }
 
-fn write_message<W: Write>(writer: &mut W, message: &Value) -> io::Result<()> {
-    let body = serde_json::to_vec(message).map_err(io::Error::other)?;
-    write!(writer, "Content-Length: {}\r\n\r\n", body.len())?;
-    writer.write_all(&body)?;
+/// Write one message with its `Content-Length` header and flush.
+pub fn write_frame<W: Write>(writer: &mut W, message: &Value) -> io::Result<()> {
+    let body = serde_json::to_string(message)?;
+    write!(writer, "Content-Length: {}\r\n\r\n{body}", body.len())?;
     writer.flush()
-}
-
-fn handle_message(
-    message: &Value,
-    documents: &mut HashMap<String, String>,
-) -> (Option<Value>, Vec<Value>) {
-    let id = message.get("id").cloned();
-    let method = message.get("method").and_then(Value::as_str).unwrap_or_default();
-    let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
-    match method {
-        "initialize" => (
-            id.map(|id| {
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "capabilities": {
-                            "textDocumentSync": 1,
-                            "hoverProvider": false
-                        }
-                    }
-                })
-            }),
-            Vec::new(),
-        ),
-        "initialized" | "$/cancelRequest" => (None, Vec::new()),
-        "shutdown" => (id.map(|id| json!({"jsonrpc":"2.0", "id":id, "result":null})), Vec::new()),
-        "exit" => (None, Vec::new()),
-        "textDocument/didOpen" => {
-            let uri = params.pointer("/textDocument/uri").and_then(Value::as_str);
-            let text = params.pointer("/textDocument/text").and_then(Value::as_str);
-            match (uri, text) {
-                (Some(uri), Some(text)) => {
-                    documents.insert(uri.to_string(), text.to_string());
-                    (None, publish_diagnostics(uri, text))
-                }
-                _ => (None, Vec::new()),
-            }
-        }
-        "textDocument/didChange" => {
-            let uri = params.pointer("/textDocument/uri").and_then(Value::as_str);
-            let text = params.pointer("/contentChanges/0/text").and_then(Value::as_str);
-            match (uri, text) {
-                (Some(uri), Some(text)) => {
-                    documents.insert(uri.to_string(), text.to_string());
-                    (None, publish_diagnostics(uri, text))
-                }
-                _ => (None, Vec::new()),
-            }
-        }
-        _ if id.is_some() => (
-            Some(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "error": {"code": -32601, "message": format!("method not found: {method}")}
-            })),
-            Vec::new(),
-        ),
-        _ => (None, Vec::new()),
-    }
-}
-
-fn publish_diagnostics(uri: &str, source: &str) -> Vec<Value> {
-    let mut source_map = SourceMap::new();
-    let file_id = source_map.add_file(uri.into(), source.to_string());
-    let diagnostics = check_file(file_id, source, &mut source_map);
-    let items: Vec<Value> = diagnostics
-        .diagnostics
-        .iter()
-        .map(|diagnostic| {
-            json!({
-                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
-                "severity": 1,
-                "code": diagnostic.code.to_string(),
-                "message": diagnostic.message
-            })
-        })
-        .collect();
-    vec![json!({
-        "jsonrpc": "2.0",
-        "method": "textDocument/publishDiagnostics",
-        "params": {"uri": uri, "diagnostics": items}
-    })]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::io::Cursor;
+
+    fn frame(v: &Value) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_frame(&mut out, v).expect("write to vec");
+        out
+    }
 
     #[test]
-    fn test_initialize_and_diagnostics() {
-        let mut documents = HashMap::new();
-        let initialize = json!({"jsonrpc":"2.0", "id":1, "method":"initialize"});
-        let (response, _) = handle_message(&initialize, &mut documents);
-        assert_eq!(response.and_then(|value| value.get("id").cloned()), Some(json!(1)));
+    fn framing_round_trip() {
+        let msg = json!({"jsonrpc": "2.0", "id": 1, "result": null});
+        let bytes = frame(&msg);
+        let mut reader = Cursor::new(bytes);
+        let body = read_frame(&mut reader).expect("read").expect("one frame");
+        assert_eq!(serde_json::from_slice::<Value>(&body).expect("json"), msg);
+        assert!(read_frame(&mut reader).expect("eof").is_none());
+    }
 
-        let open = json!({
-            "jsonrpc":"2.0",
-            "method":"textDocument/didOpen",
-            "params":{"textDocument":{"uri":"file:///main.gala", "text":"fn main() -> Int { return 1; }"}}
-        });
-        let (_, notifications) = handle_message(&open, &mut documents);
-        assert_eq!(notifications.len(), 1);
-        assert!(notifications[0].to_string().contains("publishDiagnostics"));
+    #[test]
+    fn serve_runs_lifecycle_over_streams() {
+        let mut input = Vec::new();
+        for m in [
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "shutdown"}),
+            json!({"jsonrpc": "2.0", "method": "exit"}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown"}),
+        ] {
+            input.extend(frame(&m));
+        }
+        let mut reader = Cursor::new(input);
+        let mut out = Vec::new();
+        serve(&mut reader, &mut out).expect("serve");
+        let mut frames = Vec::new();
+        let mut out_reader = Cursor::new(out);
+        while let Some(body) = read_frame(&mut out_reader).expect("frame") {
+            frames.push(serde_json::from_slice::<Value>(&body).expect("json"));
+        }
+        assert_eq!(frames.len(), 2, "initialize and shutdown replies only: {frames:?}");
+        assert_eq!(frames[0]["id"], 1);
+        assert_eq!(frames[0]["result"]["capabilities"]["textDocumentSync"], 1);
+        assert_eq!(frames[1]["id"], 2);
+        assert_eq!(frames[1]["result"], Value::Null);
+    }
+
+    #[test]
+    fn malformed_json_gets_parse_error() {
+        let body = b"{not json";
+        let mut input = format!("Content-Length: {}\r\n\r\n", body.len()).into_bytes();
+        input.extend_from_slice(body);
+        let mut out = Vec::new();
+        serve(&mut Cursor::new(input), &mut out).expect("serve");
+        assert!(String::from_utf8(out).expect("utf8").contains("-32700"));
     }
 }

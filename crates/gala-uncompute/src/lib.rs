@@ -1,560 +1,460 @@
-//! Uncomputation analysis and synthesis for Gala.
+//! Uncomputation analysis: may an ancilla be released with `drop`?
+//!
+//! Releasing a qubit that is still entangled with live qubits corrupts the computation. The fix
+//! is to undo the gates that entangled it, which returns the ancilla to |0⟩ before release. That
+//! is only possible when the undo is well defined:
+//!
+//! - every gate in the ancilla's causal cone is unitary (all gates are, by construction);
+//! - every qubit in the cone is still live at the `drop` (a measured or released qubit cannot be
+//!   reversed); and
+//! - the cone does not pass through a call to a user function, whose internals are opaque here.
+//!
+//! The analysis walks each function in program order and records lineage events: a qubit keeps
+//! its identity (its *lineage*) through gates, so a gate on `q` produces an event on `q`'s
+//! lineage. At `drop(q)` the analysis collects the cone of lineages entangled with `q` since its
+//! allocation and checks the conditions above. A refusal is `E0530` and names the blocking
+//! qubit. The inverse gates themselves are applied from the recorded history when the program
+//! runs (see `gala-gir`), so angles and branch paths are exact.
 
-use gala_ast::Ident;
 use gala_diagnostics::{codes, Diagnostic, Diagnostics};
-use gala_hir::*;
-use gala_types::Ty;
+use gala_hir::{Builtin, HirBlock, HirExpr, HirExprKind, HirPackage, HirPat, HirStmt};
+use gala_span::Span;
+use gala_types::TypeInfo;
 use std::collections::{HashMap, HashSet};
 
-/// Provenance tracking for linear values.
-#[derive(Debug, Clone)]
-pub struct Provenance {
-    pub nodes: Vec<ProvenanceNode>,
+/// Summary of an uncomputation run.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UncomputeSummary {
+    /// Number of `drop` calls checked.
+    pub drops_checked: usize,
+    /// Number of `drop` calls proven safe.
+    pub drops_accepted: usize,
 }
 
+/// One step in a function's lineage history.
 #[derive(Debug, Clone)]
-pub enum ProvenanceNode {
-    Gate { gate: Ident, inputs: Vec<DefId> },
-    Alloc { ty: Ty },
-    Measure,
-    External,
+enum Event {
+    /// A qubit allocated by `qubit()` or `qubits<N>()`.
+    Alloc { lineage: u32 },
+    /// A qubit produced by a call to a user function (its history is unknown here).
+    Opaque { lineage: u32, callee: String },
+    /// A gate acting on one or two lineages.
+    Gate { lineages: Vec<u32> },
+    /// A destructive measurement.
+    Measure { lineage: u32 },
+    /// A release (`drop`) that succeeded.
+    Release { lineage: u32 },
 }
 
-/// Result of uncomputation analysis.
-#[derive(Debug, Clone)]
-pub struct UncomputePlan {
-    pub steps: Vec<UncomputeStep>,
+/// Analyse every `drop` in the package. `info` is accepted for future use by type-directed
+/// analyses; the lineage walk itself needs only the HIR.
+pub fn analyze(pkg: &HirPackage, _info: &TypeInfo) -> (UncomputeSummary, Diagnostics) {
+    let mut out = (UncomputeSummary::default(), Diagnostics::new());
+    for f in &pkg.fns {
+        let Some(body) = &f.body else { continue };
+        let mut a = Analyzer {
+            pkg,
+            names: HashMap::new(),
+            events: Vec::new(),
+            next_lineage: 0,
+            lineage_name: Vec::new(),
+            summary: UncomputeSummary::default(),
+            diags: Diagnostics::new(),
+            undone: HashSet::new(),
+        };
+        // Parameters are not allocated here, so their lineages have no Alloc event.
+        for p in &f.params {
+            let count = match &p.ty {
+                gala_ast::Type::Qubit => 1,
+                gala_ast::Type::Qubits(n) => gala_hir::const_int(n).unwrap_or(0).max(0) as usize,
+                _ => 0,
+            };
+            if count > 0 {
+                let ls: Vec<u32> = (0..count).map(|_| a.fresh(p.name.clone())).collect();
+                a.names.insert(p.local, ls);
+            }
+        }
+        a.block(body);
+        out.0.drops_checked += a.summary.drops_checked;
+        out.0.drops_accepted += a.summary.drops_accepted;
+        out.1.extend(a.diags);
+    }
+    out
 }
 
-#[derive(Debug, Clone)]
-pub enum UncomputeStep {
-    Adjoint { target: DefId, provenance: Provenance },
-    Free { target: DefId },
-    Measure { target: DefId },
+struct Analyzer<'a> {
+    pkg: &'a HirPackage,
+    /// Lineages of each linear local (a register has one lineage per element).
+    names: HashMap<gala_hir::LocalId, Vec<u32>>,
+    events: Vec<Event>,
+    next_lineage: u32,
+    lineage_name: Vec<String>,
+    summary: UncomputeSummary,
+    diags: Diagnostics,
+    /// Gate events already undone by a release. They no longer entangle anything.
+    undone: HashSet<usize>,
 }
 
-/// Analyze provenance of linear values in a HIR function.
-/// Walks the expression tree and tracks how each value was produced.
-pub fn analyze_provenance(hir_fn: &HirFnDef) -> HashMap<DefId, Provenance> {
-    let mut provenance: HashMap<DefId, Provenance> = HashMap::new();
-    let mut env: HashMap<LocalId, DefId> = HashMap::new();
-
-    // Bind parameters as External (unknown provenance)
-    for param in &hir_fn.params {
-        let def_id = local_def_id(hir_fn.def_id.crate_id.0, param.local_id);
-        provenance.insert(def_id.clone(), Provenance { nodes: vec![ProvenanceNode::External] });
-        env.insert(param.local_id, def_id);
+impl<'a> Analyzer<'a> {
+    fn fresh(&mut self, name: String) -> u32 {
+        let id = self.next_lineage;
+        self.next_lineage += 1;
+        self.lineage_name.push(name);
+        id
     }
 
-    analyze_block(&hir_fn.body, &hir_fn.def_id, &mut env, &mut provenance);
+    fn block(&mut self, b: &HirBlock) {
+        for s in &b.stmts {
+            self.stmt(s);
+        }
+        if let Some(t) = &b.tail {
+            self.eval(t);
+        }
+    }
 
-    provenance
-}
-
-fn analyze_block(
-    block: &HirBlock,
-    fn_def_id: &DefId,
-    env: &mut HashMap<LocalId, DefId>,
-    provenance: &mut HashMap<DefId, Provenance>,
-) {
-    for stmt in &block.stmts {
-        match stmt {
-            HirStmt::Let(l) => {
-                let init_prov = analyze_expr(&l.init, fn_def_id, env, provenance);
-                // Bind the let's local_id to a new DefId tracking the init's provenance
-                let def_id = local_def_id(fn_def_id.crate_id.0, l.local_id);
-                env.insert(l.local_id, def_id.clone());
-                if let Some(init_prov) = init_prov {
-                    provenance.insert(def_id, init_prov);
-                }
+    fn stmt(&mut self, s: &HirStmt) {
+        match s {
+            HirStmt::Let { pat, init, .. } => {
+                let lines = self.eval(init).unwrap_or_default();
+                self.bind(pat, lines);
             }
             HirStmt::Expr(e) => {
-                analyze_expr(e, fn_def_id, env, provenance);
+                self.eval(e);
             }
-            HirStmt::Return(Some(e)) => {
-                let _ = analyze_expr(e, fn_def_id, env, provenance);
-            }
-            _ => {}
-        }
-    }
-    if let Some(tail) = &block.tail {
-        // For tail expressions, we need to handle the return
-        match tail.as_ref() {
-            HirExpr::Ident(_, def_id, _) => {
-                // Return passes through the provenance unchanged
-                let _ = def_id;
-            }
-            HirExpr::Call(_c) => {
-                // For calls, mark the result and consume inputs
-                analyze_expr(tail, fn_def_id, env, provenance);
-            }
-            _ => {
-                analyze_expr(tail, fn_def_id, env, provenance);
-            }
-        }
-    }
-}
-
-fn analyze_expr(
-    expr: &HirExpr,
-    fn_def_id: &DefId,
-    env: &mut HashMap<LocalId, DefId>,
-    provenance: &mut HashMap<DefId, Provenance>,
-) -> Option<Provenance> {
-    match expr {
-        HirExpr::Ident(_, def_id, _) => provenance.get(def_id).cloned(),
-        HirExpr::Call(c) => {
-            for arg in &c.args {
-                let _ = analyze_expr(arg, fn_def_id, env, provenance);
-            }
-            // Check if this is a gate application or allocation
-            if let HirExpr::Ident(gate_name, _, _) = c.callee.as_ref() {
-                let name = gate_name.0.as_str();
-                match name {
-                    "qubit" | "qubits" => {
-                        return Some(Provenance {
-                            nodes: vec![ProvenanceNode::Alloc { ty: Ty::Qubit }],
-                        });
-                    }
-                    "measure" => {
-                        // Measurement: mark as measured (not liftable)
-                        for arg in &c.args {
-                            if let HirExpr::Ident(arg_name, arg_def, _) = arg {
-                                let _ = arg_name;
-                                provenance.insert(
-                                    arg_def.clone(),
-                                    Provenance { nodes: vec![ProvenanceNode::Measure] },
-                                );
-                            }
-                        }
-                        return Some(Provenance { nodes: vec![ProvenanceNode::Measure] });
-                    }
-                    "h" | "x" | "y" | "z" | "s" | "t" | "rx" | "ry" | "rz" | "cx" | "cz"
-                    | "swap" => {
-                        // Gate application: the output has provenance based on inputs
-                        let mut inputs = Vec::new();
-                        for arg in &c.args {
-                            if let HirExpr::Ident(_, arg_def, _) = arg {
-                                inputs.push(arg_def.clone());
-                            }
-                        }
-                        if inputs.iter().any(|input| {
-                            provenance.get(input).is_some_and(|input_provenance| {
-                                input_provenance.nodes.iter().any(|node| {
-                                    matches!(
-                                        node,
-                                        ProvenanceNode::Measure | ProvenanceNode::External
-                                    )
-                                })
-                            })
-                        }) {
-                            return Some(Provenance { nodes: vec![ProvenanceNode::External] });
-                        }
-                        return Some(Provenance {
-                            nodes: vec![ProvenanceNode::Gate { gate: Ident::new(name), inputs }],
-                        });
-                    }
-                    _ => return Some(Provenance { nodes: vec![ProvenanceNode::External] }),
+            HirStmt::Return { value, .. } => {
+                if let Some(v) = value {
+                    self.eval(v);
                 }
             }
-            None
         }
-        HirExpr::Block(b) => {
-            analyze_block(b, fn_def_id, env, provenance);
-            b.tail.as_deref().and_then(|tail| analyze_expr(tail, fn_def_id, env, provenance))
+    }
+
+    /// Bind the names in `pat` to the lineages of the value. A tuple pattern takes one lineage per
+    /// element when the counts agree, which is how `let (a, b) = cx(a, b)` keeps both qubits.
+    fn bind(&mut self, pat: &HirPat, lines: Vec<u32>) {
+        match pat {
+            HirPat::Bind { local, .. } => {
+                if !lines.is_empty() {
+                    self.names.insert(*local, lines);
+                }
+            }
+            HirPat::Tuple(items, _) => {
+                if items.len() == lines.len() {
+                    for (p, l) in items.iter().zip(lines) {
+                        self.bind(p, vec![l]);
+                    }
+                }
+            }
+            HirPat::Wild | HirPat::Lit(_, _) => {}
         }
-        HirExpr::Binary(b) => {
-            let _ = analyze_expr(&b.lhs, fn_def_id, env, provenance);
-            let _ = analyze_expr(&b.rhs, fn_def_id, env, provenance);
-            None
+    }
+
+    /// Lineage-level evaluation: returns the lineages carried by a qubit-valued expression, or
+    /// `None` for classical values. Operations are recorded as events as they are evaluated.
+    fn eval(&mut self, e: &HirExpr) -> Option<Vec<u32>> {
+        match &e.kind {
+            HirExprKind::Local(l, _) => self.names.get(l).cloned(),
+            HirExprKind::Index { base, index } => {
+                self.eval(index);
+                let regs = self.eval(base)?;
+                match literal(index) {
+                    Some(i) if i >= 0 && (i as usize) < regs.len() => Some(vec![regs[i as usize]]),
+                    // A non-literal index may name any element: keep the whole register.
+                    _ => Some(regs),
+                }
+            }
+            HirExprKind::Call { callee, args, generics, .. } => {
+                self.call(callee, generics, args, e.span)
+            }
+            HirExprKind::Block(b) => {
+                self.block(b);
+                None
+            }
+            HirExprKind::If { cond, then_block, else_expr } => {
+                self.eval(cond);
+                self.block(then_block);
+                if let Some(e2) = else_expr {
+                    self.eval(e2);
+                }
+                None
+            }
+            HirExprKind::For { body, iterable, .. } => {
+                self.eval(iterable);
+                self.block(body);
+                None
+            }
+            HirExprKind::While { cond, body } => {
+                self.eval(cond);
+                self.block(body);
+                None
+            }
+            HirExprKind::Match { scrutinee, arms } => {
+                self.eval(scrutinee);
+                for arm in arms {
+                    self.eval(&arm.body);
+                }
+                None
+            }
+            HirExprKind::Tuple(xs) => {
+                let mut all = Vec::new();
+                for x in xs {
+                    all.extend(self.eval(x).unwrap_or_default());
+                }
+                if all.is_empty() {
+                    None
+                } else {
+                    Some(all)
+                }
+            }
+            HirExprKind::Array(xs) => {
+                for x in xs {
+                    self.eval(x);
+                }
+                None
+            }
+            HirExprKind::Unary { expr, .. } => {
+                self.eval(expr);
+                None
+            }
+            HirExprKind::Binary { lhs, rhs, .. } => {
+                self.eval(lhs);
+                self.eval(rhs);
+                None
+            }
+            HirExprKind::Assign { target, value, .. } => {
+                self.eval(value);
+                self.eval(target);
+                None
+            }
+            HirExprKind::Lit(_)
+            | HirExprKind::Const(_)
+            | HirExprKind::Fn(_)
+            | HirExprKind::Builtin(_)
+            | HirExprKind::Error => None,
         }
+    }
+
+    fn call(
+        &mut self,
+        callee: &HirExpr,
+        generics: &[gala_ast::TypeArg],
+        args: &[HirExpr],
+        span: Span,
+    ) -> Option<Vec<u32>> {
+        match &callee.kind {
+            HirExprKind::Builtin(Builtin::Qubit) => {
+                let l = self.fresh("ancilla".into());
+                self.events.push(Event::Alloc { lineage: l });
+                Some(vec![l])
+            }
+            HirExprKind::Builtin(Builtin::Qubits) => {
+                let n = register_size(generics);
+                let mut out = Vec::new();
+                for i in 0..n {
+                    let l = self.fresh(format!("ancilla[{i}]"));
+                    self.events.push(Event::Alloc { lineage: l });
+                    out.push(l);
+                }
+                Some(out)
+            }
+            HirExprKind::Builtin(b) if b.is_gate() => {
+                let mut lines = Vec::new();
+                for a in args {
+                    lines.extend(self.eval(a).unwrap_or_default());
+                }
+                if !lines.is_empty() {
+                    self.events.push(Event::Gate { lineages: lines.clone() });
+                }
+                Some(lines)
+            }
+            HirExprKind::Builtin(Builtin::Measure) => {
+                for a in args {
+                    for l in self.eval(a).unwrap_or_default() {
+                        self.events.push(Event::Measure { lineage: l });
+                    }
+                }
+                None
+            }
+            HirExprKind::Builtin(Builtin::Drop) => {
+                for a in args {
+                    for l in self.eval(a).unwrap_or_default() {
+                        self.check_drop(l, span);
+                    }
+                }
+                None
+            }
+            HirExprKind::Fn(def) => {
+                let func = self.pkg.func(*def);
+                let name = func.map(|f| f.name.as_str().to_string()).unwrap_or_default();
+                for a in args {
+                    for l in self.eval(a).unwrap_or_default() {
+                        // Passing a qubit to a user function hides what it does to it.
+                        self.events.push(Event::Opaque { lineage: l, callee: name.clone() });
+                    }
+                }
+                // A qubit returned by the callee has no allocation here, so its history is unknown.
+                let count = match func.and_then(|f| f.ret_ty.as_ref()) {
+                    Some(gala_ast::Type::Qubit) => 1,
+                    Some(gala_ast::Type::Qubits(n)) => {
+                        gala_hir::const_int(n).unwrap_or(0).max(0) as usize
+                    }
+                    _ => 0,
+                };
+                if count == 0 {
+                    return None;
+                }
+                Some((0..count).map(|_| self.fresh(format!("result of `{name}`"))).collect())
+            }
+            _ => {
+                for a in args {
+                    self.eval(a);
+                }
+                None
+            }
+        }
+    }
+
+    /// Decide whether the lineage `x` can be released now.
+    fn check_drop(&mut self, x: u32, span: Span) {
+        self.summary.drops_checked += 1;
+        let alloc_idx = self
+            .events
+            .iter()
+            .position(|ev| matches!(ev, Event::Alloc { lineage } if *lineage == x));
+        let outcome = match alloc_idx {
+            None => Err(format!(
+                "`{}` was not allocated in this function, so its state is unknown",
+                self.lineage_name[x as usize]
+            )),
+            Some(start) => self.cone(x, start),
+        };
+        match outcome {
+            Ok(cone_events) => {
+                self.summary.drops_accepted += 1;
+                self.undone.extend(cone_events);
+                self.events.push(Event::Release { lineage: x });
+            }
+            Err(why) => {
+                self.diags.push(
+                    Diagnostic::error(codes::CANNOT_UNCOMPUTE, "cannot uncompute automatically")
+                        .with_primary_label(span, "this ancilla cannot be released")
+                        .with_note(why)
+                        .with_help("consume the qubits it depends on last, or uncompute by hand"),
+                );
+            }
+        }
+    }
+
+    /// Walk the cone of entanglement of `x` since its allocation. Returns the gate events that
+    /// the inverse must undo, or the reason the cone cannot be undone.
+    fn cone(&self, x: u32, start: usize) -> Result<Vec<usize>, String> {
+        let mut cone: HashSet<u32> = HashSet::from([x]);
+        let mut gates = Vec::new();
+        for (k, ev) in self.events.iter().enumerate().skip(start) {
+            if self.undone.contains(&k) {
+                continue;
+            }
+            match ev {
+                Event::Gate { lineages } => {
+                    if lineages.iter().any(|l| cone.contains(l)) {
+                        cone.extend(lineages.iter().copied());
+                        gates.push(k);
+                    }
+                }
+                Event::Opaque { lineage, callee } => {
+                    if cone.contains(lineage) {
+                        return Err(format!(
+                            "`{}` was passed through a call to `{callee}`, whose operations are not visible here",
+                            self.lineage_name[*lineage as usize]
+                        ));
+                    }
+                }
+                Event::Measure { lineage } | Event::Release { lineage } => {
+                    if *lineage != x && cone.contains(lineage) {
+                        let name = &self.lineage_name[*lineage as usize];
+                        let what = if matches!(ev, Event::Measure { .. }) {
+                            "measured"
+                        } else {
+                            "released"
+                        };
+                        return Err(format!(
+                            "`{}` is entangled with `{name}`, which was {what}, so the inverse circuit cannot be applied",
+                            self.lineage_name[x as usize]
+                        ));
+                    }
+                }
+                Event::Alloc { .. } => {}
+            }
+        }
+        Ok(gates)
+    }
+}
+
+/// Register size for `qubits<N>()` from the call's explicit generic argument (checked upstream).
+fn register_size(generics: &[gala_ast::TypeArg]) -> usize {
+    match generics.first() {
+        Some(gala_ast::TypeArg::Const(c)) => gala_hir::const_int(c).unwrap_or(0).max(0) as usize,
+        _ => 0,
+    }
+}
+
+fn literal(e: &HirExpr) -> Option<i64> {
+    match &e.kind {
+        HirExprKind::Lit(gala_ast::Literal::Int(v)) => Some(*v),
         _ => None,
     }
-}
-
-/// Determine if a value is liftable (can be auto-uncomputed).
-pub fn is_liftable(provenance: &Provenance) -> bool {
-    !provenance
-        .nodes
-        .iter()
-        .any(|n| matches!(n, ProvenanceNode::Measure | ProvenanceNode::External))
-}
-
-/// Synthesize uncomputation steps for a function.
-pub fn synthesize_uncompute(
-    hir_fn: &HirFnDef,
-    provenance: &HashMap<DefId, Provenance>,
-) -> Result<UncomputePlan, Diagnostics> {
-    let mut diags = Diagnostics::new();
-    let mut steps = Vec::new();
-
-    for stmt in &hir_fn.body.stmts {
-        if let HirStmt::Return(Some(expr)) = stmt {
-            reject_external_return(expr, provenance, &mut diags);
-        }
-    }
-    if let Some(tail) = &hir_fn.body.tail {
-        reject_external_return(tail, provenance, &mut diags);
-    }
-
-    let returned = returned_values(hir_fn);
-    let mut entries: Vec<_> = provenance.iter().collect();
-    entries.sort_by(|(left, _), (right, _)| {
-        (right.crate_id.0 .0, right.index).cmp(&(left.crate_id.0 .0, left.index))
-    });
-    for (def_id, prov) in entries {
-        // Inputs and measured values are consumed by the surrounding program;
-        // they are not temporary ancillas that this pass should try to clean.
-        // Only synthesized reversible values receive an adjoint step.
-        if !returned.contains(def_id)
-            && is_liftable(prov)
-            && prov
-                .nodes
-                .iter()
-                .any(|n| matches!(n, ProvenanceNode::Gate { .. } | ProvenanceNode::Alloc { .. }))
-        {
-            steps.push(UncomputeStep::Adjoint { target: def_id.clone(), provenance: prov.clone() });
-        }
-    }
-
-    if diags.has_errors() {
-        Err(diags)
-    } else {
-        Ok(UncomputePlan { steps })
-    }
-}
-
-fn returned_values(hir_fn: &HirFnDef) -> HashSet<DefId> {
-    let mut returned = HashSet::new();
-    for stmt in &hir_fn.body.stmts {
-        if let HirStmt::Return(Some(expr)) = stmt {
-            collect_returned_values(expr, &mut returned);
-        }
-    }
-    if let Some(tail) = &hir_fn.body.tail {
-        collect_returned_values(tail, &mut returned);
-    }
-    returned
-}
-
-fn collect_returned_values(expr: &HirExpr, returned: &mut HashSet<DefId>) {
-    match expr {
-        HirExpr::Ident(_, def_id, _) => {
-            returned.insert(def_id.clone());
-        }
-        HirExpr::Block(block) => {
-            if let Some(tail) = &block.tail {
-                collect_returned_values(tail, returned);
-            }
-        }
-        HirExpr::If(if_expr) => {
-            if let Some(tail) = &if_expr.then_branch.tail {
-                collect_returned_values(tail, returned);
-            }
-            if let Some(else_branch) = &if_expr.else_branch {
-                collect_returned_values(else_branch, returned);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn reject_external_return(
-    expr: &HirExpr,
-    provenance: &HashMap<DefId, Provenance>,
-    diags: &mut Diagnostics,
-) {
-    match expr {
-        HirExpr::Ident(_, def_id, _)
-            if provenance.get(def_id).is_some_and(|prov| {
-                prov.nodes.iter().any(|node| matches!(node, ProvenanceNode::External))
-            }) =>
-        {
-            diags.push(Diagnostic::error(
-                codes::CANNOT_UNCOMPUTE,
-                "cannot automatically uncompute an externally-owned linear value returned from a quantum function",
-            ));
-        }
-        HirExpr::Block(block) => {
-            if let Some(tail) = &block.tail {
-                reject_external_return(tail, provenance, diags);
-            }
-        }
-        HirExpr::If(if_expr) => {
-            if let Some(tail) = &if_expr.then_branch.tail {
-                reject_external_return(tail, provenance, diags);
-            }
-            if let Some(else_branch) = &if_expr.else_branch {
-                reject_external_return(else_branch, provenance, diags);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Insert the currently representable uncomputation steps into HIR.
-///
-/// Unary self-inverse gates and explicit frees are representable in the
-/// existing HIR. Gates whose adjoints require an angle or a missing inverse
-/// builtin are left for the explicit strategy path rather than being guessed.
-pub fn insert_uncompute(hir_fn: &HirFnDef, plan: UncomputePlan) -> HirFnDef {
-    let mut lowered = hir_fn.clone();
-    let cleanup: Vec<_> = plan.steps.iter().filter_map(|step| step_to_expr(step, hir_fn)).collect();
-    if cleanup.is_empty() {
-        return lowered;
-    }
-
-    let mut statements = Vec::with_capacity(lowered.body.stmts.len() + cleanup.len());
-    for statement in std::mem::take(&mut lowered.body.stmts) {
-        if matches!(statement, HirStmt::Return(_)) {
-            statements.extend(cleanup.iter().cloned().map(HirStmt::Expr));
-        }
-        statements.push(statement);
-    }
-    if lowered.body.tail.is_some() {
-        statements.extend(cleanup.iter().cloned().map(HirStmt::Expr));
-    }
-    lowered.body.stmts = statements;
-    lowered
-}
-
-fn step_to_expr(step: &UncomputeStep, hir_fn: &HirFnDef) -> Option<HirExpr> {
-    let (target, gate) = match step {
-        UncomputeStep::Free { target } => (target, "drop"),
-        UncomputeStep::Adjoint { target, provenance } => {
-            let ProvenanceNode::Gate { gate, .. } = provenance.nodes.last()? else {
-                return match provenance.nodes.last() {
-                    Some(ProvenanceNode::Alloc { .. }) => step_to_drop(target, hir_fn),
-                    _ => None,
-                };
-            };
-            let inverse = match gate.0.as_str() {
-                "h" | "x" | "y" | "z" => gate.0.as_str(),
-                _ => return None,
-            };
-            (target, inverse)
-        }
-        UncomputeStep::Measure { target } => return step_to_drop(target, hir_fn),
-    };
-    let builtin = builtin_for_name(gate)?;
-    Some(HirExpr::Call(HirCallExpr {
-        callee: Box::new(HirExpr::Ident(
-            Ident::new(gate),
-            builtin_def_id(hir_fn.def_id.crate_id.0, builtin),
-            false,
-        )),
-        args: vec![value_expr(target)],
-        span: hir_fn.span,
-    }))
-}
-
-fn step_to_drop(target: &DefId, hir_fn: &HirFnDef) -> Option<HirExpr> {
-    Some(HirExpr::Call(HirCallExpr {
-        callee: Box::new(HirExpr::Ident(
-            Ident::new("drop"),
-            builtin_def_id(hir_fn.def_id.crate_id.0, BuiltinDef::Drop),
-            false,
-        )),
-        args: vec![value_expr(target)],
-        span: hir_fn.span,
-    }))
-}
-
-fn value_expr(def_id: &DefId) -> HirExpr {
-    HirExpr::Ident(Ident::new(format!("_local{}", def_id.index)), def_id.clone(), false)
-}
-
-fn builtin_for_name(name: &str) -> Option<BuiltinDef> {
-    Some(match name {
-        "h" => BuiltinDef::HGate,
-        "x" => BuiltinDef::XGate,
-        "y" => BuiltinDef::YGate,
-        "z" => BuiltinDef::ZGate,
-        "drop" => BuiltinDef::Drop,
-        _ => return None,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gala_ast::{self, Ident};
-    use gala_span::{FileId, Span};
+    use gala_hir::lower_file;
+    use gala_parser::parse_source;
+    use gala_span::FileId;
 
-    #[test]
-    fn test_is_liftable() {
-        let rev_prov = Provenance {
-            nodes: vec![ProvenanceNode::Gate {
-                gate: Ident::new("h"),
-                inputs: vec![DefId { crate_id: CrateId(FileId(0)), index: 0 }],
-            }],
-        };
-        assert!(is_liftable(&rev_prov));
-
-        let measure_prov = Provenance { nodes: vec![ProvenanceNode::Measure] };
-        assert!(!is_liftable(&measure_prov));
+    fn run(src: &str) -> (UncomputeSummary, Vec<String>) {
+        let out = parse_source(FileId(0), src);
+        assert!(!out.diagnostics.has_errors(), "parse: {:?}", out.diagnostics);
+        let (pkg, _) = lower_file(FileId(0), out.items);
+        let (info, _) = gala_types::check_package(&pkg);
+        let (summary, diags) = analyze(&pkg, &info);
+        (summary, diags.errors().iter().map(|d| d.code.to_string()).collect())
     }
 
     #[test]
-    fn test_provenance_is_external_not_liftable() {
-        let external_prov = Provenance { nodes: vec![ProvenanceNode::External] };
-        assert!(!is_liftable(&external_prov));
+    fn unentangled_ancilla_is_accepted() {
+        let (s, errs) = run("fn f() quantum { let a = qubit()\n h(a)\n h(a)\n drop(a) }");
+        assert!(errs.is_empty(), "{errs:?}");
+        assert_eq!((s.drops_checked, s.drops_accepted), (1, 1));
     }
 
     #[test]
-    fn test_provenance_alloc_is_liftable() {
-        let alloc_prov =
-            Provenance { nodes: vec![ProvenanceNode::Alloc { ty: gala_types::Ty::Qubit }] };
-        assert!(is_liftable(&alloc_prov));
+    fn ancilla_entangled_with_live_qubit_is_accepted() {
+        // The partner `d` is still live at the drop, so the inverse can be applied.
+        let (_, errs) = run("fn f(d: Qubit) -> Qubit quantum {\n let a = qubit()\n cx(d, a)\n cx(d, a)\n drop(a)\n d }");
+        assert!(errs.is_empty(), "{errs:?}");
     }
 
     #[test]
-    fn test_uncompute_plan_creation() {
-        let plan = UncomputePlan { steps: Vec::new() };
-        assert!(plan.steps.is_empty());
-    }
-
-    #[test]
-    fn test_analyze_provenance_for_fn_with_gates() {
-        let fn_def_id = DefId { crate_id: CrateId(FileId(0)), index: 0 };
-        let qid = LocalId(0);
-        let dq = local_def_id(FileId(0), qid);
-
-        let hir_fn = HirFnDef {
-            def_id: fn_def_id.clone(),
-            ident: Ident::new("bell"),
-            generics: Vec::new(),
-            params: vec![HirParam {
-                local_id: qid,
-                mutable: false,
-                pattern: gala_ast::Pattern::Ident(Ident::new("q")),
-                ty: gala_ast::Type::Qubit,
-                span: Span::dummy(),
-            }],
-            ret_ty: None,
-            effect: gala_ast::Effect::Quantum,
-            is_extern: false,
-            body: HirBlock {
-                stmts: vec![HirStmt::Expr(HirExpr::Call(HirCallExpr {
-                    callee: Box::new(HirExpr::Ident(Ident::new("h"), dq.clone(), false)),
-                    args: vec![HirExpr::Ident(Ident::new("q"), dq.clone(), false)],
-                    span: Span::dummy(),
-                }))],
-                tail: None,
-                span: Span::dummy(),
-            },
-            span: Span::dummy(),
-        };
-
-        let prov = analyze_provenance(&hir_fn);
-        // The parameter has External provenance
-        assert!(prov.contains_key(&dq));
-    }
-
-    #[test]
-    fn test_analyze_provenance_empty_fn() {
-        let hir_fn = HirFnDef {
-            def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
-            ident: Ident::new("empty"),
-            generics: Vec::new(),
-            params: Vec::new(),
-            ret_ty: None,
-            effect: gala_ast::Effect::Pure,
-            is_extern: false,
-            body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
-            span: Span::dummy(),
-        };
-        let prov = analyze_provenance(&hir_fn);
-        assert!(prov.is_empty());
-    }
-
-    #[test]
-    fn test_synthesize_uncompute_empty() {
-        let hir_fn = HirFnDef {
-            def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
-            ident: Ident::new("f"),
-            generics: Vec::new(),
-            params: Vec::new(),
-            ret_ty: None,
-            effect: gala_ast::Effect::Pure,
-            is_extern: false,
-            body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
-            span: Span::dummy(),
-        };
-        let prov = HashMap::new();
-        let result = synthesize_uncompute(&hir_fn, &prov);
-        assert!(result.is_ok());
-        let plan = result.unwrap();
-        assert!(plan.steps.is_empty());
-    }
-
-    #[test]
-    fn test_uncompute_step_variants() {
-        let adj = UncomputeStep::Adjoint {
-            target: DefId { crate_id: CrateId(FileId(0)), index: 0 },
-            provenance: Provenance { nodes: Vec::new() },
-        };
-        let free = UncomputeStep::Free { target: DefId { crate_id: CrateId(FileId(0)), index: 0 } };
-        let measure =
-            UncomputeStep::Measure { target: DefId { crate_id: CrateId(FileId(0)), index: 0 } };
-        assert!(matches!(adj, UncomputeStep::Adjoint { .. }));
-        assert!(matches!(free, UncomputeStep::Free { .. }));
-        assert!(matches!(measure, UncomputeStep::Measure { .. }));
-    }
-
-    #[test]
-    fn test_insert_uncompute_adds_cleanup_before_return() {
-        let target = local_def_id(FileId(0), LocalId(7));
-        let hir_fn = HirFnDef {
-            def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
-            ident: Ident::new("f"),
-            generics: Vec::new(),
-            params: Vec::new(),
-            ret_ty: None,
-            effect: gala_ast::Effect::Quantum,
-            is_extern: false,
-            body: HirBlock {
-                stmts: vec![HirStmt::Return(Some(Box::new(value_expr(&target))))],
-                tail: None,
-                span: Span::dummy(),
-            },
-            span: Span::dummy(),
-        };
-        let lowered = insert_uncompute(
-            &hir_fn,
-            UncomputePlan { steps: vec![UncomputeStep::Free { target }] },
+    fn partner_measured_before_drop_is_e0530() {
+        let (_, errs) = run(
+            "fn f(d: Qubit) -> Measured<Bool> prob {\n let a = qubit()\n cx(d, a)\n let r = measure(d)\n drop(a)\n r }",
         );
-        assert_eq!(lowered.body.stmts.len(), 2);
-        assert!(matches!(lowered.body.stmts[0], HirStmt::Expr(HirExpr::Call(_))));
-        assert!(matches!(lowered.body.stmts[1], HirStmt::Return(_)));
+        assert_eq!(errs, vec!["E0530".to_string()]);
     }
 
     #[test]
-    fn test_analyze_provenance_tracks_parameter() {
-        let qid = LocalId(42);
-        let hir_fn = HirFnDef {
-            def_id: DefId { crate_id: CrateId(FileId(0)), index: 0 },
-            ident: Ident::new("f"),
-            generics: Vec::new(),
-            params: vec![HirParam {
-                local_id: qid,
-                mutable: false,
-                pattern: gala_ast::Pattern::Ident(Ident::new("q")),
-                ty: gala_ast::Type::Qubit,
-                span: Span::dummy(),
-            }],
-            ret_ty: None,
-            effect: gala_ast::Effect::Quantum,
-            is_extern: false,
-            body: HirBlock { stmts: Vec::new(), tail: None, span: Span::dummy() },
-            span: Span::dummy(),
-        };
-        let prov = analyze_provenance(&hir_fn);
-        let expected_def = local_def_id(FileId(0), qid);
-        let p = prov.get(&expected_def);
-        assert!(p.is_some(), "parameter should have provenance");
-        if let Some(prov) = p {
-            assert!(!is_liftable(prov), "parameter provenance should be External (not liftable)");
-        }
+    fn passing_through_user_call_is_e0530() {
+        let (_, errs) = run(
+            "fn g(q: Qubit) -> Qubit quantum { q }\nfn f() quantum {\n let a = qubit()\n let b = g(a)\n drop(b) }",
+        );
+        assert!(errs.contains(&"E0530".to_string()), "{errs:?}");
+    }
+
+    #[test]
+    fn register_drop_counts_each_element() {
+        let (s, errs) = run("fn f() quantum { let q = qubits<3>()\n drop(q) }");
+        assert!(errs.is_empty(), "{errs:?}");
+        assert_eq!(s.drops_checked, 3);
     }
 }

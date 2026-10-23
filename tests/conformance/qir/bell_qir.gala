@@ -1,4 +1,10 @@
-// Bell pair circuit: expected QIR profile
-fn f(q: Qubit) -> Qubit {
-    return q;
+// expect: ok
+// a Bell pair that the QIR backend can emit
+fn main() -> Measured<Bool> prob {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    drop(b)
+    measure(a)
 }

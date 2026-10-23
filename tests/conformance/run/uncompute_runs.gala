@@ -1,0 +1,13 @@
+// expect-output: false
+// an ancilla entangled with d is uncomputed; d is back to its start
+fn main() -> Int {
+    let d = qubit()
+    h(d)
+    h(d)
+    let a = qubit()
+    cx(d, a)
+    cx(d, a)
+    drop(a)
+    print(measure(d))
+    0
+}

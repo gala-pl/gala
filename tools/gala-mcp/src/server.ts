@@ -1,456 +1,342 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  GetPromptRequestSchema,
-  ListPromptsRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
+// MCP server core: JSON-RPC 2.0 over newline-delimited stdio. No third-party dependencies.
 
-import {
-  galaBuild,
-  galaCheck,
-  galaExplain,
-  galaFix,
-  galaGir,
-  galaLspQuery,
-  galaRun,
-  galaTest,
-} from './gala-cli.js';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+import { isAbsolute } from 'node:path';
+import { runGala } from './gala-cli.ts';
+import { TOOL_DEFINITIONS, callTool, checkCheckOutput, errorText, loadSchema, validateArgs, type ToolName } from './tools.ts';
 
-const server = new Server(
-  { name: 'gala-mcp', version: '0.1.0' },
-  { capabilities: { tools: {}, resources: {}, prompts: {} } }
-);
+export const SERVER_INFO = { name: 'gala-mcp', version: '0.1.0' };
+const SUPPORTED_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
-const ToolInputSchemas = {
-  gala_check: z.object({
-    source: z.string(),
-    filePath: z.string().optional(),
-  }),
-  gala_build: z.object({
-    source: z.string(),
-    emitGir: z.boolean().optional(),
-    girVersion: z.number().int().positive().optional(),
-  }),
-  gala_run: z.object({
-    source: z.string(),
-    shots: z.number().int().positive().optional(),
-    seed: z.number().int().nonnegative().optional(),
-  }),
-  gala_test: z.object({
-    source: z.string(),
-    properties: z
-      .array(z.enum(['unitary', 'reversible', 'uncomputes', 'grad_matches', 'effect_honesty']))
-      .optional(),
-  }),
-  gala_fix: z.object({
-    source: z.string(),
-  }),
-  gala_explain: z.object({
-    code: z.string().regex(/^E[0-9]{4}$/),
-  }),
-  gala_gir: z.object({
-    source: z.string(),
-  }),
-  gala_lsp_query: z.object({
-    source: z.string(),
-    filePath: z.string(),
-    position: z.object({
-      line: z.number().int().nonnegative(),
-      character: z.number().int().nonnegative(),
-    }),
-    queryType: z.enum(['hover', 'completion', 'definition', 'code_lens', 'gir_at_position']),
-  }),
-} as const;
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: 'gala_check',
-      description:
-        'Type-check Gala source code and return structured diagnostics with error codes, spans, and suggested fixes',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          source: { type: 'string', description: 'Gala source code to check' },
-          file_path: { type: 'string', description: 'Optional file path for error reporting' },
-        },
-        required: ['source'],
-      },
-    },
-    {
-      name: 'gala_build',
-      description: 'Build Gala source and optionally emit GIR (Gala Intermediate Representation)',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          source: { type: 'string', description: 'Gala source code' },
-          emit_gir: { type: 'boolean', description: 'Whether to emit GIR JSON' },
-          gir_version: { type: 'number', description: 'GIR schema version (default: 1)' },
-        },
-        required: ['source'],
-      },
-    },
-    {
-      name: 'gala_run',
-      description: 'Execute Gala program on the built-in quantum simulator',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          source: { type: 'string', description: 'Gala source code' },
-          shots: { type: 'number', description: 'Number of measurement shots (default: 1024)' },
-          seed: { type: 'number', description: 'Random seed for reproducibility' },
-        },
-        required: ['source'],
-      },
-    },
-    {
-      name: 'gala_test',
-      description:
-        'Run quantum property tests (unitarity, reversibility, uncomputation, gradient correctness)',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          source: {
-            type: 'string',
-            description: 'Gala source code with #[property(...)] attributes',
-          },
-          properties: {
-            type: 'array',
-            items: {
-              type: 'string',
-              enum: ['unitary', 'reversible', 'uncomputes', 'grad_matches', 'effect_honesty'],
-            },
-            description: 'Specific properties to test (default: all)',
-          },
-        },
-        required: ['source'],
-      },
-    },
-    {
-      name: 'gala_fix',
-      description: 'Apply suggested fixes for diagnostics in Gala source code',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          source: { type: 'string', description: 'Gala source code to fix' },
-        },
-        required: ['source'],
-      },
-    },
-    {
-      name: 'gala_explain',
-      description: 'Get detailed explanation of a Gala diagnostic error code',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          code: { type: 'string', pattern: '^E[0-9]{4}$', description: 'Error code (e.g., E0412)' },
-        },
-        required: ['code'],
-      },
-    },
-    {
-      name: 'gala_gir',
-      description: 'Get Gala IR (GIR) for semantic analysis of quantum/classical code',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          source: { type: 'string', description: 'Gala source code' },
-        },
-        required: ['source'],
-      },
-    },
-    {
-      name: 'gala_lsp_query',
-      description:
-        'Query the Gala Language Server for semantic information (hover, completion, GIR at position)',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          source: { type: 'string', description: 'Gala source code' },
-          file_path: { type: 'string', description: 'File path for LSP context' },
-          position: {
-            type: 'object',
-            properties: {
-              line: { type: 'number', minimum: 0 },
-              character: { type: 'number', minimum: 0 },
-            },
-            required: ['line', 'character'],
-          },
-          query_type: {
-            type: 'string',
-            enum: ['hover', 'completion', 'definition', 'code_lens', 'gir_at_position'],
-          },
-        },
-        required: ['source', 'file_path', 'position', 'query_type'],
-      },
-    },
-  ],
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    let result: unknown;
-
-    switch (name) {
-      case 'gala_check': {
-        const input = ToolInputSchemas.gala_check.parse(args);
-        result = await galaCheck(input.source, input.filePath);
-        break;
-      }
-      case 'gala_build': {
-        const input = ToolInputSchemas.gala_build.parse(args);
-        result = await galaBuild(input.source, {
-          emitGir: input.emitGir,
-          girVersion: input.girVersion,
-        });
-        break;
-      }
-      case 'gala_run': {
-        const input = ToolInputSchemas.gala_run.parse(args);
-        result = await galaRun(input.source, { shots: input.shots, seed: input.seed });
-        break;
-      }
-      case 'gala_test': {
-        const input = ToolInputSchemas.gala_test.parse(args);
-        result = await galaTest(input.source, input.properties);
-        break;
-      }
-      case 'gala_fix': {
-        const input = ToolInputSchemas.gala_fix.parse(args);
-        result = await galaFix(input.source);
-        break;
-      }
-      case 'gala_explain': {
-        const input = ToolInputSchemas.gala_explain.parse(args);
-        result = await galaExplain(input.code);
-        break;
-      }
-      case 'gala_gir': {
-        const input = ToolInputSchemas.gala_gir.parse(args);
-        result = await galaGir(input.source);
-        break;
-      }
-      case 'gala_lsp_query': {
-        const input = ToolInputSchemas.gala_lsp_query.parse(args);
-        result = await galaLspQuery(input);
-        break;
-      }
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({ error: message }, null, 2),
-        },
-      ],
-      isError: true,
-    };
+export class RpcError extends Error {
+  constructor(
+    readonly code: number,
+    message: string,
+    readonly data?: unknown
+  ) {
+    super(message);
   }
-});
-
-const _ResourceSchemas = {
-  'gala://diagnostics/{file}': z.object({
-    file: z.string(),
-  }),
-  'gala://gir/{file}': z.object({
-    file: z.string(),
-  }),
-  'gala://schema/diagnostic.v1': z.object({}),
-  'gala://schema/gir.v1': z.object({}),
-};
-
-server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-  resources: [
-    {
-      uri: 'gala://schema/diagnostic.v1',
-      name: 'Diagnostic JSON Schema v1',
-      mimeType: 'application/json',
-      description: 'JSON schema for Gala structured diagnostics',
-    },
-    {
-      uri: 'gala://schema/gir.v1',
-      name: 'GIR JSON Schema v1',
-      mimeType: 'application/json',
-      description: 'JSON schema for Gala Intermediate Representation',
-    },
-    {
-      uri: 'gala://schema/property_result.v1',
-      name: 'Property Test Result JSON Schema v1',
-      mimeType: 'application/json',
-      description: 'JSON schema for quantum property test results',
-    },
-  ],
-}));
-
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const { uri } = request.params;
-
-  if (uri === 'gala://schema/diagnostic.v1') {
-    const schema = await import('./schemas/diagnostic.v1.json', { with: { type: 'json' } });
-    return {
-      contents: [
-        { uri, mimeType: 'application/json', text: JSON.stringify(schema.default, null, 2) },
-      ],
-    };
-  }
-  if (uri === 'gala://schema/gir.v1') {
-    const schema = await import('./schemas/gir.v1.json', { with: { type: 'json' } });
-    return {
-      contents: [
-        { uri, mimeType: 'application/json', text: JSON.stringify(schema.default, null, 2) },
-      ],
-    };
-  }
-  if (uri === 'gala://schema/property_result.v1') {
-    const schema = await import('./schemas/property_result.v1.json', { with: { type: 'json' } });
-    return {
-      contents: [
-        { uri, mimeType: 'application/json', text: JSON.stringify(schema.default, null, 2) },
-      ],
-    };
-  }
-
-  throw new Error(`Resource not found: ${uri}`);
-});
-
-server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-  prompts: [
-    {
-      name: 'gala/debug-error',
-      description: 'Given a Gala diagnostic, explain the quantum physics and suggest fixes',
-      arguments: [
-        {
-          name: 'diagnostic',
-          description: 'JSON diagnostic object from gala_check',
-          required: true,
-        },
-      ],
-    },
-    {
-      name: 'gala/write-quantum-fn',
-      description: 'Write a Gala quantum function implementing a specific algorithm',
-      arguments: [
-        {
-          name: 'task',
-          description:
-            "Description of the quantum algorithm (e.g., 'Bell pair preparation', 'QFT on 4 qubits')",
-          required: true,
-        },
-        {
-          name: 'constraints',
-          description:
-            "Optional constraints (e.g., 'use only H, CX, Rz gates', 'no mid-circuit measurement')",
-          required: false,
-        },
-      ],
-    },
-    {
-      name: 'gala/optimize-circuit',
-      description: 'Optimize a Gala quantum function for a specific backend',
-      arguments: [
-        {
-          name: 'source',
-          description: 'Gala source code of the quantum function',
-          required: true,
-        },
-        {
-          name: 'backend',
-          description: "Target backend (e.g., 'ibm_brisbane', 'ionq_aria', 'simulator')",
-          required: true,
-        },
-        {
-          name: 'objectives',
-          description:
-            "Optimization objectives (e.g., 'minimize depth', 'minimize 2q gates', 'maximize fidelity')",
-          required: false,
-        },
-      ],
-    },
-  ],
-}));
-
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  switch (name) {
-    case 'gala/debug-error': {
-      const diagnostic = args?.diagnostic;
-      return {
-        description: 'Debug a Gala diagnostic error',
-        messages: [
-          {
-            role: 'user',
-            content: {
-              type: 'text',
-              text: `Analyze this Gala diagnostic and explain the quantum physics behind the error, then suggest fixes:\n\n${JSON.stringify(diagnostic, null, 2)}`,
-            },
-          },
-        ],
-      };
-    }
-    case 'gala/write-quantum-fn': {
-      const task = args?.task;
-      const constraints = args?.constraints ?? '';
-      return {
-        description: 'Write a Gala quantum function',
-        messages: [
-          {
-            role: 'user',
-            content: {
-              type: 'text',
-              text: `Write a Gala quantum function that implements: ${task}\n\nConstraints: ${constraints}\n\nRequirements:\n- Use proper Gala syntax with effect annotations (quantum/prob/pure)\n- Include linear type annotations for qubits\n- Add #[property(unitary)] for verification\n- Use standard library gates from gala.gates`,
-            },
-          },
-        ],
-      };
-    }
-    case 'gala/optimize-circuit': {
-      const source = args?.source;
-      const backend = args?.backend;
-      const objectives = args?.objectives ?? 'minimize depth and 2-qubit gate count';
-      return {
-        description: 'Optimize a Gala quantum circuit for a backend',
-        messages: [
-          {
-            role: 'user',
-            content: {
-              type: 'text',
-              text: `Optimize this Gala quantum function for ${backend}:\n\n${source}\n\nObjectives: ${objectives}\n\nProvide optimized Gala code with #[property(unitary)] and explain the optimizations applied.`,
-            },
-          },
-        ],
-      };
-    }
-    default:
-      throw new Error(`Unknown prompt: ${name}`);
-  }
-});
-
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
 }
 
-main().catch((_err) => {
-  process.exit(1);
-});
+type JsonObject = Record<string, unknown>;
+
+const isObject = (v: unknown): v is JsonObject =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+// ---------- resources ----------
+
+const STATIC_RESOURCES = [
+  {
+    uri: 'gala://schema/diagnostic.v1',
+    name: 'diagnostic.v1 schema',
+    description: 'JSON Schema for Gala diagnostics',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'gala://schema/gir.v1',
+    name: 'gir.v1 schema',
+    description: 'JSON Schema for Gala IR (GIR) v1',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'gala://schema/property_result.v1',
+    name: 'property_result.v1 schema',
+    description: 'JSON Schema for quantum property test results',
+    mimeType: 'application/json',
+  },
+];
+
+const RESOURCE_TEMPLATES = [
+  {
+    uriTemplate: 'gala://diagnostics/{file}',
+    name: 'Diagnostics for a .gala file',
+    description: 'gala.check.v1 output for an absolute path to a .gala file (percent-encoded)',
+    mimeType: 'application/json',
+  },
+  {
+    uriTemplate: 'gala://gir/{file}',
+    name: 'GIR for a .gala file',
+    description: 'Not available: the gala CLI cannot emit gir.v1 JSON yet',
+    mimeType: 'application/json',
+  },
+];
+
+/** Resolves an absolute path to an existing .gala file, or throws. */
+export function galaFilePath(raw: string): string {
+  const path = decodeURIComponent(raw);
+  if (!isAbsolute(path)) throw new RpcError(-32602, `path must be absolute: ${path}`);
+  if (!path.endsWith('.gala')) throw new RpcError(-32602, `not a .gala file: ${path}`);
+  if (!existsSync(path) || !statSync(path).isFile()) {
+    throw new RpcError(-32602, `file not found: ${path}`);
+  }
+  return path;
+}
+
+async function readResource(uri: string): Promise<JsonObject> {
+  const schemaNames: Record<string, string> = {
+    'gala://schema/diagnostic.v1': 'diagnostic.v1',
+    'gala://schema/gir.v1': 'gir.v1',
+    'gala://schema/property_result.v1': 'property_result.v1',
+  };
+  if (schemaNames[uri]) {
+    const schema = loadSchema(schemaNames[uri] as string);
+    return contents(uri, JSON.stringify(schema, null, 2));
+  }
+  if (uri.startsWith('gala://diagnostics/')) {
+    const path = galaFilePath(uri.slice('gala://diagnostics/'.length));
+    const p = await runGala(['check', path, '--json']);
+    if (p.spawnError || p.timedOut) throw new RpcError(-32603, 'gala binary failed to run');
+    let doc: unknown;
+    try {
+      doc = JSON.parse(p.stdout);
+    } catch {
+      throw new RpcError(-32603, `gala check produced no JSON: ${p.stderr.trim()}`);
+    }
+    const problems = checkCheckOutput(doc);
+    if (problems.length > 0) throw new RpcError(-32603, `invalid output: ${problems.join('; ')}`);
+    return contents(uri, JSON.stringify(doc, null, 2));
+  }
+  if (uri.startsWith('gala://gir/')) {
+    throw new RpcError(-32002, 'GIR JSON is not available: the gala CLI cannot emit gir.v1 yet');
+  }
+  throw new RpcError(-32002, `resource not found: ${uri}`);
+}
+
+function contents(uri: string, text: string): JsonObject {
+  return { contents: [{ uri, mimeType: 'application/json', text }] };
+}
+
+// ---------- prompts ----------
+
+const PROMPTS = [
+  {
+    name: 'gala/debug-error',
+    description: 'Explain a Gala file’s diagnostics in quantum-physics terms and suggest fixes',
+    arguments: [
+      { name: 'file', description: 'Absolute path to a .gala file', required: true },
+    ],
+  },
+  {
+    name: 'gala/write-quantum-fn',
+    description: 'Write a Gala quantum function implementing a specific algorithm',
+    arguments: [
+      { name: 'task', description: "e.g. 'Bell pair preparation'", required: true },
+      { name: 'constraints', description: "e.g. 'no mid-circuit measurement'", required: false },
+    ],
+  },
+  {
+    name: 'gala/optimize-circuit',
+    description: 'Optimize a Gala quantum function (gate count and depth)',
+    arguments: [
+      { name: 'file', description: 'Absolute path to a .gala file', required: true },
+      { name: 'objectives', description: "e.g. 'minimize 2q gates'", required: false },
+    ],
+  },
+];
+
+const BELL_EXAMPLE = `fn main() -> Measured<Bool> prob {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    drop(b)
+    measure(a)
+}`;
+
+function userMessage(text: string): JsonObject {
+  return { role: 'user', content: { type: 'text', text } };
+}
+
+async function getPrompt(name: string, args: Record<string, string | undefined>): Promise<JsonObject> {
+  const requireArg = (key: string): string => {
+    const v = args[key];
+    if (!v) throw new RpcError(-32602, `missing required argument: ${key}`);
+    return v;
+  };
+
+  if (name === 'gala/debug-error') {
+    const path = galaFilePath(requireArg('file'));
+    const source = readFileSync(path, 'utf8');
+    const p = await runGala(['check', path, '--json']);
+    let diagnostics: string;
+    try {
+      diagnostics = JSON.stringify(JSON.parse(p.stdout), null, 2);
+    } catch {
+      diagnostics = `(gala check produced no JSON) ${p.stderr.trim()}`;
+    }
+    return {
+      description: 'Debug Gala diagnostics',
+      messages: [
+        userMessage(
+          `Analyze these Gala diagnostics. Explain the quantum-mechanical reason each error ` +
+            `occurs (linearity, no-cloning, reversibility, uncomputation) and suggest concrete fixes.\n\n` +
+            `Diagnostics (gala.check.v1):\n\`\`\`json\n${diagnostics}\n\`\`\`\n\n` +
+            `Source (${path}):\n\`\`\`gala\n${source}\n\`\`\``
+        ),
+      ],
+    };
+  }
+
+  if (name === 'gala/write-quantum-fn') {
+    const task = requireArg('task');
+    const constraints = args.constraints ?? 'none';
+    return {
+      description: 'Write a Gala quantum function',
+      messages: [
+        userMessage(
+          `Write a Gala quantum function that implements: ${task}\n\n` +
+            `Constraints: ${constraints}\n\n` +
+            `Requirements:\n- Use Gala syntax with an effect annotation (pure, quantum or prob).\n` +
+            `- Respect linearity: every qubit is consumed exactly once (measure, drop, or returned).\n` +
+            `- Verify the result with gala_check before returning it.\n\n` +
+            `Reference example that type-checks:\n\`\`\`gala\n${BELL_EXAMPLE}\n\`\`\``
+        ),
+      ],
+    };
+  }
+
+  if (name === 'gala/optimize-circuit') {
+    const path = galaFilePath(requireArg('file'));
+    const source = readFileSync(path, 'utf8');
+    const objectives = args.objectives ?? 'minimize depth and two-qubit gate count';
+    const build = await runGala(['build', path]);
+    const ir = build.exitCode === 0 ? build.stdout : `(build failed) ${build.stderr.trim()}`;
+    return {
+      description: 'Optimize a Gala quantum function',
+      messages: [
+        userMessage(
+          `Optimize this Gala function. Objectives: ${objectives}. Keep it semantically equivalent ` +
+            `and keep it type-checking with gala_check.\n\n` +
+            `Source (${path}):\n\`\`\`gala\n${source}\n\`\`\`\n\n` +
+            `Current text IR:\n\`\`\`\n${ir}\n\`\`\``
+        ),
+      ],
+    };
+  }
+
+  throw new RpcError(-32602, `unknown prompt: ${name}`);
+}
+
+// ---------- JSON-RPC dispatch ----------
+
+async function dispatch(method: string, params: JsonObject): Promise<unknown> {
+  switch (method) {
+    case 'initialize': {
+      const requested = typeof params.protocolVersion === 'string' ? params.protocolVersion : '';
+      return {
+        protocolVersion: SUPPORTED_PROTOCOLS.includes(requested) ? requested : SUPPORTED_PROTOCOLS[0],
+        capabilities: {
+          tools: { listChanged: false },
+          resources: { subscribe: false, listChanged: false },
+          prompts: { listChanged: false },
+        },
+        serverInfo: SERVER_INFO,
+        instructions:
+          'Gala compiler tools: gala_check, gala_build, gala_run, gala_test, gala_explain. ' +
+          'gala_fix, gala_gir and gala_lsp_query are not available yet.',
+      };
+    }
+    case 'ping':
+      return {};
+    case 'tools/list':
+      return { tools: TOOL_DEFINITIONS.map((t) => ({ ...t })) };
+    case 'tools/call': {
+      const name = params.name;
+      if (typeof name !== 'string' || !TOOL_DEFINITIONS.some((t) => t.name === name)) {
+        throw new RpcError(-32602, `unknown tool: ${String(name)}`);
+      }
+      const args = isObject(params.arguments) ? params.arguments : {};
+      const problems = validateArgs(name as ToolName, args);
+      if (problems.length > 0) {
+        return errorText(`invalid arguments for ${name}: ${problems.join('; ')}`);
+      }
+      try {
+        return await callTool(name as ToolName, args);
+      } catch (err) {
+        return errorText(`${name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    case 'resources/list':
+      return { resources: STATIC_RESOURCES };
+    case 'resources/templates/list':
+      return { resourceTemplates: RESOURCE_TEMPLATES };
+    case 'resources/read': {
+      if (typeof params.uri !== 'string') throw new RpcError(-32602, 'uri must be a string');
+      return readResource(params.uri);
+    }
+    case 'prompts/list':
+      return { prompts: PROMPTS };
+    case 'prompts/get': {
+      if (typeof params.name !== 'string') throw new RpcError(-32602, 'name must be a string');
+      const rawArgs = isObject(params.arguments) ? params.arguments : {};
+      const args: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(rawArgs)) args[k] = typeof v === 'string' ? v : undefined;
+      return getPrompt(params.name, args);
+    }
+    default:
+      throw new RpcError(-32601, `method not found: ${method}`);
+  }
+}
+
+function errorResponse(id: unknown, error: RpcError | Error): JsonObject {
+  if (error instanceof RpcError) {
+    return { jsonrpc: '2.0', id, error: { code: error.code, message: error.message, data: error.data } };
+  }
+  return { jsonrpc: '2.0', id, error: { code: -32603, message: error.message } };
+}
+
+async function handleSingle(msg: unknown): Promise<JsonObject | undefined> {
+  if (!isObject(msg)) return errorResponse(null, new RpcError(-32600, 'Invalid Request'));
+  const hasId = 'id' in msg;
+  const id = msg.id ?? null;
+
+  // Responses from the client (no method) are ignored; this server sends no requests.
+  if (typeof msg.method !== 'string') {
+    if ('result' in msg || 'error' in msg) return undefined;
+    return hasId ? errorResponse(id, new RpcError(-32600, 'Invalid Request')) : undefined;
+  }
+  if (msg.jsonrpc !== '2.0') {
+    return hasId ? errorResponse(id, new RpcError(-32600, 'Invalid Request')) : undefined;
+  }
+
+  try {
+    const result = await dispatch(msg.method, isObject(msg.params) ? msg.params : {});
+    if (!hasId) return undefined;
+    return { jsonrpc: '2.0', id, result };
+  } catch (err) {
+    if (!hasId) return undefined;
+    return errorResponse(id, err instanceof Error ? err : new Error(String(err)));
+  }
+}
+
+/** Handles one JSON-RPC message or batch. Returns undefined when no response is due. */
+export async function handleMessage(msg: unknown): Promise<unknown | undefined> {
+  if (Array.isArray(msg)) {
+    if (msg.length === 0) return errorResponse(null, new RpcError(-32600, 'Invalid Request'));
+    const responses = (await Promise.all(msg.map(handleSingle))).filter((r) => r !== undefined);
+    return responses.length > 0 ? responses : undefined;
+  }
+  return handleSingle(msg);
+}
+
+/** Serves MCP over newline-delimited JSON on stdin/stdout. */
+export function serveStdio(input: NodeJS.ReadableStream = process.stdin, output: NodeJS.WritableStream = process.stdout): void {
+  const write = (value: unknown) => {
+    output.write(`${JSON.stringify(value)}\n`);
+  };
+  const rl = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
+  rl.on('line', (line) => {
+    if (line.trim().length === 0) return;
+    let msg: unknown;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      write(errorResponse(null, new RpcError(-32700, 'Parse error')));
+      return;
+    }
+    handleMessage(msg).then((response) => {
+      if (response !== undefined) write(response);
+    });
+  });
+}

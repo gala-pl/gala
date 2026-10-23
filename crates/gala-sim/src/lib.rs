@@ -1,1095 +1,1212 @@
-//! Simulator backends for Gala (roqoqo/QuEST).
+//! Simulator backend: runs GIR on an exact state-vector simulator.
+//!
+//! The state holds only the live qubits. A qubit is allocated by extending the state with a |0⟩
+//! factor, and removed by measurement or release, which leaves the remaining qubits in a
+//! normalized state. Releasing a qubit first applies the inverse of its recorded gate history
+//! (its causal cone), then checks that it is back in |0⟩. Any shot with a different outcome is a
+//! runtime error (`E0701`), so an incorrect uncomputation cannot pass silently.
+//!
+//! The default backend is this pure-Rust engine. It is deterministic under a fixed seed.
 
-use gala_diagnostics::{codes, Diagnostic, Diagnostics};
-use gala_gir::{
-    AllocKind, BlockId, ClassicalOp, Constant, GateKind, Gir, GirFunc, GirNode, NodeKind,
-    Terminator, TypeKind, ValueId,
-};
-use std::collections::{HashMap, HashSet};
+use gala_ast::{BinOp, UnOp};
+use gala_diagnostics::{codes, Diagnostic, DiagnosticCode};
+use gala_gir::{Const, GateKind, Gir, Inst, Term};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt;
 
-/// Simulator backend type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SimBackend {
-    StateVector,
-    Noisy,
-    TensorNetwork,
-}
+/// Largest number of simultaneously live qubits the simulator will allocate.
+pub const MAX_QUBITS: usize = 24;
+/// Instruction budget per shot; guards against non-terminating programs.
+const STEP_LIMIT: u64 = 50_000_000;
+/// Tolerance for "is |0⟩" checks at release.
+const ZERO_TOL: f64 = 1e-9;
 
-/// Simulator configuration.
+/// Simulation configuration.
 #[derive(Debug, Clone)]
 pub struct SimConfig {
-    pub backend: SimBackend,
+    /// Number of shots when the entry point is probabilistic.
     pub shots: u64,
-    pub seed: Option<u64>,
-    pub noise_model: Option<NoiseModel>,
-}
-
-/// Noise model for noisy simulation.
-#[derive(Debug, Clone)]
-pub struct NoiseModel {
-    pub depolarizing_prob: Option<f64>,
-    pub amplitude_damping: Option<f64>,
-    pub phase_damping: Option<f64>,
-    pub readout_error: Option<f64>,
-}
-
-impl Default for NoiseModel {
-    fn default() -> Self {
-        Self {
-            depolarizing_prob: Some(0.0),
-            amplitude_damping: Some(0.0),
-            phase_damping: Some(0.0),
-            readout_error: Some(0.0),
-        }
-    }
+    /// Seed for measurement sampling and noise.
+    pub seed: u64,
+    /// Depolarizing error probability applied to every target qubit after each gate. Zero is the
+    /// noiseless simulator. The error is X, Y, or Z with probability `p/3` each.
+    pub depolarizing: f64,
 }
 
 impl Default for SimConfig {
     fn default() -> Self {
-        SimConfig { backend: SimBackend::StateVector, shots: 1024, seed: None, noise_model: None }
+        SimConfig { shots: 1024, seed: 0, depolarizing: 0.0 }
     }
 }
 
-/// Run a GIR function on the simulator.
-pub fn run_simulation(gir: &Gir, config: SimConfig) -> Result<SimResult, Diagnostics> {
-    match config.backend {
-        SimBackend::StateVector => run_state_vector(gir, config),
-        SimBackend::Noisy => run_noisy(gir, config),
-        SimBackend::TensorNetwork => run_tensor_network(gir, config),
+/// A runtime error with a code.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimError {
+    /// Diagnostic code, for example `E0701`.
+    pub code: DiagnosticCode,
+    /// Explanation.
+    pub message: String,
+}
+
+impl SimError {
+    fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
+        SimError { code, message: message.into() }
+    }
+
+    /// Convert to a diagnostic (without a source span).
+    pub fn to_diagnostic(&self) -> Diagnostic {
+        Diagnostic::error(self.code, self.message.clone())
     }
 }
 
-fn run_state_vector(gir: &Gir, config: SimConfig) -> Result<SimResult, Diagnostics> {
-    run_state_vector_with_noise(gir, config, None)
+impl fmt::Display for SimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
 }
 
-fn run_state_vector_with_noise(
-    gir: &Gir,
-    config: SimConfig,
-    noise_model: Option<NoiseModel>,
-) -> Result<SimResult, Diagnostics> {
-    let Some(func) = gir
-        .funcs
-        .values()
-        .find(|func| func.name.0 == "main")
-        .or_else(|| gir.funcs.values().min_by_key(|func| func.id.0))
-    else {
-        return Ok(SimResult {
-            counts: HashMap::new(),
-            probabilities: HashMap::new(),
-            state_vector: Some(vec![1.0, 0.0]),
-            shots: config.shots,
-        });
-    };
+/// A runtime value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    Unit,
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Str(String),
+    Complex(f64, f64),
+    /// A live qubit, by its runtime ID.
+    Qubit(u32),
+    /// A register: an ordered list of live qubit IDs.
+    Register(Vec<u32>),
+    /// A quantum backend (see `backend.simulator()`).
+    Backend {
+        kind: String,
+        noise: f64,
+    },
+    Tuple(Vec<Value>),
+    Vec(Vec<Value>),
+}
 
-    let num_qubits = count_qubits(gir, func);
-    if num_qubits > 20 {
-        return Err(unsupported("state-vector simulation is limited to 20 qubits"));
-    }
-    let state_len = 1usize
-        .checked_shl(num_qubits as u32)
-        .ok_or_else(|| unsupported("the circuit has too many qubits"))?;
-    let mut rng = Rng::new(config.seed.unwrap_or(0x6A1A_2026));
-    let iterations = config.shots.max(1);
-    let mut counts = HashMap::new();
-    let mut last_state = vec![(0.0, 0.0); state_len];
-    for _shot in 0..iterations {
-        let mut state = vec![(0.0, 0.0); state_len];
-        state[0] = (1.0, 0.0);
-        let mut executor = Executor {
-            gir,
-            func,
-            state: &mut state,
-            values: HashMap::new(),
-            measurements: Vec::new(),
-            rng: &mut rng,
-            noise_model: noise_model.clone(),
-        };
-        executor.execute()?;
-
-        let measurements = std::mem::take(&mut executor.measurements);
-        drop(executor);
-        let key = if measurements.is_empty() {
-            let basis = sample_basis(&state, &mut rng);
-            basis_key(basis, num_qubits)
-        } else {
-            measurements.iter().map(|bit| if *bit { '1' } else { '0' }).collect()
-        };
-        if config.shots > 0 {
-            *counts.entry(key).or_insert(0) += 1;
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Unit => write!(f, "()"),
+            Value::Int(v) => write!(f, "{v}"),
+            Value::Float(v) => write!(f, "{v}"),
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Str(s) => write!(f, "{s}"),
+            Value::Complex(re, im) => write!(f, "{re}+{im}i"),
+            Value::Qubit(id) => write!(f, "<qubit {id}>"),
+            Value::Register(ids) => write!(f, "<register of {}>", ids.len()),
+            Value::Backend { kind, .. } => write!(f, "<backend {kind}>"),
+            Value::Tuple(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+                write!(f, "({})", parts.join(", "))
+            }
+            Value::Vec(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+                write!(f, "[{}]", parts.join(", "))
+            }
         }
-        last_state = state;
+    }
+}
+
+/// Result of running the entry point.
+#[derive(Debug, Clone, Default)]
+pub struct RunReport {
+    /// Lines printed by `print` during the first shot.
+    pub output: Vec<String>,
+    /// Number of shots executed.
+    pub shots: u64,
+    /// Histogram of the entry point's return value across shots (keyed by its text form).
+    pub histogram: BTreeMap<String, u64>,
+    /// Entry point's return value in the first shot.
+    pub first_result: Option<Value>,
+    /// Largest number of qubits live at once in any shot.
+    pub peak_qubits: usize,
+}
+
+/// Run the program's entry point.
+///
+/// Probabilistic entry points (effect `prob`) run `config.shots` times. Others run once.
+pub fn run_entry(gir: &Gir, config: &SimConfig) -> Result<RunReport, SimError> {
+    let entry = gir
+        .entry
+        .ok_or_else(|| SimError::new(codes::RUNTIME_ERROR, "the program has no `main` function"))?;
+    run_function(gir, entry, Vec::new(), config, &ShiftPlan::new())
+}
+
+/// Angle offsets for individual gate instructions, keyed by `(function, block, instruction)`.
+/// Used by parameter-shift differentiation: each entry adds its offset to that one gate's angle.
+pub type ShiftPlan = HashMap<(usize, u32, usize), f64>;
+
+/// Run any function with arguments, applying an optional per-gate angle shift plan.
+///
+/// A probabilistic function (effect `prob`) runs `config.shots` times; others run once.
+pub fn run_function(
+    gir: &Gir,
+    func: usize,
+    args: Vec<Value>,
+    config: &SimConfig,
+    shifts: &ShiftPlan,
+) -> Result<RunReport, SimError> {
+    let effect = gir.funcs[func].effect;
+    let shots = if effect == gala_types::Effect::Prob { config.shots.max(1) } else { 1 };
+    let mut report = RunReport::default();
+    let mut rng = StdRng::seed_from_u64(config.seed);
+    for shot in 0..shots {
+        let mut machine = Machine::new(gir, &mut rng, shifts, config.depolarizing);
+        let value = machine.call(func, args.clone())?;
+        if shot == 0 {
+            report.output = machine.output.clone();
+            report.first_result = Some(value.clone());
+            report.peak_qubits = machine.peak;
+        }
+        *report.histogram.entry(value.to_string()).or_insert(0) += 1;
+        report.shots += 1;
+    }
+    Ok(report)
+}
+
+/// Complex number.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct C {
+    re: f64,
+    im: f64,
+}
+
+impl C {
+    const ZERO: C = C { re: 0.0, im: 0.0 };
+    const ONE: C = C { re: 1.0, im: 0.0 };
+
+    fn new(re: f64, im: f64) -> C {
+        C { re, im }
+    }
+    fn mul(self, o: C) -> C {
+        C::new(self.re * o.re - self.im * o.im, self.re * o.im + self.im * o.re)
+    }
+    fn add(self, o: C) -> C {
+        C::new(self.re + o.re, self.im + o.im)
+    }
+    fn scale(self, k: f64) -> C {
+        C::new(self.re * k, self.im * k)
+    }
+    fn norm2(self) -> f64 {
+        self.re * self.re + self.im * self.im
+    }
+    fn exp_i(theta: f64) -> C {
+        C::new(theta.cos(), theta.sin())
+    }
+}
+
+/// A 2×2 unitary.
+type M2 = [[C; 2]; 2];
+
+/// The single-qubit matrix of a gate, or its adjoint when `adjoint` is set.
+fn matrix1(gate: GateKind, angle: f64, adjoint: bool) -> M2 {
+    let r = std::f64::consts::FRAC_1_SQRT_2;
+    let sign = if adjoint { -1.0 } else { 1.0 };
+    match gate {
+        GateKind::H => [[C::new(r, 0.0), C::new(r, 0.0)], [C::new(r, 0.0), C::new(-r, 0.0)]],
+        GateKind::X => [[C::ZERO, C::ONE], [C::ONE, C::ZERO]],
+        GateKind::Y => [[C::ZERO, C::new(0.0, -1.0)], [C::new(0.0, 1.0), C::ZERO]],
+        GateKind::Z => [[C::ONE, C::ZERO], [C::ZERO, C::new(-1.0, 0.0)]],
+        GateKind::S => [[C::ONE, C::ZERO], [C::ZERO, C::new(0.0, sign)]],
+        GateKind::T => [[C::ONE, C::ZERO], [C::ZERO, C::exp_i(sign * std::f64::consts::FRAC_PI_4)]],
+        GateKind::Rx => {
+            let t = sign * angle / 2.0;
+            [
+                [C::new(t.cos(), 0.0), C::new(0.0, -t.sin())],
+                [C::new(0.0, -t.sin()), C::new(t.cos(), 0.0)],
+            ]
+        }
+        GateKind::Ry => {
+            let t = sign * angle / 2.0;
+            [
+                [C::new(t.cos(), 0.0), C::new(-t.sin(), 0.0)],
+                [C::new(t.sin(), 0.0), C::new(t.cos(), 0.0)],
+            ]
+        }
+        GateKind::Rz => {
+            let t = sign * angle / 2.0;
+            [[C::exp_i(-t), C::ZERO], [C::ZERO, C::exp_i(t)]]
+        }
+        _ => [[C::ONE, C::ZERO], [C::ZERO, C::ONE]],
+    }
+}
+
+/// Quantum state over the live qubits. Bit `p` of an amplitude index is the qubit at position
+/// `p` in `ids`.
+#[derive(Debug, Default)]
+struct Quantum {
+    ids: Vec<u32>,
+    amps: Vec<C>,
+    /// Every gate applied, with its qubit IDs and angle, in execution order.
+    history: Vec<Record>,
+    /// Index into `history` where each qubit was allocated.
+    alloc_at: HashMap<u32, usize>,
+    next_id: u32,
+    peak: usize,
+}
+
+#[derive(Debug, Clone)]
+struct Record {
+    gate: GateKind,
+    targets: Vec<u32>,
+    angle: f64,
+    /// Set once a release has applied this gate's inverse; it no longer entangles anything.
+    undone: bool,
+}
+
+impl Quantum {
+    fn pos(&self, id: u32) -> Result<usize, SimError> {
+        self.ids
+            .iter()
+            .position(|&i| i == id)
+            .ok_or_else(|| SimError::new(codes::RUNTIME_ERROR, format!("qubit {id} is not live")))
     }
 
-    let probabilities = if config.shots == 0 {
-        HashMap::new()
-    } else {
-        counts
-            .iter()
-            .map(|(key, count)| (key.clone(), *count as f64 / config.shots as f64))
-            .collect()
-    };
-    Ok(SimResult {
-        counts,
-        probabilities,
-        state_vector: Some(last_state.into_iter().flat_map(|(re, im)| [re, im]).collect()),
-        shots: config.shots,
+    fn alloc(&mut self) -> Result<u32, SimError> {
+        if self.ids.len() >= MAX_QUBITS {
+            return Err(SimError::new(
+                codes::SIMULATOR_CAPACITY,
+                format!("the program needs more than {MAX_QUBITS} live qubits"),
+            ));
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        if self.amps.is_empty() {
+            // The empty product state is the scalar 1.
+            self.amps.push(C::ONE);
+        }
+        let n = self.amps.len();
+        self.amps.resize(2 * n, C::ZERO);
+        // The new qubit is the highest bit; the old amplitudes stay where they were.
+        self.ids.push(id);
+        self.alloc_at.insert(id, self.history.len());
+        self.peak = self.peak.max(self.ids.len());
+        Ok(id)
+    }
+
+    fn apply(
+        &mut self,
+        gate: GateKind,
+        targets: &[u32],
+        angle: f64,
+        adjoint: bool,
+    ) -> Result<(), SimError> {
+        let pos: Vec<usize> = targets.iter().map(|&t| self.pos(t)).collect::<Result<_, _>>()?;
+        match gate {
+            GateKind::Cx | GateKind::Cz | GateKind::Swap | GateKind::Cp => {
+                self.apply_two(gate, pos[0], pos[1], angle, adjoint)
+            }
+            _ => {
+                let m = matrix1(gate, angle, adjoint);
+                self.apply_one(pos[0], m);
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_one(&mut self, p: usize, m: M2) {
+        let bit = 1usize << p;
+        for i in 0..self.amps.len() {
+            if i & bit == 0 {
+                let j = i | bit;
+                let (a, b) = (self.amps[i], self.amps[j]);
+                self.amps[i] = m[0][0].mul(a).add(m[0][1].mul(b));
+                self.amps[j] = m[1][0].mul(a).add(m[1][1].mul(b));
+            }
+        }
+    }
+
+    fn apply_two(&mut self, gate: GateKind, c: usize, t: usize, angle: f64, adjoint: bool) {
+        let cb = 1usize << c;
+        let tb = 1usize << t;
+        match gate {
+            GateKind::Cx => {
+                for i in 0..self.amps.len() {
+                    if i & cb != 0 && i & tb == 0 {
+                        self.amps.swap(i, i | tb);
+                    }
+                }
+            }
+            GateKind::Cz => {
+                for i in 0..self.amps.len() {
+                    if i & cb != 0 && i & tb != 0 {
+                        self.amps[i] = self.amps[i].scale(-1.0);
+                    }
+                }
+            }
+            GateKind::Cp => {
+                let theta = if adjoint { -angle } else { angle };
+                let phase = C::exp_i(theta);
+                for i in 0..self.amps.len() {
+                    if i & cb != 0 && i & tb != 0 {
+                        self.amps[i] = self.amps[i].mul(phase);
+                    }
+                }
+            }
+            GateKind::Swap => {
+                for i in 0..self.amps.len() {
+                    // Swap each pair once: bit c = 0, bit t = 1 with its partner.
+                    if i & cb == 0 && i & tb != 0 {
+                        self.amps.swap(i, (i | cb) & !tb);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Probability that qubit at position `p` reads 1.
+    fn prob_one(&self, p: usize) -> f64 {
+        let bit = 1usize << p;
+        self.amps.iter().enumerate().filter(|(i, _)| i & bit != 0).map(|(_, a)| a.norm2()).sum()
+    }
+
+    /// Project qubit `id` onto `outcome` and remove it from the state.
+    fn collapse_and_remove(&mut self, id: u32, outcome: bool) -> Result<(), SimError> {
+        let p = self.pos(id)?;
+        let bit = 1usize << p;
+        let keep: Vec<usize> =
+            (0..self.amps.len()).filter(|i| ((i & bit) != 0) == outcome).collect();
+        let norm: f64 = keep.iter().map(|&i| self.amps[i].norm2()).sum::<f64>().sqrt();
+        if norm < 1e-12 {
+            return Err(SimError::new(
+                codes::RUNTIME_ERROR,
+                "projected onto a zero-probability outcome",
+            ));
+        }
+        // Kept indices in increasing order are exactly the compressed indices of the remaining
+        // qubits, so collecting them in order removes bit `p`.
+        self.amps = keep.iter().map(|&i| self.amps[i].scale(1.0 / norm)).collect();
+        self.ids.remove(p);
+        Ok(())
+    }
+
+    /// Measure one qubit, sample from its distribution, collapse, and remove it.
+    fn measure(&mut self, id: u32, rng: &mut StdRng) -> Result<bool, SimError> {
+        let p = self.pos(id)?;
+        let p1 = self.prob_one(p).clamp(0.0, 1.0);
+        let outcome = rng.gen::<f64>() < p1;
+        self.collapse_and_remove(id, outcome)?;
+        Ok(outcome)
+    }
+
+    /// Uncompute and release `id`: undo the gates in its causal cone, check it is |0⟩, remove it.
+    fn release(&mut self, id: u32) -> Result<(), SimError> {
+        let start = *self.alloc_at.get(&id).ok_or_else(|| {
+            SimError::new(codes::RUNTIME_ERROR, format!("qubit {id} was never allocated"))
+        })?;
+        // Forward pass over the history since allocation: collect the cone of entanglement.
+        let mut cone: HashSet<u32> = HashSet::from([id]);
+        let mut undo: Vec<usize> = Vec::new();
+        for (k, rec) in self.history.iter().enumerate().skip(start) {
+            if rec.undone {
+                continue;
+            }
+            if rec.targets.iter().any(|t| cone.contains(t)) {
+                cone.extend(rec.targets.iter().copied());
+                undo.push(k);
+            }
+        }
+        for &t in cone.iter() {
+            if t != id && !self.ids.contains(&t) {
+                return Err(SimError::new(
+                    codes::CANNOT_UNCOMPUTE,
+                    format!("qubit {id} is entangled with qubit {t}, which is no longer live"),
+                ));
+            }
+        }
+        // Undo in reverse program order: each adjoint restores the state before its gate.
+        for &k in undo.iter().rev() {
+            let rec = self.history[k].clone();
+            self.apply(rec.gate, &rec.targets, rec.angle, true)?;
+        }
+        for &k in &undo {
+            self.history[k].undone = true;
+        }
+        let p = self.pos(id)?;
+        if self.prob_one(p) > ZERO_TOL {
+            return Err(SimError::new(
+                codes::CANNOT_UNCOMPUTE,
+                format!("qubit {id} did not return to |0⟩ after uncomputation"),
+            ));
+        }
+        self.collapse_and_remove(id, false)?;
+        Ok(())
+    }
+}
+
+/// Interpreter state for one shot.
+struct Machine<'g, 'r, 's> {
+    gir: &'g Gir,
+    rng: &'r mut StdRng,
+    shifts: &'s ShiftPlan,
+    /// Depolarizing probability after each gate, per target qubit.
+    depolarizing: f64,
+    quantum: Quantum,
+    output: Vec<String>,
+    steps: u64,
+    peak: usize,
+}
+
+impl<'g, 'r, 's> Machine<'g, 'r, 's> {
+    fn new(gir: &'g Gir, rng: &'r mut StdRng, shifts: &'s ShiftPlan, depolarizing: f64) -> Self {
+        Machine {
+            gir,
+            rng,
+            shifts,
+            depolarizing,
+            quantum: Quantum::default(),
+            output: Vec::new(),
+            steps: 0,
+            peak: 0,
+        }
+    }
+
+    fn call(&mut self, func: usize, args: Vec<Value>) -> Result<Value, SimError> {
+        let f =
+            self.gir.funcs.get(func).ok_or_else(|| {
+                SimError::new(codes::RUNTIME_ERROR, format!("no function #{func}"))
+            })?;
+        if f.blocks.is_empty() {
+            return Err(SimError::new(
+                codes::RUNTIME_ERROR,
+                format!("`{}` has no body to run", f.name),
+            ));
+        }
+        let mut slots = vec![Value::Unit; f.slot_count as usize];
+        for (slot, arg) in f.params.iter().zip(args) {
+            slots[*slot as usize] = arg;
+        }
+        let mut block = 0usize;
+        loop {
+            let b = &f.blocks[block];
+            for (ii, inst) in b.insts.iter().enumerate() {
+                self.steps += 1;
+                if self.steps > STEP_LIMIT {
+                    return Err(SimError::new(
+                        codes::RUNTIME_ERROR,
+                        "the program did not finish within the step limit",
+                    ));
+                }
+                let shift = self.shifts.get(&(func, block as u32, ii)).copied().unwrap_or(0.0);
+                self.exec(inst, &mut slots, shift)?;
+            }
+            self.peak = self.peak.max(self.quantum.peak);
+            match &b.term {
+                Term::Unreachable => {
+                    return Err(SimError::new(codes::RUNTIME_ERROR, "reached an unreachable block"))
+                }
+                Term::Jump(t) => block = *t as usize,
+                Term::Branch { cond, then_block, else_block } => {
+                    let c = truthy(&slots[*cond as usize])?;
+                    block = if c { *then_block as usize } else { *else_block as usize };
+                }
+                Term::Return(v) => {
+                    return Ok(match v {
+                        Some(s) => slots[*s as usize].clone(),
+                        None => Value::Unit,
+                    })
+                }
+            }
+        }
+    }
+
+    fn exec(&mut self, inst: &Inst, slots: &mut [Value], shift: f64) -> Result<(), SimError> {
+        match inst {
+            Inst::Const { dst, value } => slots[*dst as usize] = from_const(value),
+            Inst::Copy { dst, src } => slots[*dst as usize] = slots[*src as usize].clone(),
+            Inst::Bin { dst, op, a, b } => {
+                let v = bin(*op, &slots[*a as usize], &slots[*b as usize])?;
+                slots[*dst as usize] = v;
+            }
+            Inst::Un { dst, op, src } => {
+                let v = match (op, &slots[*src as usize]) {
+                    (UnOp::Neg, Value::Int(i)) => Value::Int(-i),
+                    (UnOp::Neg, Value::Float(f)) => Value::Float(-f),
+                    (UnOp::Not, Value::Bool(b)) => Value::Bool(!b),
+                    (_, other) => return Err(bad_operand("unary operator", other)),
+                };
+                slots[*dst as usize] = v;
+            }
+            Inst::Tuple { dst, items } => {
+                slots[*dst as usize] =
+                    Value::Tuple(items.iter().map(|s| slots[*s as usize].clone()).collect());
+            }
+            Inst::VecLit { dst, items } => {
+                slots[*dst as usize] =
+                    Value::Vec(items.iter().map(|s| slots[*s as usize].clone()).collect());
+            }
+            Inst::Index { dst, base, index } => {
+                let i = as_index(&slots[*index as usize])?;
+                let v = match &slots[*base as usize] {
+                    Value::Register(ids) => {
+                        Value::Qubit(*ids.get(i).ok_or_else(|| out_of_range(i, ids.len()))?)
+                    }
+                    Value::Vec(items) | Value::Tuple(items) => {
+                        items.get(i).cloned().ok_or_else(|| out_of_range(i, items.len()))?
+                    }
+                    other => return Err(bad_operand("indexing", other)),
+                };
+                slots[*dst as usize] = v;
+            }
+            Inst::Len { dst, src } => {
+                let n = match &slots[*src as usize] {
+                    Value::Register(ids) => ids.len(),
+                    Value::Vec(items) | Value::Tuple(items) => items.len(),
+                    other => return Err(bad_operand("len", other)),
+                };
+                slots[*dst as usize] = Value::Int(n as i64);
+            }
+            Inst::TupleGet { dst, src, i } => {
+                let v = match &slots[*src as usize] {
+                    Value::Tuple(items) => items.get(*i).cloned().unwrap_or(Value::Unit),
+                    other => return Err(bad_operand("destructuring", other)),
+                };
+                slots[*dst as usize] = v;
+            }
+            Inst::Call { dsts, func, args } => {
+                let argv: Vec<Value> = args.iter().map(|s| slots[*s as usize].clone()).collect();
+                let result = self.call(*func, argv)?;
+                if let Some(d) = dsts.first() {
+                    slots[*d as usize] = result;
+                }
+            }
+            Inst::AllocQubit { dst } => {
+                let id = self.quantum.alloc()?;
+                slots[*dst as usize] = Value::Qubit(id);
+            }
+            Inst::AllocRegister { dst, n } => {
+                let mut ids = Vec::with_capacity(*n);
+                for _ in 0..*n {
+                    ids.push(self.quantum.alloc()?);
+                }
+                slots[*dst as usize] = Value::Register(ids);
+            }
+            Inst::Gate { gate, targets, angle, dsts } => {
+                let ids = qubit_ids(targets.iter().map(|s| &slots[*s as usize]))?;
+                let theta = match angle {
+                    Some(s) => as_float(&slots[*s as usize])? + shift,
+                    None => 0.0,
+                };
+                self.quantum.apply(*gate, &ids, theta, false)?;
+                self.quantum.history.push(Record {
+                    gate: *gate,
+                    targets: ids.clone(),
+                    angle: theta,
+                    undone: false,
+                });
+                // Physical error after the gate. It is not recorded: uncomputation undoes the
+                // program's gates, not the noise.
+                if self.depolarizing > 0.0 {
+                    for id in &ids {
+                        if self.rng.gen::<f64>() < self.depolarizing {
+                            let pauli = match (self.rng.gen::<f64>() * 3.0) as u32 {
+                                0 => GateKind::X,
+                                1 => GateKind::Y,
+                                _ => GateKind::Z,
+                            };
+                            self.quantum.apply(pauli, &[*id], 0.0, false)?;
+                        }
+                    }
+                }
+                for (d, id) in dsts.iter().zip(ids) {
+                    slots[*d as usize] = Value::Qubit(id);
+                }
+            }
+            Inst::Measure { dst, target } => {
+                let v = match &slots[*target as usize] {
+                    Value::Qubit(id) => Value::Bool(self.quantum.measure(*id, self.rng)?),
+                    Value::Register(ids) => {
+                        let mut bits = Vec::with_capacity(ids.len());
+                        for id in ids.clone() {
+                            bits.push(Value::Bool(self.quantum.measure(id, self.rng)?));
+                        }
+                        Value::Vec(bits)
+                    }
+                    other => return Err(bad_operand("measure", other)),
+                };
+                slots[*dst as usize] = v;
+            }
+            Inst::Release { target } => match &slots[*target as usize] {
+                Value::Qubit(id) => self.quantum.release(*id)?,
+                Value::Register(ids) => {
+                    for id in ids.clone() {
+                        self.quantum.release(id)?;
+                    }
+                }
+                other => return Err(bad_operand("drop", other)),
+            },
+            Inst::Print { args } => {
+                let parts: Vec<String> =
+                    args.iter().map(|s| slots[*s as usize].to_string()).collect();
+                self.output.push(parts.join(" "));
+            }
+            Inst::Run { dst, func, shots, backend } => {
+                let (kind, noise) = match &slots[*backend as usize] {
+                    Value::Backend { kind, noise } => (kind.clone(), *noise),
+                    other => return Err(bad_operand("run", other)),
+                };
+                if let Some(device) = kind.strip_prefix("hardware:") {
+                    return Err(SimError::new(
+                        codes::HARDWARE_UNAVAILABLE,
+                        format!("the hardware backend `{device}` is not reachable from this build"),
+                    ));
+                }
+                let n = as_index(&slots[*shots as usize])? as u64;
+                let cfg = SimConfig { shots: n, seed: 0, depolarizing: noise };
+                let report = run_function(self.gir, *func, Vec::new(), &cfg, &ShiftPlan::new())?;
+                let ones = report.histogram.get("true").copied().unwrap_or(0);
+                slots[*dst as usize] = Value::Int(ones as i64);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn qubit_ids<'v>(values: impl Iterator<Item = &'v Value>) -> Result<Vec<u32>, SimError> {
+    values
+        .map(|v| match v {
+            Value::Qubit(id) => Ok(*id),
+            other => Err(bad_operand("a gate", other)),
+        })
+        .collect()
+}
+
+fn from_const(c: &Const) -> Value {
+    match c {
+        Const::Backend { kind, noise } => Value::Backend { kind: kind.clone(), noise: *noise },
+        Const::Unit => Value::Unit,
+        Const::Int(v) => Value::Int(*v),
+        Const::Float(v) => Value::Float(*v),
+        Const::Bool(v) => Value::Bool(*v),
+        Const::Str(s) => Value::Str(s.clone()),
+        Const::Complex(re, im) => Value::Complex(*re, *im),
+    }
+}
+
+fn truthy(v: &Value) -> Result<bool, SimError> {
+    match v {
+        Value::Bool(b) => Ok(*b),
+        other => Err(bad_operand("a condition", other)),
+    }
+}
+
+fn as_float(v: &Value) -> Result<f64, SimError> {
+    match v {
+        Value::Float(f) => Ok(*f),
+        Value::Int(i) => Ok(*i as f64),
+        other => Err(bad_operand("an angle", other)),
+    }
+}
+
+fn as_index(v: &Value) -> Result<usize, SimError> {
+    match v {
+        Value::Int(i) if *i >= 0 => Ok(*i as usize),
+        Value::Int(i) => Err(SimError::new(codes::RUNTIME_ERROR, format!("negative index {i}"))),
+        other => Err(bad_operand("an index", other)),
+    }
+}
+
+fn out_of_range(i: usize, len: usize) -> SimError {
+    SimError::new(codes::RUNTIME_ERROR, format!("index {i} is out of range for length {len}"))
+}
+
+fn bad_operand(what: &str, v: &Value) -> SimError {
+    SimError::new(codes::RUNTIME_ERROR, format!("{what} cannot be applied to {v}"))
+}
+
+fn bin(op: BinOp, a: &Value, b: &Value) -> Result<Value, SimError> {
+    use Value::*;
+    Ok(match (a, b) {
+        (Int(x), Int(y)) => match op {
+            BinOp::Add => Int(x.wrapping_add(*y)),
+            BinOp::Sub => Int(x.wrapping_sub(*y)),
+            BinOp::Mul => Int(x.wrapping_mul(*y)),
+            BinOp::Div => {
+                if *y == 0 {
+                    return Err(SimError::new(codes::RUNTIME_ERROR, "division by zero"));
+                }
+                Int(x.wrapping_div(*y))
+            }
+            BinOp::Mod => {
+                if *y == 0 {
+                    return Err(SimError::new(codes::RUNTIME_ERROR, "remainder by zero"));
+                }
+                Int(x.wrapping_rem(*y))
+            }
+            BinOp::Eq => Bool(x == y),
+            BinOp::Ne => Bool(x != y),
+            BinOp::Lt => Bool(x < y),
+            BinOp::Le => Bool(x <= y),
+            BinOp::Gt => Bool(x > y),
+            BinOp::Ge => Bool(x >= y),
+            _ => return Err(bad_operand("this operator", a)),
+        },
+        (Int(_) | Float(_), Int(_) | Float(_)) => {
+            let x = as_float(a)?;
+            let y = as_float(b)?;
+            match op {
+                BinOp::Add => Float(x + y),
+                BinOp::Sub => Float(x - y),
+                BinOp::Mul => Float(x * y),
+                BinOp::Div => Float(x / y),
+                BinOp::Eq => Bool(x == y),
+                BinOp::Ne => Bool(x != y),
+                BinOp::Lt => Bool(x < y),
+                BinOp::Le => Bool(x <= y),
+                BinOp::Gt => Bool(x > y),
+                BinOp::Ge => Bool(x >= y),
+                _ => return Err(bad_operand("this operator", a)),
+            }
+        }
+        (Bool(x), Bool(y)) => match op {
+            BinOp::And => Bool(*x && *y),
+            BinOp::Or => Bool(*x || *y),
+            BinOp::Eq => Bool(x == y),
+            BinOp::Ne => Bool(x != y),
+            _ => return Err(bad_operand("this operator", a)),
+        },
+        _ => return Err(bad_operand("this operator", a)),
     })
 }
 
-fn run_noisy(gir: &Gir, config: SimConfig) -> Result<SimResult, Diagnostics> {
-    let noise_model = config.noise_model.clone().unwrap_or_default();
-    run_state_vector_with_noise(gir, config, Some(noise_model))
-}
-
-fn run_tensor_network(gir: &Gir, config: SimConfig) -> Result<SimResult, Diagnostics> {
-    // The reference implementation uses the same exact state evolution for
-    // small circuits; the backend boundary is still functional and preserves
-    // the tensor-network API until a contracted MPS engine is introduced.
-    run_state_vector_with_noise(gir, config, None)
-}
-
-#[derive(Clone, Debug)]
-enum Value {
-    Qubit(usize),
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Tuple(Vec<Value>),
-}
-
-#[derive(Clone, Copy)]
-enum Numeric {
-    Int(i64),
-    Float(f64),
-}
-
-struct Executor<'a> {
-    gir: &'a Gir,
-    func: &'a GirFunc,
-    state: &'a mut [(f64, f64)],
-    values: HashMap<ValueId, Value>,
-    measurements: Vec<bool>,
-    rng: &'a mut Rng,
-    noise_model: Option<NoiseModel>,
-}
-
-impl<'a> Executor<'a> {
-    fn execute(&mut self) -> Result<Option<Value>, Diagnostics> {
-        let quantum_params = self.quantum_params();
-        let angle_params = self.angle_params();
-        let mut next_qubit = 0;
-        for value in &self.func.params {
-            let parameter_value = if quantum_params.contains(value) {
-                let qubit = next_qubit;
-                next_qubit += 1;
-                Value::Qubit(qubit)
-            } else if angle_params.contains(value) {
-                Value::Float(0.0)
-            } else {
-                Value::Int(0)
-            };
-            self.values.insert(*value, parameter_value);
-        }
-
-        let mut block_id = self.func.entry_block;
-        let mut predecessor = None;
-        let mut visited = 0usize;
-        loop {
-            visited += 1;
-            if visited > self.func.blocks.len().saturating_mul(4).max(16) {
-                return Err(unsupported("circuit control flow exceeded the simulator step limit"));
-            }
-            let (node_ids, terminator) = {
-                let Some(block) = self.func.blocks.get(&block_id) else {
-                    return Err(unsupported("GIR references a missing basic block"));
-                };
-                (block.nodes.clone(), block.terminator.clone())
-            };
-            for node_id in &node_ids {
-                let Some(node) = self.gir.nodes.get(node_id).cloned() else {
-                    return Err(unsupported("GIR references a missing node"));
-                };
-                self.execute_node(&node, predecessor)?;
-            }
-            match terminator.as_ref() {
-                Some(Terminator::Return(value)) => {
-                    return Ok(value.and_then(|value| self.values.get(&value).cloned()));
-                }
-                Some(Terminator::Unreachable) | None => return Ok(None),
-                Some(Terminator::Branch(next)) => {
-                    predecessor = Some(block_id);
-                    block_id = *next;
-                }
-                Some(Terminator::CondBranch { cond, then_bb, else_bb }) => {
-                    let choose_then = self.value_as_bool(*cond)?;
-                    predecessor = Some(block_id);
-                    block_id = if choose_then { *then_bb } else { *else_bb };
-                }
-            }
-        }
+/// Exact output distribution of a unitary gate sequence on `num_qubits` qubits starting from
+/// |0…0⟩. Index `k` of the result is the probability of basis state `k`, where bit `i` is qubit
+/// `i`. Used to check that two gate sequences are equivalent (for example, a backend's output
+/// against the source program).
+pub fn exact_probabilities(
+    num_qubits: usize,
+    ops: &[(GateKind, Vec<u32>, f64)],
+) -> Result<Vec<f64>, SimError> {
+    let mut q = Quantum::default();
+    for _ in 0..num_qubits {
+        q.alloc()?;
     }
-
-    fn execute_node(
-        &mut self,
-        node: &GirNode,
-        predecessor: Option<BlockId>,
-    ) -> Result<(), Diagnostics> {
-        match &node.kind {
-            NodeKind::Constant(constant) => {
-                if let Some(result) = node.results.first() {
-                    let value = match constant {
-                        Constant::Int(value) => Value::Int(*value),
-                        Constant::Float(value) => Value::Float(*value),
-                        Constant::Bool(value) => Value::Bool(*value),
-                        _ => return Ok(()),
-                    };
-                    self.values.insert(*result, value);
-                }
-            }
-            NodeKind::Alloc(kind) => {
-                let first = self.next_allocated_qubit();
-                match kind {
-                    AllocKind::Qubit => {
-                        if let Some(result) = node.results.first() {
-                            self.values.insert(*result, Value::Qubit(first));
-                        }
-                    }
-                    AllocKind::Qubits(count) => {
-                        for (offset, result) in
-                            node.results.iter().take(*count as usize).enumerate()
-                        {
-                            self.values.insert(*result, Value::Qubit(first + offset));
-                        }
-                    }
-                    AllocKind::Classical(_) => {}
-                }
-            }
-            NodeKind::Free { target } => {
-                self.value_as_qubit(*target)?;
-                self.values.remove(target);
-            }
-            NodeKind::Tuple { elements } => {
-                let mut values = Vec::with_capacity(elements.len());
-                for element in elements {
-                    let Some(value) = self.values.get(element).cloned() else {
-                        return Err(unsupported("tuple references a missing value"));
-                    };
-                    values.push(value);
-                }
-                if let Some(result) = node.results.first() {
-                    self.values.insert(*result, Value::Tuple(values));
-                }
-            }
-            NodeKind::Extract { tuple, index } => {
-                let Some(Value::Tuple(values)) = self.values.get(tuple).cloned() else {
-                    return Err(unsupported("tuple extraction references a non-tuple value"));
-                };
-                let Some(value) = values.get(*index).cloned() else {
-                    return Err(unsupported("tuple extraction index is out of bounds"));
-                };
-                if let Some(result) = node.results.first() {
-                    self.values.insert(*result, value);
-                }
-            }
-            NodeKind::Gate(gate) => self.execute_gate(node, *gate)?,
-            NodeKind::Measure { target } => {
-                let qubit = self.value_as_qubit(*target)?;
-                let mut measured = self.measure(qubit);
-                if self.probability("readout_error") > 0.0
-                    && self.rng.next_f64() < self.probability("readout_error")
-                {
-                    measured = !measured;
-                }
-                if let Some(result) = node.results.first() {
-                    self.values.insert(*result, Value::Bool(measured));
-                }
-                self.measurements.push(measured);
-            }
-            NodeKind::Classical(op) => self.execute_classical(node, *op)?,
-            NodeKind::Phi { incoming } => {
-                let Some(predecessor) = predecessor else { return Ok(()) };
-                if let Some((_, value)) = incoming.iter().find(|(block, _)| *block == predecessor) {
-                    if let Some(result) = node.results.first() {
-                        if let Some(value) = self.values.get(value).cloned() {
-                            self.values.insert(*result, value);
-                        }
-                    }
-                }
-            }
-            NodeKind::Call { func, args } => {
-                let Some(callee) = self.gir.funcs.get(func) else {
-                    return Err(unsupported("call references a missing GIR function"));
-                };
-                if callee.params.len() != args.len() {
-                    return Err(unsupported("call argument count does not match the callee"));
-                }
-                let mut callee_values = HashMap::new();
-                for (parameter, argument) in callee.params.iter().zip(args) {
-                    let Some(value) = self.values.get(argument).cloned() else {
-                        return Err(unsupported("call references a missing argument value"));
-                    };
-                    callee_values.insert(*parameter, value);
-                }
-                let mut callee_executor = Executor {
-                    gir: self.gir,
-                    func: callee,
-                    state: self.state,
-                    values: callee_values,
-                    measurements: Vec::new(),
-                    rng: self.rng,
-                    noise_model: self.noise_model.clone(),
-                };
-                let returned = callee_executor.execute()?;
-                self.measurements.extend(callee_executor.measurements);
-                if let (Some(result), Some(value)) = (node.results.first(), returned) {
-                    self.values.insert(*result, value);
-                }
-            }
-        }
-        Ok(())
+    for (gate, targets, angle) in ops {
+        q.apply(*gate, targets, *angle, false)?;
     }
-
-    fn execute_gate(&mut self, node: &GirNode, gate: GateKind) -> Result<(), Diagnostics> {
-        if gate == GateKind::Measure {
-            return Err(unsupported("measurement must use a Measure GIR node"));
-        }
-        let Some(target) = node.operands.first().copied() else {
-            return Err(unsupported("quantum gate is missing its target qubit"));
-        };
-        let qubit = self.value_as_qubit(target)?;
-        match gate {
-            GateKind::H => self.single(
-                qubit,
-                (
-                    1.0 / 2.0_f64.sqrt(),
-                    1.0 / 2.0_f64.sqrt(),
-                    1.0 / 2.0_f64.sqrt(),
-                    -1.0 / 2.0_f64.sqrt(),
-                ),
-            ),
-            GateKind::X => self.single(qubit, (0.0, 1.0, 1.0, 0.0)),
-            GateKind::Y => self.single(qubit, (0.0, -1.0, 1.0, 0.0)),
-            GateKind::Z => self.single(qubit, (1.0, 0.0, 0.0, -1.0)),
-            GateKind::S => self.single_phase(qubit, std::f64::consts::FRAC_PI_2),
-            GateKind::T => self.single_phase(qubit, std::f64::consts::FRAC_PI_4),
-            GateKind::Rx | GateKind::Ry | GateKind::Rz => {
-                let Some(angle) = node.operands.get(1).copied() else {
-                    return Err(unsupported("rotation gate is missing its angle"));
-                };
-                let angle = self.value_as_float(angle)?;
-                match gate {
-                    GateKind::Rx => self.rotation_x(qubit, angle),
-                    GateKind::Ry => self.rotation_y(qubit, angle),
-                    GateKind::Rz => self.rotation_z(qubit, angle),
-                    _ => unreachable!(),
-                }
-            }
-            GateKind::CX | GateKind::CZ | GateKind::SWAP => {
-                let Some(second) = node.operands.get(1).copied() else {
-                    return Err(unsupported("two-qubit gate is missing its second qubit"));
-                };
-                let second = self.value_as_qubit(second)?;
-                match gate {
-                    GateKind::CX => self.controlled_x(qubit, second),
-                    GateKind::CZ => self.controlled_z(qubit, second),
-                    GateKind::SWAP => self.swap(qubit, second),
-                    _ => unreachable!(),
-                }
-            }
-            GateKind::Measure => {}
-        }
-        for (index, result) in node.results.iter().enumerate() {
-            let result_qubit =
-                if index == 1 && matches!(gate, GateKind::CX | GateKind::CZ | GateKind::SWAP) {
-                    node.operands
-                        .get(1)
-                        .map(|value| self.value_as_qubit(*value))
-                        .transpose()?
-                        .unwrap_or(qubit)
-                } else {
-                    qubit
-                };
-            self.values.insert(*result, Value::Qubit(result_qubit));
-        }
-        self.apply_noise(qubit);
-        Ok(())
-    }
-
-    fn probability(&self, name: &str) -> f64 {
-        let value = match self.noise_model.as_ref() {
-            Some(noise) => match name {
-                "depolarizing_prob" => noise.depolarizing_prob,
-                "amplitude_damping" => noise.amplitude_damping,
-                "phase_damping" => noise.phase_damping,
-                "readout_error" => noise.readout_error,
-                _ => None,
-            },
-            None => None,
-        }
-        .unwrap_or(0.0);
-        value.clamp(0.0, 1.0)
-    }
-
-    fn apply_noise(&mut self, qubit: usize) {
-        let depolarizing = self.probability("depolarizing_prob");
-        if depolarizing > 0.0 && self.rng.next_f64() < depolarizing {
-            match (self.rng.next_u64() % 3) as u8 {
-                0 => self.single(qubit, (0.0, 1.0, 1.0, 0.0)),
-                1 => self.single(qubit, (0.0, -1.0, 1.0, 0.0)),
-                _ => self.single(qubit, (1.0, 0.0, 0.0, -1.0)),
-            }
-        }
-
-        let amplitude = self.probability("amplitude_damping");
-        let phase = self.probability("phase_damping");
-        if amplitude > 0.0 || phase > 0.0 {
-            let mask = 1usize << qubit;
-            for (index, value) in self.state.iter_mut().enumerate() {
-                if index & mask != 0 {
-                    value.0 *= (1.0 - amplitude).sqrt() * (1.0 - phase).sqrt();
-                    value.1 *= (1.0 - amplitude).sqrt() * (1.0 - phase).sqrt();
-                }
-            }
-            self.renormalize();
-        }
-    }
-
-    fn renormalize(&mut self) {
-        let norm = self
-            .state
-            .iter()
-            .map(|value| value.0 * value.0 + value.1 * value.1)
-            .sum::<f64>()
-            .sqrt();
-        if norm > 0.0 {
-            for value in self.state.iter_mut() {
-                value.0 /= norm;
-                value.1 /= norm;
-            }
-        }
-    }
-
-    fn execute_classical(&mut self, node: &GirNode, op: ClassicalOp) -> Result<(), Diagnostics> {
-        let Some(lhs) = node.operands.first().copied() else {
-            return Err(unsupported("classical operation is missing an operand"));
-        };
-        let result = match op {
-            ClassicalOp::Not => Value::Bool(!self.value_as_bool(lhs)?),
-            ClassicalOp::Neg => match self.values.get(&lhs).cloned() {
-                Some(Value::Float(value)) => Value::Float(-value),
-                Some(Value::Int(value)) => Value::Int(
-                    value
-                        .checked_neg()
-                        .ok_or_else(|| unsupported("integer overflow during simulation"))?,
-                ),
-                Some(Value::Bool(value)) => Value::Int(-(value as i64)),
-                _ => return Err(unsupported("expected a numeric value during simulation")),
-            },
-            ClassicalOp::And => {
-                let rhs = self.binary_operand(node)?;
-                Value::Bool(self.value_as_bool(lhs)? && self.value_as_bool(rhs)?)
-            }
-            ClassicalOp::Or => {
-                let rhs = self.binary_operand(node)?;
-                Value::Bool(self.value_as_bool(lhs)? || self.value_as_bool(rhs)?)
-            }
-            ClassicalOp::Add
-            | ClassicalOp::Sub
-            | ClassicalOp::Mul
-            | ClassicalOp::Div
-            | ClassicalOp::Mod => {
-                let rhs = self.binary_operand(node)?;
-                let a = self.value_as_numeric(lhs)?;
-                let b = self.value_as_numeric(rhs)?;
-                self.numeric_binary(op, a, b)?
-            }
-            ClassicalOp::Eq
-            | ClassicalOp::Ne
-            | ClassicalOp::Lt
-            | ClassicalOp::Le
-            | ClassicalOp::Gt
-            | ClassicalOp::Ge => {
-                let rhs = self.binary_operand(node)?;
-                let a = self.value_as_numeric(lhs)?;
-                let b = self.value_as_numeric(rhs)?;
-                Value::Bool(self.numeric_compare(op, a, b))
-            }
-        };
-        if let Some(result_id) = node.results.first() {
-            self.values.insert(*result_id, result);
-        }
-        Ok(())
-    }
-
-    fn binary_operand(&self, node: &GirNode) -> Result<ValueId, Diagnostics> {
-        node.operands
-            .get(1)
-            .copied()
-            .ok_or_else(|| unsupported("binary classical operation is missing its right operand"))
-    }
-
-    fn value_as_numeric(&self, value: ValueId) -> Result<Numeric, Diagnostics> {
-        match self.values.get(&value).cloned() {
-            Some(Value::Int(value)) => Ok(Numeric::Int(value)),
-            Some(Value::Float(value)) => Ok(Numeric::Float(value)),
-            Some(Value::Bool(value)) => Ok(Numeric::Int(value as i64)),
-            _ => Err(unsupported("expected a numeric value during simulation")),
-        }
-    }
-
-    fn numeric_binary(
-        &self,
-        op: ClassicalOp,
-        lhs: Numeric,
-        rhs: Numeric,
-    ) -> Result<Value, Diagnostics> {
-        match (lhs, rhs) {
-            (Numeric::Float(a), Numeric::Float(b)) => {
-                if matches!(op, ClassicalOp::Div | ClassicalOp::Mod) && b == 0.0 {
-                    return Err(unsupported("division by zero during simulation"));
-                }
-                Ok(Value::Float(match op {
-                    ClassicalOp::Add => a + b,
-                    ClassicalOp::Sub => a - b,
-                    ClassicalOp::Mul => a * b,
-                    ClassicalOp::Div => a / b,
-                    ClassicalOp::Mod => a % b,
-                    _ => return Err(unsupported("invalid numeric operation during simulation")),
-                }))
-            }
-            (Numeric::Int(a), Numeric::Int(b)) => {
-                let value = match op {
-                    ClassicalOp::Add => a.checked_add(b),
-                    ClassicalOp::Sub => a.checked_sub(b),
-                    ClassicalOp::Mul => a.checked_mul(b),
-                    ClassicalOp::Div if b != 0 => a.checked_div(b),
-                    ClassicalOp::Mod if b != 0 => a.checked_rem(b),
-                    ClassicalOp::Div | ClassicalOp::Mod => {
-                        return Err(unsupported("division by zero during simulation"))
-                    }
-                    _ => return Err(unsupported("invalid numeric operation during simulation")),
-                };
-                Ok(Value::Int(
-                    value.ok_or_else(|| unsupported("integer overflow during simulation"))?,
-                ))
-            }
-            (Numeric::Int(a), Numeric::Float(b)) => {
-                self.numeric_binary(op, Numeric::Float(a as f64), Numeric::Float(b))
-            }
-            (Numeric::Float(a), Numeric::Int(b)) => {
-                self.numeric_binary(op, Numeric::Float(a), Numeric::Float(b as f64))
-            }
-        }
-    }
-
-    fn numeric_compare(&self, op: ClassicalOp, lhs: Numeric, rhs: Numeric) -> bool {
-        let (a, b) = match (lhs, rhs) {
-            (Numeric::Int(a), Numeric::Int(b)) => (a as f64, b as f64),
-            (Numeric::Float(a), Numeric::Float(b)) => (a, b),
-            (Numeric::Int(a), Numeric::Float(b)) => (a as f64, b),
-            (Numeric::Float(a), Numeric::Int(b)) => (a, b as f64),
-        };
-        match op {
-            ClassicalOp::Eq => a == b,
-            ClassicalOp::Ne => a != b,
-            ClassicalOp::Lt => a < b,
-            ClassicalOp::Le => a <= b,
-            ClassicalOp::Gt => a > b,
-            ClassicalOp::Ge => a >= b,
-            _ => false,
-        }
-    }
-
-    fn quantum_params(&self) -> HashSet<ValueId> {
-        let mut values = HashSet::new();
-        if self.func.param_tys.len() == self.func.params.len() {
-            for (param, type_id) in self.func.params.iter().zip(&self.func.param_tys) {
-                if matches!(self.gir.types.get(type_id).map(|ty| &ty.kind), Some(TypeKind::Qubit)) {
-                    values.insert(*param);
-                }
-            }
-        }
-        for block in self.func.blocks.values() {
-            for node_id in &block.nodes {
-                let Some(node) = self.gir.nodes.get(node_id) else { continue };
-                match &node.kind {
-                    NodeKind::Gate(GateKind::Rx | GateKind::Ry | GateKind::Rz) => {
-                        if let Some(target) = node.operands.first() {
-                            values.insert(*target);
-                        }
-                    }
-                    NodeKind::Gate(_) => values.extend(node.operands.iter().copied()),
-                    NodeKind::Measure { target } => {
-                        values.insert(*target);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        values
-    }
-
-    fn angle_params(&self) -> HashSet<ValueId> {
-        self.func
-            .blocks
-            .values()
-            .flat_map(|block| block.nodes.iter())
-            .filter_map(|node_id| self.gir.nodes.get(node_id))
-            .filter_map(|node| match &node.kind {
-                NodeKind::Gate(GateKind::Rx | GateKind::Ry | GateKind::Rz) => {
-                    node.operands.get(1).copied()
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn value_as_qubit(&self, value: ValueId) -> Result<usize, Diagnostics> {
-        match self.values.get(&value).cloned() {
-            Some(Value::Qubit(qubit)) => Ok(qubit),
-            _ => Err(unsupported("expected a qubit value during simulation")),
-        }
-    }
-
-    fn value_as_bool(&self, value: ValueId) -> Result<bool, Diagnostics> {
-        match self.values.get(&value).cloned() {
-            Some(Value::Bool(value)) => Ok(value),
-            Some(Value::Int(value)) => Ok(value != 0),
-            _ => Err(unsupported("expected a boolean value during simulation")),
-        }
-    }
-
-    fn value_as_float(&self, value: ValueId) -> Result<f64, Diagnostics> {
-        match self.values.get(&value).cloned() {
-            Some(Value::Float(value)) => Ok(value),
-            Some(Value::Int(value)) => Ok(value as f64),
-            _ => Err(unsupported("expected a numeric angle during simulation")),
-        }
-    }
-
-    fn next_allocated_qubit(&self) -> usize {
-        let mut qubits = Vec::new();
-        for value in self.values.values() {
-            collect_value_qubits(value, &mut qubits);
-        }
-        qubits.into_iter().max().map_or(0, |qubit| qubit + 1)
-    }
-
-    fn single(&mut self, qubit: usize, matrix: (f64, f64, f64, f64)) {
-        let stride = 1usize << qubit;
-        let step = stride << 1;
-        for base in (0..self.state.len()).step_by(step) {
-            for offset in 0..stride {
-                let low = base + offset;
-                let high = low + stride;
-                let a = self.state[low];
-                let b = self.state[high];
-                self.state[low] =
-                    (matrix.0 * a.0 + matrix.1 * b.0, matrix.0 * a.1 + matrix.1 * b.1);
-                self.state[high] =
-                    (matrix.2 * a.0 + matrix.3 * b.0, matrix.2 * a.1 + matrix.3 * b.1);
-            }
-        }
-    }
-
-    fn single_phase(&mut self, qubit: usize, angle: f64) {
-        let (cos, sin) = (angle.cos(), angle.sin());
-        let stride = 1usize << qubit;
-        let step = stride << 1;
-        for base in (0..self.state.len()).step_by(step) {
-            for offset in 0..stride {
-                let high = base + offset + stride;
-                let value = self.state[high];
-                self.state[high] = (cos * value.0 - sin * value.1, sin * value.0 + cos * value.1);
-            }
-        }
-    }
-
-    fn rotation_x(&mut self, qubit: usize, angle: f64) {
-        let (cos, sin) = ((angle / 2.0).cos(), (angle / 2.0).sin());
-        let stride = 1usize << qubit;
-        let step = stride << 1;
-        for base in (0..self.state.len()).step_by(step) {
-            for offset in 0..stride {
-                let low = base + offset;
-                let high = low + stride;
-                let a = self.state[low];
-                let b = self.state[high];
-                self.state[low] = (cos * a.0 + sin * b.1, cos * a.1 - sin * b.0);
-                self.state[high] = (cos * b.0 - sin * a.1, cos * b.1 + sin * a.0);
-            }
-        }
-    }
-
-    fn rotation_y(&mut self, qubit: usize, angle: f64) {
-        let (cos, sin) = ((angle / 2.0).cos(), (angle / 2.0).sin());
-        let stride = 1usize << qubit;
-        let step = stride << 1;
-        for base in (0..self.state.len()).step_by(step) {
-            for offset in 0..stride {
-                let low = base + offset;
-                let high = low + stride;
-                let a = self.state[low];
-                let b = self.state[high];
-                self.state[low] = (cos * a.0 - sin * b.0, cos * a.1 - sin * b.1);
-                self.state[high] = (sin * a.0 + cos * b.0, sin * a.1 + cos * b.1);
-            }
-        }
-    }
-
-    fn rotation_z(&mut self, qubit: usize, angle: f64) {
-        let (cos, sin) = ((angle / 2.0).cos(), (angle / 2.0).sin());
-        let stride = 1usize << qubit;
-        let step = stride << 1;
-        for base in (0..self.state.len()).step_by(step) {
-            for offset in 0..stride {
-                let low = base + offset;
-                let high = low + stride;
-                let a = self.state[low];
-                let b = self.state[high];
-                self.state[low] = (cos * a.0 + sin * a.1, cos * a.1 - sin * a.0);
-                self.state[high] = (cos * b.0 - sin * b.1, cos * b.1 + sin * b.0);
-            }
-        }
-    }
-
-    fn controlled_x(&mut self, control: usize, target: usize) {
-        for index in 0..self.state.len() {
-            if (index & (1usize << control)) != 0 && (index & (1usize << target)) == 0 {
-                let other = index | (1usize << target);
-                self.state.swap(index, other);
-            }
-        }
-    }
-
-    fn controlled_z(&mut self, control: usize, target: usize) {
-        for (index, value) in self.state.iter_mut().enumerate() {
-            if (index & (1usize << control)) != 0 && (index & (1usize << target)) != 0 {
-                value.0 = -value.0;
-                value.1 = -value.1;
-            }
-        }
-    }
-
-    fn swap(&mut self, first: usize, second: usize) {
-        if first == second {
-            return;
-        }
-        for index in 0..self.state.len() {
-            let a = (index >> first) & 1;
-            let b = (index >> second) & 1;
-            if a == 0 && b == 1 {
-                let other = index ^ (1usize << first) ^ (1usize << second);
-                self.state.swap(index, other);
-            }
-        }
-    }
-
-    fn measure(&mut self, qubit: usize) -> bool {
-        let mask = 1usize << qubit;
-        let probability_one: f64 = self
-            .state
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| *index & mask != 0)
-            .map(|(_, value)| value.0 * value.0 + value.1 * value.1)
-            .sum();
-        let one = self.rng.next_f64() < probability_one;
-        let probability = if one { probability_one } else { 1.0 - probability_one };
-        let scale = if probability > 0.0 { probability.sqrt().recip() } else { 0.0 };
-        for (index, value) in self.state.iter_mut().enumerate() {
-            if ((index & mask) != 0) != one {
-                *value = (0.0, 0.0);
-            } else {
-                value.0 *= scale;
-                value.1 *= scale;
-            }
-        }
-        one
-    }
-}
-
-fn collect_value_qubits(value: &Value, qubits: &mut Vec<usize>) {
-    match value {
-        Value::Qubit(qubit) => qubits.push(*qubit),
-        Value::Tuple(values) => {
-            for value in values {
-                collect_value_qubits(value, qubits);
-            }
-        }
-        Value::Bool(_) | Value::Int(_) | Value::Float(_) => {}
-    }
-}
-
-fn count_qubits(gir: &Gir, func: &GirFunc) -> usize {
-    count_qubits_inner(gir, func, &mut HashSet::new())
-}
-
-fn count_qubits_inner(gir: &Gir, func: &GirFunc, visited: &mut HashSet<gala_gir::FuncId>) -> usize {
-    // `visited` is an active recursion stack, not a global set: two sibling
-    // calls each allocate their own resources and must both contribute to the
-    // circuit size. A recursive cycle is conservatively cut off.
-    if visited.contains(&func.id) {
-        return 0;
-    }
-    visited.insert(func.id);
-    let mut quantum_params = HashSet::new();
-    let mut called_qubits = 0;
-    for block in func.blocks.values() {
-        for node_id in &block.nodes {
-            let Some(node) = gir.nodes.get(node_id) else { continue };
-            match &node.kind {
-                NodeKind::Gate(GateKind::Rx | GateKind::Ry | GateKind::Rz) => {
-                    if let Some(target) = node.operands.first() {
-                        quantum_params.insert(*target);
-                    }
-                }
-                NodeKind::Gate(_) => quantum_params.extend(node.operands.iter().copied()),
-                NodeKind::Measure { target } => {
-                    quantum_params.insert(*target);
-                }
-                NodeKind::Call { func, .. } => {
-                    if let Some(callee) = gir.funcs.get(func) {
-                        called_qubits += count_qubits_inner(gir, callee, visited);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    let params = func.params.iter().filter(|param| quantum_params.contains(param)).count();
-    let allocated: usize = func
-        .blocks
-        .values()
-        .flat_map(|block| block.nodes.iter())
-        .filter_map(|node_id| gir.nodes.get(node_id))
-        .filter_map(|node| match &node.kind {
-            NodeKind::Alloc(AllocKind::Qubit) => Some(1),
-            NodeKind::Alloc(AllocKind::Qubits(count)) => Some(*count as usize),
-            _ => None,
-        })
-        .sum();
-    let total = params + allocated + called_qubits;
-    visited.remove(&func.id);
-    total
-}
-
-fn sample_basis(state: &[(f64, f64)], rng: &mut Rng) -> usize {
-    let choice = rng.next_f64();
-    let mut cumulative = 0.0;
-    for (index, value) in state.iter().enumerate() {
-        cumulative += value.0 * value.0 + value.1 * value.1;
-        if choice <= cumulative {
-            return index;
-        }
-    }
-    state.len().saturating_sub(1)
-}
-
-fn basis_key(index: usize, num_qubits: usize) -> String {
-    (0..num_qubits).rev().map(|bit| if index & (1usize << bit) == 0 { '0' } else { '1' }).collect()
-}
-
-struct Rng(u64);
-
-impl Rng {
-    fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 0x9E3779B97F4A7C15 } else { seed })
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 7;
-        x ^= x >> 9;
-        x ^= x << 8;
-        self.0 = x;
-        x
-    }
-
-    fn next_f64(&mut self) -> f64 {
-        (self.next_u64() as f64) / (u64::MAX as f64)
-    }
-}
-
-fn unsupported(message: &str) -> Diagnostics {
-    let mut diags = Diagnostics::new();
-    diags.push(Diagnostic::error(codes::BACKEND_CAPABILITY_MISMATCH, message));
-    diags
-}
-
-/// Simulation result.
-#[derive(Debug, Clone)]
-pub struct SimResult {
-    pub counts: HashMap<String, u64>,
-    pub probabilities: HashMap<String, f64>,
-    pub state_vector: Option<Vec<f64>>,
-    pub shots: u64,
+    // The state vector is indexed by position, and positions equal qubit IDs here.
+    Ok(q.amps.iter().map(|a| a.norm2()).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gala_gir::NodeId;
+    use gala_hir::lower_file;
+    use gala_parser::parse_source;
+    use gala_span::FileId;
 
-    #[test]
-    fn test_sim_config_default() {
-        let config = SimConfig::default();
-        assert_eq!(config.backend, SimBackend::StateVector);
-        assert_eq!(config.shots, 1024);
+    fn gir_of(src: &str) -> Gir {
+        let out = parse_source(FileId(0), src);
+        assert!(!out.diagnostics.has_errors(), "parse: {:?}", out.diagnostics);
+        let (pkg, _) = lower_file(FileId(0), out.items);
+        let (info, td) = gala_types::check_package(&pkg);
+        assert!(!td.has_errors(), "types: {:?}", td.errors());
+        gala_gir::lower_package(&pkg, &info).expect("lowering")
+    }
+
+    fn run(src: &str, shots: u64) -> RunReport {
+        run_entry(&gir_of(src), &SimConfig { shots, seed: 42, ..Default::default() }).expect("run")
     }
 
     #[test]
-    fn test_sim_config_custom() {
-        let config = SimConfig {
-            backend: SimBackend::Noisy,
-            shots: 100,
-            seed: Some(42),
-            noise_model: Some(NoiseModel {
-                depolarizing_prob: Some(0.01),
-                amplitude_damping: None,
-                phase_damping: None,
-                readout_error: Some(0.05),
-            }),
-        };
-        assert_eq!(config.backend, SimBackend::Noisy);
-        assert_eq!(config.shots, 100);
-        assert!(config.seed.is_some());
-        assert!(config.noise_model.is_some());
+    fn classical_program_returns_value() {
+        let r = run("fn main() -> Int { let a = 20\n a + 22 }", 1);
+        assert_eq!(r.first_result, Some(Value::Int(42)));
     }
 
     #[test]
-    fn test_run_simulation_all_backends() {
-        let gir = Gir::default();
-        for backend in &[SimBackend::Noisy, SimBackend::TensorNetwork] {
-            let config = SimConfig { backend: *backend, shots: 10, seed: None, noise_model: None };
-            assert!(run_simulation(&gir, config).is_ok());
+    fn print_writes_output() {
+        let r = run("fn main() -> Int { print(\"hi\")\n 0 }", 1);
+        assert_eq!(r.output, vec!["hi".to_string()]);
+    }
+
+    #[test]
+    fn x_gate_flips_to_one_deterministically() {
+        let r =
+            run("fn main() -> Measured<Bool> prob { let q = qubit()\n x(q)\n measure(q) }", 200);
+        assert_eq!(r.histogram.get("true"), Some(&200), "{:?}", r.histogram);
+    }
+
+    #[test]
+    fn bell_pair_correlates_and_splits_evenly() {
+        // Measuring both qubits of a Bell pair gives equal bits; the pair is never 01 or 10.
+        let r = run(
+            "fn main() -> Measured<Vec<Bool>> prob {\n let q = qubits<2>()\n h(q[0])\n cx(q[0], q[1])\n measure(q)\n}",
+            2000,
+        );
+        let zeros = r.histogram.get("[false, false]").copied().unwrap_or(0);
+        let ones = r.histogram.get("[true, true]").copied().unwrap_or(0);
+        assert_eq!(zeros + ones, 2000, "only correlated outcomes: {:?}", r.histogram);
+        assert!((zeros as f64 - 1000.0).abs() < 150.0, "roughly even: {zeros}");
+    }
+
+    #[test]
+    fn deterministic_under_fixed_seed() {
+        let src = "fn main() -> Measured<Bool> prob { let q = qubit()\n h(q)\n measure(q) }";
+        assert_eq!(run(src, 300).histogram, run(src, 300).histogram);
+    }
+
+    #[test]
+    fn uncompute_returns_ancilla_to_zero() {
+        // The ancilla is entangled with d; releasing it must undo that and leave |0⟩.
+        let r = run(
+            "fn main() -> Measured<Bool> prob {\n let d = qubit()\n h(d)\n let a = qubit()\n cx(d, a)\n cx(d, a)\n drop(a)\n h(d)\n h(d)\n measure(d)\n}",
+            1,
+        );
+        assert_eq!(r.first_result, Some(Value::Bool(false)));
+    }
+
+    #[test]
+    fn released_entangled_ancilla_undoes_entanglement() {
+        // a = d after cx; uncompute must restore a to |0⟩ even with a live partner in superposition.
+        let r = run(
+            "fn main() -> Measured<Bool> prob {\n let d = qubit()\n h(d)\n let a = qubit()\n cx(d, a)\n drop(a)\n measure(d)\n}",
+            300,
+        );
+        assert!(
+            r.histogram.contains_key("true") && r.histogram.contains_key("false"),
+            "{:?}",
+            r.histogram
+        );
+    }
+
+    #[test]
+    fn controlled_phase_and_swap_act_as_expected() {
+        // X on q0, swap to q1: measuring q1 gives 1.
+        let r = run(
+            "fn main() -> Measured<Bool> prob {\n let a = qubit()\n let b = qubit()\n x(a)\n let (a, b) = swap(a, b)\n measure(b)\n}",
+            50,
+        );
+        assert_eq!(r.histogram.get("true"), Some(&50));
+    }
+
+    #[test]
+    fn capacity_limit_is_reported() {
+        let gir = gir_of("fn main() -> Int { let q = qubits<30>()\n 0 }");
+        let err = run_entry(&gir, &SimConfig::default()).unwrap_err();
+        assert_eq!(err.code.to_string(), "E0702");
+    }
+
+    #[test]
+    fn depolarizing_noise_flips_a_flipped_qubit_at_the_expected_rate() {
+        // X takes |0⟩ to |1⟩. A depolarizing error of probability p after the gate turns |1⟩ back
+        // into |0⟩ with X or Y (probability 2p/3), so P(false) = 2p/3.
+        let src = "fn main() -> Measured<Bool> prob { let q = qubit()\n x(q)\n measure(q) }";
+        let gir = gir_of(src);
+        let p = 0.3;
+        let report =
+            run_entry(&gir, &SimConfig { shots: 20_000, seed: 9, depolarizing: p }).unwrap();
+        let false_rate = report.histogram.get("false").copied().unwrap_or(0) as f64 / 20_000.0;
+        assert!((false_rate - 2.0 * p / 3.0).abs() < 0.02, "rate {false_rate}");
+        let clean = run_entry(&gir, &SimConfig { shots: 500, seed: 9, depolarizing: 0.0 }).unwrap();
+        assert_eq!(clean.histogram.get("true"), Some(&500));
+    }
+
+    #[test]
+    fn matrices_are_unitary() {
+        for g in [
+            GateKind::H,
+            GateKind::X,
+            GateKind::Y,
+            GateKind::Z,
+            GateKind::S,
+            GateKind::T,
+            GateKind::Rx,
+            GateKind::Ry,
+            GateKind::Rz,
+        ] {
+            for &theta in &[0.0, 0.7, -2.1] {
+                let m = matrix1(g, theta, false);
+                // Columns are orthonormal: M†M = I.
+                for c in 0..2 {
+                    for d in 0..2 {
+                        let dot = m[0][c].re * m[0][d].re
+                            + m[0][c].im * m[0][d].im
+                            + m[1][c].re * m[1][d].re
+                            + m[1][c].im * m[1][d].im;
+                        let want = if c == d { 1.0 } else { 0.0 };
+                        assert!((dot - want).abs() < 1e-12, "{g:?} {theta}");
+                    }
+                }
+            }
         }
     }
+}
 
-    #[test]
-    fn state_vector_executes_x_and_measurement() {
-        let mut gir = Gir::default();
-        let mut func = GirFunc::new_test();
-        let block = func.blocks.get_mut(&BlockId(0)).expect("test function has an entry block");
-        block.nodes = vec![NodeId(0), NodeId(1), NodeId(2)];
-        block.terminator = Some(Terminator::Return(Some(ValueId(2))));
-        gir.funcs.insert(func.id, func);
-        gir.nodes.insert(
-            NodeId(0),
-            GirNode {
-                id: NodeId(0),
-                kind: NodeKind::Alloc(AllocKind::Qubit),
-                operands: Vec::new(),
-                results: vec![ValueId(0)],
-                span: gala_span::Span::dummy(),
-            },
-        );
-        gir.nodes.insert(
-            NodeId(1),
-            GirNode {
-                id: NodeId(1),
-                kind: NodeKind::Gate(GateKind::X),
-                operands: vec![ValueId(0)],
-                results: vec![ValueId(1)],
-                span: gala_span::Span::dummy(),
-            },
-        );
-        gir.nodes.insert(
-            NodeId(2),
-            GirNode {
-                id: NodeId(2),
-                kind: NodeKind::Measure { target: ValueId(1) },
-                operands: vec![ValueId(1)],
-                results: vec![ValueId(2)],
-                span: gala_span::Span::dummy(),
-            },
-        );
+/// Exact action of a register-to-register function on one computational basis input.
+///
+/// Prepares an `n`-qubit register in basis state `input` (bit `i` is register qubit `i`), calls
+/// `func` on it, and returns the output register's amplitudes in the function's returned order
+/// (index bit `j` is the `j`-th returned qubit). The function must leave no other qubit live.
+pub fn basis_action(
+    gir: &Gir,
+    func: usize,
+    n: usize,
+    input: usize,
+    as_register: bool,
+) -> Result<Vec<(f64, f64)>, SimError> {
+    let shifts = ShiftPlan::new();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0);
+    let mut ids = Vec::with_capacity(n);
+    for _ in 0..n {
+        ids.push(m.quantum.alloc()?);
+    }
+    for (i, &id) in ids.iter().enumerate() {
+        if input >> i & 1 == 1 {
+            m.quantum.apply(GateKind::X, &[id], 0.0, false)?;
+        }
+    }
+    let arg = if as_register { Value::Register(ids) } else { Value::Qubit(ids[0]) };
+    let out = match m.call(func, vec![arg])? {
+        Value::Register(v) => v,
+        Value::Qubit(id) => vec![id],
+        other => {
+            return Err(SimError::new(
+                codes::RUNTIME_ERROR,
+                format!("the function returned {other}, not a qubit or register"),
+            ))
+        }
+    };
+    let mut live: Vec<u32> = m.quantum.ids.clone();
+    let mut want = out.clone();
+    live.sort_unstable();
+    want.sort_unstable();
+    if live != want {
+        return Err(SimError::new(
+            codes::RUNTIME_ERROR,
+            "the function must return exactly the qubits it was given, with no others left live",
+        ));
+    }
+    let positions: Vec<usize> =
+        out.iter().map(|&id| m.quantum.pos(id)).collect::<Result<_, _>>()?;
+    let dim = 1usize << out.len();
+    let mut amps = Vec::with_capacity(dim);
+    for x in 0..dim {
+        let mut phys = 0usize;
+        for (j, &p) in positions.iter().enumerate() {
+            if x >> j & 1 == 1 {
+                phys |= 1 << p;
+            }
+        }
+        let a = m.quantum.amps[phys];
+        amps.push((a.re, a.im));
+    }
+    Ok(amps)
+}
 
-        let result =
-            run_simulation(&gir, SimConfig { shots: 8, seed: Some(42), ..SimConfig::default() })
-                .expect("supported state-vector circuit should execute");
-        assert_eq!(result.counts.get("1"), Some(&8));
-        assert_eq!(result.probabilities.get("1"), Some(&1.0));
-        assert_eq!(result.state_vector, Some(vec![0.0, 0.0, 1.0, 0.0]));
+/// Fidelity of `func` as a round trip on basis input `input`: run it, then apply the inverse of
+/// every gate it applied (in reverse), and return the probability of getting `input` back.
+/// A reversible function returns 1.0; the gates undone by a release are not undone twice.
+pub fn reversible_roundtrip(
+    gir: &Gir,
+    func: usize,
+    n: usize,
+    input: usize,
+    as_register: bool,
+) -> Result<f64, SimError> {
+    let shifts = ShiftPlan::new();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0);
+    let mut ids = Vec::with_capacity(n);
+    for _ in 0..n {
+        ids.push(m.quantum.alloc()?);
+    }
+    for (i, &id) in ids.iter().enumerate() {
+        if input >> i & 1 == 1 {
+            m.quantum.apply(GateKind::X, &[id], 0.0, false)?;
+        }
+    }
+    let arg = if as_register { Value::Register(ids.clone()) } else { Value::Qubit(ids[0]) };
+    m.call(func, vec![arg])?;
+    let records: Vec<Record> = m.quantum.history.iter().filter(|r| !r.undone).cloned().collect();
+    for rec in records.iter().rev() {
+        m.quantum.apply(rec.gate, &rec.targets, rec.angle, true)?;
+    }
+    let live = m.quantum.ids.clone();
+    let mut want = ids.clone();
+    let mut have = live.clone();
+    want.sort_unstable();
+    have.sort_unstable();
+    if want != have {
+        return Err(SimError::new(
+            codes::RUNTIME_ERROR,
+            "the round trip left a different set of qubits live",
+        ));
+    }
+    // Index of `input` in the state's own ordering of the same qubits.
+    let mut index = 0usize;
+    for (i, &id) in ids.iter().enumerate() {
+        if input >> i & 1 == 1 {
+            index |= 1 << m.quantum.pos(id)?;
+        }
+    }
+    Ok(m.quantum.amps[index].norm2())
+}
+
+#[cfg(test)]
+mod basis_tests {
+    use super::*;
+    use gala_hir::lower_file;
+    use gala_parser::parse_source;
+    use gala_span::FileId;
+
+    fn gir_of(src: &str) -> Gir {
+        let out = parse_source(FileId(0), src);
+        let (pkg, _) = lower_file(FileId(0), out.items);
+        let (info, _) = gala_types::check_package(&pkg);
+        gala_gir::lower_package(&pkg, &info).expect("lowers")
     }
 
     #[test]
-    fn noisy_backend_applies_readout_error() {
-        let mut gir = Gir::default();
-        let mut func = GirFunc::new_test();
-        let block = func.blocks.get_mut(&BlockId(0)).expect("test function has an entry block");
-        block.nodes = vec![NodeId(0), NodeId(1), NodeId(2)];
-        block.terminator = Some(Terminator::Return(Some(ValueId(2))));
-        gir.funcs.insert(func.id, func);
-        gir.nodes.insert(
-            NodeId(0),
-            GirNode {
-                id: NodeId(0),
-                kind: NodeKind::Alloc(AllocKind::Qubit),
-                operands: Vec::new(),
-                results: vec![ValueId(0)],
-                span: gala_span::Span::dummy(),
-            },
-        );
-        gir.nodes.insert(
-            NodeId(1),
-            GirNode {
-                id: NodeId(1),
-                kind: NodeKind::Gate(GateKind::X),
-                operands: vec![ValueId(0)],
-                results: vec![ValueId(1)],
-                span: gala_span::Span::dummy(),
-            },
-        );
-        gir.nodes.insert(
-            NodeId(2),
-            GirNode {
-                id: NodeId(2),
-                kind: NodeKind::Measure { target: ValueId(1) },
-                operands: vec![ValueId(1)],
-                results: vec![ValueId(2)],
-                span: gala_span::Span::dummy(),
-            },
-        );
-        let result = run_simulation(
-            &gir,
-            SimConfig {
-                backend: SimBackend::Noisy,
-                shots: 8,
-                seed: Some(7),
-                noise_model: Some(NoiseModel { readout_error: Some(1.0), ..NoiseModel::default() }),
-            },
-        )
-        .expect("noisy backend should execute a supported circuit");
-        assert_eq!(result.counts.get("0"), Some(&8));
+    fn x_gate_maps_basis_zero_to_basis_one() {
+        let gir =
+            gir_of("fn flip(q: Qubit) -> Qubit quantum {\n    x(q)\n}\nfn main() -> Int { 0 }\n");
+        let func = gir.func_named("flip").unwrap();
+        let amps = basis_action(&gir, func, 1, 0, false).unwrap();
+        assert!(amps[0].0.hypot(amps[0].1) < 1e-12);
+        assert!((amps[1].0 - 1.0).abs() < 1e-12);
+        assert!((reversible_roundtrip(&gir, func, 1, 0, false).unwrap() - 1.0).abs() < 1e-12);
     }
 
     #[test]
-    fn test_sim_result_creation() {
-        let result = SimResult {
-            counts: HashMap::new(),
-            probabilities: HashMap::new(),
-            state_vector: None,
-            shots: 1024,
-        };
-        assert_eq!(result.shots, 1024);
+    fn dropping_a_nonzero_input_is_refused_at_release() {
+        // Dropping the input and returning a fresh |0⟩ maps both basis inputs to the same
+        // output, so its columns coincide and it cannot be unitary.
+        let gir = gir_of(
+            "fn bad(q: Qubit) -> Qubit quantum {\n    drop(q)\n    qubit()\n}\nfn main() -> Int { 0 }\n",
+        );
+        let func = gir.func_named("bad").unwrap();
+        // The |0⟩ input is released in |0⟩ and returns a fresh |0⟩ ...
+        let zero = basis_action(&gir, func, 1, 0, false).unwrap();
+        assert!((zero[0].0 - 1.0).abs() < 1e-12);
+        // ... while |1⟩ fails the release check, because a release requires |0⟩.
+        let one = basis_action(&gir, func, 1, 1, false).unwrap_err();
+        assert_eq!(one.code.to_string(), "E0530");
     }
+}
+
+/// Sample final measurements of a unitary circuit on `num_qubits` qubits, factorized by
+/// connectivity.
+///
+/// Qubits that no two-qubit gate connects are independent, so the circuit splits into connected
+/// components. Each component is simulated exactly on its own state vector (so only the largest
+/// component must fit under [`MAX_QUBITS`]), and bitstrings are assembled from independent
+/// samples of each component. This is not a tensor-network simulator: entanglement that spans
+/// the register still needs one component of that size. Returns counts keyed by the bitstring,
+/// with qubit 0 first.
+pub fn sample_factored(
+    num_qubits: usize,
+    ops: &[(GateKind, Vec<u32>, f64)],
+    shots: u64,
+    seed: u64,
+) -> Result<BTreeMap<String, u64>, SimError> {
+    // Union-find over qubits, joined by every multi-qubit gate.
+    let mut parent: Vec<usize> = (0..num_qubits).collect();
+    fn find(p: &mut [usize], x: usize) -> usize {
+        let mut r = x;
+        while p[r] != r {
+            r = p[r];
+        }
+        let mut y = x;
+        while p[y] != r {
+            let next = p[y];
+            p[y] = r;
+            y = next;
+        }
+        r
+    }
+    for (_, qs, _) in ops {
+        if qs.len() > 1 {
+            for q in &qs[1..] {
+                let (a, b) = (find(&mut parent, qs[0] as usize), find(&mut parent, *q as usize));
+                parent[a] = b;
+            }
+        }
+    }
+    let mut components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for q in 0..num_qubits {
+        let root = find(&mut parent, q);
+        components.entry(root).or_default().push(q);
+    }
+    // Simulate each component on local indices and collect its outcome distribution.
+    let mut component_probs: Vec<(Vec<usize>, Vec<f64>)> = Vec::new();
+    for members in components.values() {
+        let local: HashMap<usize, u32> =
+            members.iter().enumerate().map(|(i, &q)| (q, i as u32)).collect();
+        let local_ops: Vec<(GateKind, Vec<u32>, f64)> = ops
+            .iter()
+            .filter(|(_, qs, _)| qs.iter().all(|q| local.contains_key(&(*q as usize))))
+            .map(|(g, qs, a)| (*g, qs.iter().map(|q| local[&(*q as usize)]).collect(), *a))
+            .collect();
+        let probs = exact_probabilities(members.len(), &local_ops)?;
+        component_probs.push((members.clone(), probs));
+    }
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    for _ in 0..shots {
+        let mut bits = vec![false; num_qubits];
+        for (members, probs) in &component_probs {
+            let mut r: f64 = rng.gen();
+            let mut index = probs.len() - 1;
+            for (i, p) in probs.iter().enumerate() {
+                if r < *p {
+                    index = i;
+                    break;
+                }
+                r -= p;
+            }
+            for (local, &q) in members.iter().enumerate() {
+                bits[q] = index >> local & 1 == 1;
+            }
+        }
+        let key: String = bits.iter().map(|b| if *b { '1' } else { '0' }).collect();
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    Ok(counts)
+}
+
+#[cfg(test)]
+mod factored_tests {
+    use super::*;
 
     #[test]
-    fn test_noise_model_default() {
-        let noise = NoiseModel {
-            depolarizing_prob: None,
-            amplitude_damping: None,
-            phase_damping: None,
-            readout_error: None,
-        };
-        assert!(noise.depolarizing_prob.is_none());
+    fn forty_qubits_of_bell_pairs_run_where_a_state_vector_cannot() {
+        // 20 disjoint Bell pairs: 40 qubits, far beyond the state-vector limit.
+        let mut ops = Vec::new();
+        for i in 0..20u32 {
+            ops.push((GateKind::H, vec![2 * i], 0.0));
+            ops.push((GateKind::Cx, vec![2 * i, 2 * i + 1], 0.0));
+        }
+        assert!(
+            exact_probabilities(40, &ops).is_err(),
+            "a single state vector cannot hold 40 qubits"
+        );
+        let counts = sample_factored(40, &ops, 400, 5).unwrap();
+        for key in counts.keys() {
+            let bytes = key.as_bytes();
+            for i in 0..20 {
+                assert_eq!(bytes[2 * i], bytes[2 * i + 1], "each pair is correlated: {key}");
+            }
+        }
+        assert_eq!(counts.values().sum::<u64>(), 400);
+        assert!(counts.len() > 1, "outcomes vary");
     }
+}
 
-    #[test]
-    fn test_backend_display() {
-        assert_eq!(format!("{:?}", SimBackend::StateVector), "StateVector");
-        assert_eq!(format!("{:?}", SimBackend::Noisy), "Noisy");
-    }
+/// The 2×2 unitary of a single-qubit gate, as `[[(re, im); 2]; 2]`. Used by the optimizer to fuse
+/// gates; rotation gates take their angle, and other gates ignore it.
+pub fn gate_matrix(gate: GateKind, angle: f64) -> [[(f64, f64); 2]; 2] {
+    let m = matrix1(gate, angle, false);
+    [
+        [(m[0][0].re, m[0][0].im), (m[0][1].re, m[0][1].im)],
+        [(m[1][0].re, m[1][0].im), (m[1][1].re, m[1][1].im)],
+    ]
 }

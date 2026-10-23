@@ -1,0 +1,11 @@
+// one Trotter step with dt = 0 is the identity: |01> stays |01>
+// expect-output: [true, false]
+import gala.algorithms.{ trotter_step2 }
+
+fn main() -> Int prob {
+    let q = qubits<2>()
+    x(q[0])
+    let q = trotter_step2(q, 0.0)
+    print(measure(q))
+    0
+}

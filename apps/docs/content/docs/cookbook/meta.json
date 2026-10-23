@@ -1,4 +1,11 @@
 {
   "title": "Cookbook",
-  "pages": ["index", "classical", "quantum", "hybrid"]
+  "pages": [
+    "index",
+    "beginner",
+    "quantum",
+    "hybrid",
+    "advanced",
+    "references"
+  ]
 }

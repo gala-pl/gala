@@ -1,55 +1,92 @@
 ---
-title: Control flow
-description: Blocks, conditionals, matches, loops, and expression-oriented control flow.
+title: Control Flow
+description: Expressions for branching, pattern matching, and iteration
 ---
 
-Gala’s AST and parser model control flow as expressions where practical. Blocks contain statements
-and may finish with a trailing expression; `if`, `match`, `for`, and `while` forms are represented
-as distinct expression nodes.
+All control flow in Gala is **expression-oriented** — every construct returns a value. There are
+no statements that only have side effects; everything produces a result.
 
-## Blocks and returns
+## `if` / `else`
 
-```gala
-fn absolute(value: Int) -> Int pure {
-    if value < 0 {
-        return -value;
-    } else {
-        return value;
-    }
+```
+let x = if condition { 42 } else { 0 }
+```
+
+`if` is an expression, not a statement. The branches must have the same type. The `else` branch
+is required when the result is used as a value.
+
+## `match`
+
+Pattern matching with exhaustive checking:
+
+```
+match noise_kind {
+    Depolarizing => "depolarizing",
+    AmplitudeDamping => "amplitude damping",
+    PhaseDamping => "phase damping",
+    _ => "unknown",
 }
 ```
 
-`return` is an explicit statement in the current parser. A block can also have a tail expression,
-which is useful for the ownership-threading style used by quantum functions.
+Patterns can include guards:
 
-## Branches and patterns
-
-```gala
-fn classify(value: Int) -> Bool pure {
-    match value {
-        0 => true,
-        _ => false,
-    }
+```
+match qubit_count {
+    n if n > 10 => "large register",
+    n if n > 0 => "small register",
+    _ => "empty",
 }
 ```
 
-The AST includes identifier, wildcard, tuple, struct, and literal patterns. Match exhaustiveness
-and rich pattern diagnostics are not yet a complete compiler feature.
+## `for`
 
-## Loops
+Iteration over ranges and collections:
 
-The surface model includes range-based `for` and `while` expressions:
+```
+// Range iteration
+for i in 0..4 {
+    ry(q[i], theta[i])
+}
 
-```gala
-fn sum(limit: Int) -> Int pure {
-    let mut total = 0;
-    for value in 0..limit {
-        total = total + value;
-    }
-    return total;
+// Collection iteration
+for layer in params.layers {
+    apply_layer(q, layer)
 }
 ```
 
-Quantum loops must still respect linear ownership on every path. A qubit cannot be consumed on one
-branch and reused on another without a type-safe ownership story; this is an important area for
-future control-flow conformance coverage.
+`for` is an expression — it returns the value of the last iteration (or unit `()` if the body
+returns unit).
+
+## `while`
+
+Conditional looping:
+
+```
+while error > tolerance {
+    step(&mut params)
+    error = evaluate(params)
+}
+```
+
+## Blocks as expressions
+
+Blocks return their trailing expression:
+
+```
+let result = {
+    let a = qubit()
+    h(a)
+    measure(a)
+}
+```
+
+Semicolons separate statements; the final expression (without a semicolon) is the block's value.
+
+## Pattern matching in `let`
+
+Destructuring is supported for tuples and structs:
+
+```
+let (a, b) = cx(control, target)
+let QubitPair { control, target } = pair
+```

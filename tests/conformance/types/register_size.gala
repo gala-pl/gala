@@ -1,0 +1,4 @@
+// expect: E0201
+fn f() -> Qubits<3> quantum {
+    qubits<2>()
+}

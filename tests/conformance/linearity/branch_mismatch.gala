@@ -1,0 +1,8 @@
+// expect: E0405
+// consumed on one branch only
+fn f(c: Bool) quantum {
+    let q = qubit()
+    if c {
+        drop(q)
+    }
+}

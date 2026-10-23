@@ -1,0 +1,8 @@
+// expect: ok
+// gates may act on register elements without consuming the register
+fn f() quantum {
+    let q = qubits<3>()
+    h(q[0])
+    cx(q[0], q[1])
+    drop(q)
+}

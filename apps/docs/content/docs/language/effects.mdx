@@ -1,57 +1,95 @@
 ---
 title: Effects
-description: The pure, quantum, and probabilistic worlds of Gala.
+description: The three-world model — pure, quantum, and prob
 ---
 
-Effects describe what a function is allowed to do. They are part of Gala’s design contract and are
-represented in the AST and type checker.
+Every function in Gala carries one of three **effect rows**. The effect is part of the type and
+part of the contract — it determines what the function may do and what it may call.
 
-## The effect lattice
+## The three worlds
 
-```text
-pure  ⊑  quantum  ⊑  prob
+| Effect | Meaning | Can call |
+|--------|---------|----------|
+| `pure` | Deterministic classical computation | `pure` only |
+| `quantum` | Unitary evolution of quantum state; reversible; **no measurement** | `pure`, `quantum` |
+| `prob` | Has performed measurement; carries classical randomness | all three |
+
+## Subsumption
+
+The ordering `pure ⊑ quantum ⊑ prob` governs what a function may call:
+
+- A `quantum` function may call `pure` functions (they produce no side effects).
+- A `prob` function may call anything (it has already crossed the measurement boundary).
+- Calling a `prob` function from a `quantum` context is a **type error** — you have crossed the
+  measurement boundary and must acknowledge it by being `prob` yourself.
+
+This is the classical/quantum interface: **visible and checked**.
+
+## Effect inference
+
+Effects are inferred bottom-up; annotations are checked, not required (except on public API
+boundaries, where they are recommended for documentation). If you omit the effect, the compiler
+infers the narrowest one that fits.
+
+```
+// Compiler infers `quantum` — this function applies gates but doesn't measure
+fn hadamard_pair() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
 ```
 
-- `pure`: deterministic classical computation.
-- `quantum`: quantum evolution without measurement.
-- `prob`: computation that has crossed the measurement boundary and may be stochastic.
+## Effect polymorphism
 
-The ordering describes which lower-level operations a context may call. A `quantum` function can
-use pure operations, while a pure function cannot perform quantum operations. A quantum function
-cannot call a probabilistic operation such as measurement.
+Higher-order functions may be generic over an effect variable `E`:
 
-```gala
-fn classical(value: Int) -> Int pure {
-    return value + 1;
-}
+```
+fn map<E>(xs: Qubits<N>, f: fn(Qubit) -> Qubit E) -> Qubits<N> E
+```
 
-fn rotate(q: Qubit) -> Qubit quantum {
-    return h(q);
-}
+This lets you write functions that work whether or not measurement occurs, while still being
+type-checked at the call site.
 
-fn sample(q: Qubit) -> Measured<Bool> prob {
-    return measure(q);
+## Examples
+
+### Pure function
+
+```
+fn add_one(x: Int) -> Int pure {
+    x + 1
 }
 ```
 
-## The measurement boundary
+### Quantum function (reversible, no measurement)
 
-`measure` is destructive for the qubit and produces a classical result. A function that performs
-measurement must be `prob` in the design model. This keeps reversible quantum kernels visibly
-separate from stochastic orchestration.
+```
+fn bell() -> Qubits<2> quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+```
 
-## Diagnostics
+### Prob function (performs measurement)
 
-Effect diagnostics are in the `E03xx` family. The registry includes effect mismatch,
-pure-calls-quantum, quantum-calls-prob, measurement-in-quantum, and effect-polymorphism errors.
-The current type checker reports explicit effect boundary violations; broader inference and
-higher-order effect polymorphism remain active design work.
+```
+fn coin() -> Measured<Bool> prob {
+    let q = qubit()
+    h(q)
+    measure(q)              // consumes q; function becomes `prob`
+}
+```
 
-## Why effects matter
+## Why this matters
 
-Effects are useful beyond documentation. They provide a boundary for:
+The effect system prevents the most dangerous class of quantum bugs: **silently crossing the
+measurement boundary**. A function typed `quantum` is guaranteed measurement-free and therefore
+reversible as a whole. You never have to wonder whether a function you're calling might measure
+its qubits — the type tells you.
 
-- deciding whether an adjoint is meaningful;
-- selecting a backend profile for adaptive measurement;
-- explaining why a supposedly reversible function cannot be reversed;
-- separating deterministic classical preprocessing from probabilistic results.
+For the full type-system deep-dive, see [Type System](/docs/language/type-system).

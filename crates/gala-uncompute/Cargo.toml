@@ -2,7 +2,7 @@
 name = "gala-uncompute"
 version = "0.1.0"
 edition = "2021"
-description = "Uncomputation analysis and synthesis for Gala"
+description = "Uncomputation analysis: decides whether an ancilla can be released safely"
 license = "Apache-2.0"
 repository = "https://github.com/gala-lang/gala"
 
@@ -12,7 +12,10 @@ path = "src/lib.rs"
 
 [dependencies]
 gala-ast.workspace = true
-gala-hir.workspace = true
-gala-types.workspace = true
-gala-span.workspace = true
 gala-diagnostics.workspace = true
+gala-hir.workspace = true
+gala-span.workspace = true
+gala-types.workspace = true
+
+[dev-dependencies]
+gala-parser.workspace = true

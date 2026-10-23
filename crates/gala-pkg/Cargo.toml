@@ -23,3 +23,6 @@ semver.workspace = true
 log.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
+thiserror.workspace = true
+toml_edit = "0.22"
+sha2 = "0.10"

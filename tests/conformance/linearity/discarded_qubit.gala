@@ -1,0 +1,5 @@
+// expect: E0402
+// a freshly allocated qubit is passed to a gate and thrown away
+fn f() quantum {
+    h(qubit());
+}
