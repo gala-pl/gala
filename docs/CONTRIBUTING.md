@@ -1,7 +1,7 @@
 # 11 — Contributing & Agent Operating Rules
 
 Conventions for humans and AI agents building Gala. The build backlog is in
-[AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md); this doc is the "how we work" contract.
+[PLAN.md](./PLAN.md); this doc is the "how we work" contract.
 
 ## 1. Definition of Done (non-negotiable)
 

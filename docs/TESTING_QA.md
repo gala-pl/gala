@@ -76,7 +76,7 @@ On every PR:
 
 ## 6. Definition of done (per work package)
 
-A work package (see [AGENTIC_BUILD_PLAN.md](./AGENTIC_BUILD_PLAN.md)) is complete only when:
+A work package (see [PLAN.md](./PLAN.md)) is complete only when:
 its code builds warning-free, unit + relevant property tests pass, conformance cases are added or
 updated, public items are documented, and diagnostics (if any) have `explain` entries. No
 exceptions — this is enforced in [CONTRIBUTING.md](./CONTRIBUTING.md).
