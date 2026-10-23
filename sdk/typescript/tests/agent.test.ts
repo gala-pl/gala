@@ -23,10 +23,23 @@ describe('GalaAgent', () => {
     expect(result.result).toBe('0');
   });
 
-  test('grad is unsupported and returns no number', async () => {
-    const result = await agent.grad('f', 'theta');
-    expect(result.supported).toBe(false);
-    expect(result.reason.length).toBeGreaterThan(0);
+  test('grad returns the parameter-shift gradient from the CLI', async () => {
+    const source = [
+      'fn classify(x: Float, theta: Float) -> Measured<Bool> prob {',
+      '    let q = qubit()',
+      '    ry(q, x)',
+      '    ry(q, theta)',
+      '    measure(q)',
+      '}',
+      '',
+      'fn main() -> Int { 0 }',
+      '',
+    ].join('\n');
+    const result = await agent.grad(source, { fn: 'classify', wrt: 1, args: [0.4, 0.9], shots: 40000 });
+    expect(result.supported).toBe(true);
+    // Analytic value: -sin(0.4 + 0.9), about -0.9636.
+    expect(Math.abs((result.value ?? 0) - -Math.sin(1.3))).toBeLessThan(0.05);
+    expect(result.occurrences).toBe(1);
   });
 
   test('verifyProperties runs runnable properties and reports the rest as unsupported', async () => {

@@ -65,8 +65,15 @@ export interface RunResult {
 }
 
 export interface GradResult {
-  supported: false;
-  reason: string;
+  /** True when the gradient was computed by the CLI. */
+  supported: boolean;
+  reason?: string;
+  /** The parameter-shift gradient, when supported. */
+  value?: number;
+  /** Rotation gates whose angle depends on the parameter. */
+  occurrences?: number;
+  /** Device submissions used. */
+  submissions?: number;
 }
 
 export interface PropertyResult {
@@ -97,9 +104,6 @@ interface ExecOutput {
   timedOut: boolean;
 }
 
-const GRAD_REASON =
-  'The gala CLI exposes no gradient command yet (no `gala grad`), so gradients cannot be computed. ' +
-  'No value is returned rather than a fabricated one.';
 
 
 export class GalaAgent {
@@ -152,10 +156,33 @@ export class GalaAgent {
    * Gradient of `fn` with respect to `wrt`. Always unsupported today: the CLI has no
    * gradient command, so no number is returned.
    */
-  async grad(fn: string, wrt: string | string[]): Promise<GradResult> {
-    void fn;
-    void wrt;
-    return { supported: false, reason: GRAD_REASON };
+  async grad(
+    code: string,
+    options: { fn: string; wrt: number; args?: number[]; shots?: number; seed?: number }
+  ): Promise<GradResult> {
+    const extra = [
+      '--wrt', String(options.wrt),
+      '--shots', String(options.shots ?? 20000),
+      '--seed', String(options.seed ?? 0),
+    ];
+    return this.withSource(code, undefined, async (path) => {
+      const out = await this.exec(['grad', path, options.fn, ...extra, '--args', ...(options.args ?? []).map(String)]);
+      let doc: { value?: number; occurrences?: number; submissions?: number };
+      try {
+        doc = JSON.parse(out.stdout);
+      } catch {
+        return { supported: false, reason: this.describeFailure('gala grad', out) };
+      }
+      if (out.code !== 0 || typeof doc.value !== 'number') {
+        return { supported: false, reason: this.describeFailure('gala grad', out) };
+      }
+      return {
+        supported: true,
+        value: doc.value,
+        occurrences: doc.occurrences,
+        submissions: doc.submissions,
+      };
+    });
   }
 
   /**
