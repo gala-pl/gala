@@ -1,6 +1,8 @@
-// Use qubit after it was consumed: should produce E0401 (USE_AFTER_CONSUME)
-fn f(q: Qubit) -> Qubit {
-    let a = q;
-    let b = q;
-    return b;
+// expect: E0412
+// use after measurement destroyed the qubit
+fn f() -> Measured<Bool> prob {
+    let a = qubit()
+    let r = measure(a)
+    h(a)
+    r
 }

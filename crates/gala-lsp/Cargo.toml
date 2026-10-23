@@ -10,8 +10,17 @@ repository = "https://github.com/gala-lang/gala"
 name = "gala_lsp"
 path = "src/lib.rs"
 
+[[bin]]
+name = "gala-lsp"
+path = "src/main.rs"
+
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
+gala-ast.workspace = true
+gala-diagnostics.workspace = true
 gala-driver.workspace = true
+gala-gir.workspace = true
+gala-hir.workspace = true
+gala-parser.workspace = true
 gala-span.workspace = true
+gala-types.workspace = true
+serde_json.workspace = true

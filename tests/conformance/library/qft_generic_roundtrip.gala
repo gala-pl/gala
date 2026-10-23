@@ -1,0 +1,13 @@
+// expect-output: [true, false, true, false]
+// QFT then inverse QFT on a 4-qubit register is the identity, so the basis state survives.
+import gala.algorithms.{ qft, iqft }
+
+fn main() -> Int prob {
+    let q = qubits<4>()
+    x(q[0])
+    x(q[2])
+    let q = qft<4>(q)
+    let q = iqft<4>(q)
+    print(measure(q))
+    0
+}

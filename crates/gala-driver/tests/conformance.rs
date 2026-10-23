@@ -1,147 +1,164 @@
-//! Gala Conformance Test Suite
+//! Conformance suite: every `.gala` file under `tests/conformance/` states its expected outcome in
+//! its first comment lines:
 //!
-//! This integration test validates the compiler pipeline against a set of
-//! fixture files. It tests that:
-//! - Valid .gala sources parse and compile without errors
-//! - Invalid .gala sources produce appropriate diagnostics
+//! - `// expect: ok`            compiles with no errors
+//! - `// expect: E0412`         compiles to an error with this code (may list several, comma-separated)
+//! - `// expect-output: text`   compiles, runs, and the first shot prints exactly this text
+//!   (`// expect-output:` lines are joined by newlines)
 //!
-//! Run: cargo test --test conformance
+//! A file without an expectation is a failure of the suite, so every case says what it means.
 
+use gala_driver::{compile_file, Sources};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Get the workspace root directory (three levels up from the crate dir).
-fn workspace_root() -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    // Go up from crates/gala-driver/ to workspace root
-    manifest_dir.parent().and_then(|p| p.parent()).unwrap_or(manifest_dir).to_path_buf()
+fn corpus_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance")
 }
 
-/// Test all valid conformance fixtures parse successfully.
-#[test]
-fn test_conformance_valid_sources() {
-    let root = workspace_root();
-    let fixture_dir = root.join("tests/conformance/valid");
-    let mut passed = 0;
-    let mut failed = 0;
+fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    paths.sort();
+    for p in paths {
+        if p.is_dir() {
+            collect(&p, out);
+        } else if p.extension().is_some_and(|e| e == "gala") {
+            out.push(p);
+        }
+    }
+}
 
-    for entry in fs::read_dir(fixture_dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "gala") {
-            let source = fs::read_to_string(&path).unwrap();
-            let mut source_map = gala_span::SourceMap::new();
-            let file_id = source_map.add_file(path.to_path_buf(), source.clone());
+#[derive(Debug)]
+enum Expect {
+    Ok,
+    Codes(Vec<String>),
+    Output(String),
+    /// Compiles, then fails at run time with this code.
+    RunError(String),
+}
 
-            match gala_parser::parse_file(file_id, &source, &mut source_map) {
-                Ok(items) => {
-                    if items.is_empty() {
-                        println!("WARN: {} parsed but produced no items", path.display());
-                    }
-                    passed += 1;
-                }
-                Err(diags) => {
-                    println!("FAIL: {} produced errors:", path.display());
-                    for d in &diags.diagnostics {
-                        println!("  - {}: {}", d.code, d.message);
-                    }
-                    failed += 1;
-                }
+fn expectation(text: &str) -> Option<Expect> {
+    let mut output: Vec<String> = Vec::new();
+    let mut codes: Option<Vec<String>> = None;
+    let mut ok = false;
+    let mut run_error: Option<String> = None;
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("//") else { continue };
+        let rest = rest.trim();
+        if let Some(v) = rest.strip_prefix("expect-output:") {
+            output.push(v.trim_start().to_string());
+        } else if let Some(v) = rest.strip_prefix("expect-run-error:") {
+            run_error = Some(v.trim().to_string());
+        } else if let Some(v) = rest.strip_prefix("expect:") {
+            let v = v.trim();
+            if v == "ok" {
+                ok = true;
+            } else {
+                codes = Some(v.split(',').map(|c| c.trim().to_string()).collect());
             }
         }
     }
-
-    println!("\nValid sources: {passed} passed, {failed} failed");
-    assert!(failed == 0, "{failed} valid fixtures failed to parse");
+    if let Some(code) = run_error {
+        Some(Expect::RunError(code))
+    } else if !output.is_empty() {
+        Some(Expect::Output(output.join("\n")))
+    } else if let Some(c) = codes {
+        Some(Expect::Codes(c))
+    } else if ok {
+        Some(Expect::Ok)
+    } else {
+        None
+    }
 }
 
-/// Test that error fixture files produce diagnostics.
-#[test]
-fn test_conformance_error_sources() {
-    let root = workspace_root();
-    let fixture_dir = root.join("tests/conformance/errors");
-    let mut detected = 0;
-    let mut missed = 0;
-
-    for entry in fs::read_dir(fixture_dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "gala") {
-            let source = fs::read_to_string(&path).unwrap();
-            let mut source_map = gala_span::SourceMap::new();
-            let file_id = source_map.add_file(path.to_path_buf(), source.clone());
-
-            match gala_parser::parse_file(file_id, &source, &mut source_map) {
-                Ok(_items) => {
-                    println!("MISS: {} parsed without errors (expected errors)", path.display());
-                    missed += 1;
-                }
-                Err(diags) => {
-                    if diags.has_errors() {
-                        detected += 1;
-                    }
-                }
+/// Run one case and return a failure description, or `None` on success.
+fn check_case(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    let Some(expect) = expectation(&text) else {
+        return Some(format!("{}: no `// expect:` header", path.display()));
+    };
+    let mut sources = Sources::default();
+    let result = compile_file(path, &mut sources);
+    match (expect, result) {
+        (Expect::Ok, Ok(_)) => None,
+        (Expect::Ok, Err(d)) => {
+            let codes: Vec<String> = d.errors().iter().map(|e| e.code.to_string()).collect();
+            Some(format!("{}: expected ok, got {codes:?}", path.display()))
+        }
+        (Expect::Codes(want), Ok(_)) => {
+            Some(format!("{}: expected {want:?}, but it compiled", path.display()))
+        }
+        (Expect::Codes(want), Err(d)) => {
+            let got: Vec<String> = d.errors().iter().map(|e| e.code.to_string()).collect();
+            if want.iter().all(|w| got.contains(w)) {
+                None
+            } else {
+                Some(format!("{}: expected {want:?}, got {got:?}", path.display()))
             }
         }
-    }
-
-    println!("\nError sources: {detected} detected, {missed} missed");
-    assert!(detected > 0, "expected at least one error fixture to produce diagnostics");
-}
-
-/// Test the full compilation pipeline on valid sources.
-#[test]
-fn test_conformance_compile_pipeline() {
-    let fixture_dir = workspace_root().join("tests/conformance/valid");
-    let mut passed = 0;
-
-    for entry in fs::read_dir(fixture_dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "gala") {
-            let source = fs::read_to_string(&path).unwrap();
-            let mut source_map = gala_span::SourceMap::new();
-            let file_id = source_map.add_file(path.to_path_buf(), source.clone());
-
-            // Run through the driver's check_file which runs the full pipeline
-            let diags = gala_driver::check_file(file_id, &source, &mut source_map);
-            if diags.has_errors() {
-                let name = path.file_name().unwrap().to_string_lossy();
-                println!("  {name}: compile warnings found");
+        (Expect::Output(want), Ok(program)) => {
+            let report = match gala_sim::run_entry(
+                &program.gir,
+                &gala_sim::SimConfig { shots: 1, seed: 1, ..Default::default() },
+            ) {
+                Ok(r) => r,
+                Err(e) => return Some(format!("{}: run failed: {e}", path.display())),
+            };
+            let got = report.output.join("\n");
+            if got == want {
+                None
+            } else {
+                Some(format!("{}: expected output {want:?}, got {got:?}", path.display()))
             }
-            passed += 1;
+        }
+        (Expect::Output(_), Err(d)) => {
+            let codes: Vec<String> = d.errors().iter().map(|e| e.code.to_string()).collect();
+            Some(format!("{}: expected output, got errors {codes:?}", path.display()))
+        }
+        (Expect::RunError(want), Ok(program)) => {
+            match gala_sim::run_entry(
+                &program.gir,
+                &gala_sim::SimConfig { shots: 1, seed: 1, ..Default::default() },
+            ) {
+                Err(e) if e.code.to_string() == want => None,
+                Err(e) => {
+                    Some(format!("{}: expected run error {want}, got {}", path.display(), e.code))
+                }
+                Ok(_) => Some(format!("{}: expected run error {want}, but it ran", path.display())),
+            }
+        }
+        (Expect::RunError(want), Err(d)) => {
+            let codes: Vec<String> = d.errors().iter().map(|e| e.code.to_string()).collect();
+            Some(format!(
+                "{}: expected run error {want}, got compile errors {codes:?}",
+                path.display()
+            ))
         }
     }
-
-    println!("\nPipeline: {passed} sources compiled");
-    assert!(passed > 0, "At least one fixture should compile");
 }
 
-/// Verify the conformance fixture directory structure is intact.
 #[test]
-fn test_conformance_directory_structure() {
-    let valid_dir = workspace_root().join("tests/conformance/valid");
-    let errors_dir = workspace_root().join("tests/conformance/errors");
-
-    assert!(valid_dir.exists(), "valid fixtures directory missing");
-    assert!(errors_dir.exists(), "error fixtures directory missing");
-
-    let valid_count = count_gala_files(&valid_dir);
-    let error_count = count_gala_files(&errors_dir);
-
-    assert!(valid_count > 0, "No valid fixture files found");
-    assert!(error_count > 0, "No error fixture files found");
-
-    println!("Found {valid_count} valid and {error_count} error fixtures");
+fn conformance_suite_passes() {
+    let mut files = Vec::new();
+    collect(&corpus_root(), &mut files);
+    assert!(files.len() >= 20, "expected a real corpus, found {} files", files.len());
+    let failures: Vec<String> = files.iter().filter_map(|p| check_case(p)).collect();
+    assert!(
+        failures.is_empty(),
+        "{} of {} conformance cases failed:\n{}",
+        failures.len(),
+        files.len(),
+        failures.join("\n")
+    );
 }
 
-fn count_gala_files(dir: &Path) -> usize {
-    fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().is_some_and(|ext| ext == "gala"))
-                .count()
-        })
-        .unwrap_or(0)
+#[test]
+fn every_case_declares_an_expectation() {
+    let mut files = Vec::new();
+    collect(&corpus_root(), &mut files);
+    for p in &files {
+        let text = fs::read_to_string(p).unwrap_or_default();
+        assert!(expectation(&text).is_some(), "{} has no expectation header", p.display());
+    }
 }

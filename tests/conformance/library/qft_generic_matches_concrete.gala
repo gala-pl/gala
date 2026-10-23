@@ -1,0 +1,13 @@
+// expect-output: [true, false]
+// The generic forward QFT at N = 2 must equal the concrete `qft2`: its output undone by the
+// concrete inverse `iqft2` gives the input back, so the basis state |10⟩ is recovered.
+import gala.algorithms.{ qft, iqft2 }
+
+fn main() -> Int prob {
+    let q = qubits<2>()
+    x(q[0])
+    let q = qft<2>(q)
+    let q = iqft2(q)
+    print(measure(q))
+    0
+}

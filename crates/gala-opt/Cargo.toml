@@ -1,10 +1,10 @@
 [package]
 name = "gala-opt"
-version = "0.1.0"
-edition = "2021"
-description = "GIR optimization passes for Gala"
-license = "Apache-2.0"
-repository = "https://github.com/gala-lang/gala"
+version.workspace = true
+edition.workspace = true
+description = "GIR optimizer: gate cancellation and rotation merging, semantics-preserving"
+license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "gala_opt"
@@ -12,5 +12,10 @@ path = "src/lib.rs"
 
 [dependencies]
 gala-gir.workspace = true
+gala-sim.workspace = true
+
+[dev-dependencies]
+gala-hir.workspace = true
+gala-parser.workspace = true
 gala-span.workspace = true
-gala-diagnostics.workspace = true
+gala-types.workspace = true

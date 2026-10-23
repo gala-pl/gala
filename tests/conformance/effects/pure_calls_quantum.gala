@@ -1,0 +1,5 @@
+// expect: E0302
+// a pure function may not apply gates
+fn f(q: Qubit) -> Qubit pure {
+    h(q)
+}

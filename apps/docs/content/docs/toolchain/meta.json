@@ -1,4 +1,4 @@
 {
   "title": "Toolchain",
-  "pages": ["index", "cli", "diagnostics", "formatter-lsp", "testing"]
+  "pages": ["cli", "lsp", "testing", "formatter", "diagnostics"]
 }

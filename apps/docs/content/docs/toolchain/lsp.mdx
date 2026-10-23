@@ -1,0 +1,70 @@
+---
+title: Language Server (LSP)
+description: Editor integration, diagnostics, hover, go-to-definition, and inline circuit diagrams
+---
+
+The Gala language server (`gala-lsp`) is built on `tower-lsp`, sharing the `salsa` query graph
+with the compiler so results are consistent and incremental.
+
+## Features
+
+### Live diagnostics
+
+Type/effect/linearity/uncomputation errors appear as you type. Error recovery in the parser
+keeps the LSP working even in broken files — you always get feedback, not silence.
+
+### Hover
+
+Hover over any identifier to see its **type and effect**:
+
+```
+fn classify(x: Vec<Float>, θ: Params) -> Measured<Bool> prob
+```
+
+This is critical in Gala because effects are part of the type. Knowing a function is `quantum`
+vs `prob` tells you whether it measures qubits.
+
+### Go-to-definition
+
+Navigate to where any function, type, or constant is defined. Works across modules.
+
+### Find references
+
+See all call sites of a function across your project.
+
+### Rename
+
+Rename a function or type across all files in your project.
+
+### Autocomplete
+
+Context-aware completions for functions, types, and modules.
+
+### Inline circuit diagrams
+
+A code lens or hover renders the circuit a `quantum` function builds — see your quantum
+program as a circuit diagram without leaving the editor.
+
+### Inlay hints
+
+Inferred qubit-register sizes (`Qubits<N>`) and effects are shown as inlay hints, so you
+can see what the compiler inferred without cluttering the source.
+
+## Editor setup
+
+### VS Code
+
+The Gala VS Code extension wraps `gala lsp` and provides syntax highlighting via a
+TextMate/tree-sitter grammar.
+
+### Neovim / Zed
+
+Both work via the LSP protocol. See the editor extension configs in the `extensions/` directory
+of the Gala repository.
+
+## Architecture
+
+The LSP shares the same `salsa` query graph as batch compilation. An editor keystroke
+recomputes only the affected sub-graph, and `gala build` reuses cached results across runs.
+This means the LSP is always showing you exactly what the compiler would produce — no separate
+"IDE mode" that can diverge.

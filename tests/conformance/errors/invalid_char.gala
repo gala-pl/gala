@@ -1,0 +1,5 @@
+// expect: E0105
+// a character outside Gala's grammar
+fn f() -> Int {
+    1 @ 2
+}

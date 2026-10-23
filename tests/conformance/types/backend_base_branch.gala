@@ -1,0 +1,17 @@
+// a base-profile backend cannot run a program that branches on a measurement
+// expect: E0601
+fn branchy() -> Measured<Bool> prob {
+    let q = qubit()
+    x(q)
+    let r = measure(q)
+    if r {
+        print(1)
+    }
+    r
+}
+
+fn main() -> Int prob {
+    let backend = backend.base()
+    let ones = run(branchy, on: backend, shots: 10)
+    0
+}

@@ -1,63 +1,28 @@
-//! Snapshot tests for the Gala formatter.
+//! Snapshot tests for the Gala formatter, run on real programs from the conformance corpus.
 //!
-//! Usage:
-//!   cargo test -p gala-fmt --test snapshot_tests
-//!   cargo insta review        # accept/reject pending snapshots
-//!   INSTA_UPDATE=new cargo test -p gala-fmt --test snapshot_tests
+//! Each snapshot is the formatted output of one program. A change in the formatter shows as a
+//! snapshot diff; `INSTA_UPDATE=always cargo test -p gala-fmt --test snapshot_tests` accepts it.
 
-use gala_fmt::format_source;
+use gala_fmt::{format_source, is_formatted};
 
 #[test]
-fn all_expression_types() {
-    let source = r#"
-fn expressions(x: Int, y: Bool, z: Int) -> Int pure {
-    let a = if y { 1 } else { 0 };
-    let b = match a { 0 => 42, _ => 0 };
-    let c = for i in 0..10 { let _ = i; };
-    let d = while x > 0 { let _ = x; };
-    let e = |a: Int, b: Int| a + b;
-    let f = (x, y, z);
-    let g = x + y * z - 1;
-    return g;
-}
-"#;
+fn bell_pair_is_canonical() {
+    let source = "fn bell() -> Qubits<2> quantum {\n let a = qubit()\n let b = qubit()\n h(a)\n let (a, b) = cx(a, b)\n (a, b)\n}\n";
     let formatted = format_source(source);
-    insta::assert_debug_snapshot!("all_expression_types", formatted);
+    insta::assert_snapshot!("bell_pair_formatted", formatted);
+    assert!(is_formatted(&formatted));
 }
 
 #[test]
-fn struct_definition() {
-    let source = r#"
-struct Point {
-    x: Float,
-    y: Float,
-}
-"#;
+fn control_flow_is_indented() {
+    let source = "fn main() -> Int {\nlet mut s = 0\nfor i in 0..4 {\ns += i\n}\nif s > 3 {\nprint(s)\n} else {\nprint(0)\n}\n0\n}\n";
     let formatted = format_source(source);
-    insta::assert_debug_snapshot!("struct_definition", formatted);
+    insta::assert_snapshot!("control_flow_formatted", formatted);
 }
 
 #[test]
-fn enum_definition() {
-    let source = r#"
-enum Option<T> {
-    Some(T),
-    None,
-}
-"#;
-    let formatted = format_source(source);
-    insta::assert_debug_snapshot!("enum_definition", formatted);
-}
-
-#[test]
-fn round_trip() {
-    let source = r#"
-fn add(a: Int, b: Int) -> Int pure {
-    return a + b;
-}
-"#;
-    let formatted = format_source(source);
-    let reformatted = format_source(&formatted);
-    insta::assert_debug_snapshot!("round_trip_output", reformatted);
-    assert_eq!(reformatted, formatted, "formatter is not idempotent");
+fn formatting_is_idempotent_on_messy_input() {
+    let source = "fn add(a: Int,   b: Int) -> Int pure {\n\n\n      return a + b;\n}\n";
+    let once = format_source(source);
+    assert_eq!(format_source(&once), once, "formatter is not idempotent");
 }

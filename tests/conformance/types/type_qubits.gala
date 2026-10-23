@@ -1,3 +1,5 @@
-fn f(q: Qubit) -> Qubit {
-    return q;
+// expect: ok
+fn f(q: Qubits<2>) -> Qubits<2> quantum {
+    h(q[0])
+    q
 }

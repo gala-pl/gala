@@ -20,3 +20,5 @@ gala-types.workspace = true
 gala-uncompute.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
+[dev-dependencies]
+gala-parser.workspace = true

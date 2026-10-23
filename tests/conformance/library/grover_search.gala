@@ -1,0 +1,8 @@
+// expect-output: [true, true]
+import gala.algorithms.{ grover2 }
+
+fn main() -> Int prob {
+    let r = grover2()
+    print(r)
+    0
+}

@@ -1,0 +1,6 @@
+// expect: E0304
+// measurement is prob, so a quantum function cannot measure
+fn f() -> Measured<Bool> quantum {
+    let q = qubit()
+    measure(q)
+}

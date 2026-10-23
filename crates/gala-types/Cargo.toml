@@ -17,5 +17,6 @@ gala-hir.workspace = true
 gala-span.workspace = true
 gala-diagnostics.workspace = true
 [dev-dependencies]
+gala-parser.workspace = true
 proptest.workspace = true
 insta.workspace = true

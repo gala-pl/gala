@@ -1,61 +1,59 @@
 ---
 title: Installation
-description: Build Gala from the Rust workspace and run the repository checks.
+description: Install the Gala toolchain on your system
 ---
 
-## Prerequisites
+Gala requires Rust 1.85+ and a C compiler toolchain (for LLVM/QuEST native dependencies).
 
-- Rust with the version selected by [`rust-toolchain.toml`](https://github.com/gala-pl/gala/blob/main/rust-toolchain.toml).
-- A working C toolchain for dependencies that require native compilation.
-- Git, if you are contributing from a clone.
-
-The repository is a Rust 2021 Cargo workspace. The source of truth for the workspace members and
-dependencies is the root `Cargo.toml`; the documentation site is a separate Next.js application
-under `apps/docs`.
-
-## Build the compiler
-
-From the repository root:
+## Quick install
 
 ```bash
+# Clone the repository
+git clone https://github.com/anomalyco/gala.git
+cd gala
+
+# Build the full toolchain (may take a few minutes for LLVM)
 cargo build --workspace
+
+# Verify it works
+cargo run --bin gala -- --version
 ```
 
-Run the full Rust test suite:
+## Frontend-only build (faster)
+
+For development without simulators or hardware backends:
 
 ```bash
-cargo test --workspace
+cargo build --workspace --no-default-features -p gala-cli
 ```
 
-The normal quality gates are:
+## Platform-specific notes
+
+### macOS
+
+Install Xcode Command Line Tools first:
 
 ```bash
-cargo fmt --check
-cargo clippy --workspace -- -D warnings
+xcode-select --install
 ```
 
-## Run the CLI
+### Linux
 
-The CLI binary is the `gala` target in `crates/gala-cli`:
+Install LLVM and development headers:
 
 ```bash
-cargo run --bin gala -- --help
-cargo run --bin gala -- build examples/hello_world.gala
+# Debian/Ubuntu
+sudo apt install llvm-dev libclang-dev
+
+# Fedora
+sudo dnf install llvm-devel clang-devel
 ```
 
-The first command prints the command surface. The second sends the file through the compiler
-driver and prints the current build representation.
+### Windows
 
-## Work on the docs site
+Use the LLVM installer from https://releases.llvm.org/ and ensure `llvm-config` is in your PATH.
 
-The documentation app uses Nub 0.8.3 and Node.js 24+:
+## Next steps
 
-```bash
-cd apps/docs
-nub install
-nub run dev
-```
-
-Validation commands are `nub run test`, `nub run format:check`, `nub run lint:check`, and
-`nub run build`. Content belongs in `apps/docs/content/docs`; keep site identity in
-`apps/docs/lib/site.ts`.
+- [Quickstart](/docs/getting-started/quickstart) — write and run your first Gala program
+- [Language Specification](/docs/language-spec) — learn the syntax and types

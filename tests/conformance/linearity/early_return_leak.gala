@@ -1,0 +1,10 @@
+// expect: E0402
+// a live qubit leaks on the early return
+fn f(c: Bool) -> Int quantum {
+    let q = qubit()
+    if c {
+        return 1
+    }
+    drop(q)
+    0
+}

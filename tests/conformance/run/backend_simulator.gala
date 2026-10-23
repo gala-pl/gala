@@ -1,0 +1,14 @@
+// the same program on the simulator backend: 100 of 100 shots measure true
+// expect-output: 100
+fn flip() -> Measured<Bool> prob {
+    let q = qubit()
+    x(q)
+    measure(q)
+}
+
+fn main() -> Int prob {
+    let backend = backend.simulator()
+    let ones = run(flip, on: backend, shots: 100)
+    print(ones)
+    0
+}

@@ -1,29 +1,21 @@
-// Gala core library — compiler intrinsics and primitive operations.
-// These operations are built into the compiler and have special lowering.
+// Gala core library: compiler intrinsics.
+//
+// A declaration without a body binds to the compiler builtin of the same name, so the signatures
+// here are what callers see; the compiler provides the behavior.
 
-/// Allocate a single qubit initialized to |0⟩.
-/// Effect: quantum — this is a quantum operation.
-fn qubit() -> Qubit quantum
+/// Allocate one qubit in |0⟩. Effect: quantum.
+fn qubit() -> Qubit quantum;
 
-/// Allocate N qubits initialized to |0⟩.
-/// Effect: quantum
-fn qubits<N>() -> Qubits<N> quantum
+/// Allocate a register of qubits in |0…0⟩. The size is given at the call: `qubits<4>()`.
+fn qubits() quantum;
 
-/// Measure a qubit, collapsing it to a classical bit.
-/// The qubit is consumed (no-cloning theorem).
-/// Returns a probabilistic result.
-/// Effect: prob — measurement introduces classical randomness.
-fn measure(q: Qubit) -> Measured<Bool> prob
+/// Measure a qubit (or a register). The qubit is consumed; the result is a sampled outcome.
+/// Effect: prob.
+fn measure(q: Qubit) -> Measured<Bool> prob;
 
-/// Safely release a qubit. The compiler synthesizes the
-/// uncompute sequence (adjoint of the provenance) before
-/// releasing the qubit back to |0⟩.
-/// If the qubit is not liftable, this is a compile error E0530.
-fn drop(q: Qubit) quantum
+/// Release a qubit after the compiler synthesizes its uncomputation. Refused with E0530 when the
+/// qubit cannot be returned to |0⟩.
+fn drop(q: Qubit) quantum;
 
-/// Copy a classical value. Only works for Copy types
-/// (Bool, Int, Float, String, Measured<T>, etc).
-fn copy<T: Copy>(x: T) -> (T, T) pure
-
-/// Identity function.
-fn id<T>(x: T) -> T pure
+/// Print a value to standard output. Effect: pure.
+fn print(x: Int) pure;

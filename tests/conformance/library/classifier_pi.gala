@@ -1,0 +1,7 @@
+// expect-output: true
+import gala.vqa.{ classify }
+
+fn main() -> Int prob {
+    print(classify(3.141592653589793, 0.0))
+    0
+}

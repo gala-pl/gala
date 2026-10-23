@@ -1,86 +1,133 @@
-// Gala quantum algorithms library.
+// Gala quantum algorithms.
 //
-// Built-in, well-tested quantum algorithms that double as
-// correctness tests for the compiler's uncomputation and
-// reversibility guarantees.
+// Written in Gala with the gates and measurement from the core library. Register sizes are
+// concrete: generic register sizes (`Qubits<N>`) are not supported by the compiler yet.
 
-import gala.gates.{ h, x, cx, rz, swap, t, s }
-import gala.core.{ qubit, qubits, measure, drop }
+/// Quantum Fourier transform on two qubits, with the output swap applied.
+fn qft2(q: Qubits<2>) -> Qubits<2> quantum {
+    h(q[1])
+    cp(q[0], q[1], 1.5707963267948966)
+    h(q[0])
+    swap(q[0], q[1])
+    q
+}
 
-// ─── Quantum Fourier Transform ───
+/// Inverse quantum Fourier transform on two qubits: the exact inverse of `qft2`.
+fn iqft2(q: Qubits<2>) -> Qubits<2> quantum {
+    swap(q[0], q[1])
+    h(q[0])
+    cp(q[0], q[1], -1.5707963267948966)
+    h(q[1])
+    q
+}
 
-/// Apply the Quantum Fourier Transform to a register.
-/// The QFT is the quantum analogue of the discrete Fourier transform.
-/// It maps the computational basis to the Fourier basis.
-fn qft(q: Qubits<N>) -> Qubits<N> quantum {
-    // Placeholder: would apply Hadamard + controlled rotations
+/// Quantum Fourier transform on `N` qubits, with the output swap applied. Instantiated per
+/// register size: `qft<4>(q)` takes a `Qubits<4>`.
+fn qft<const N: Int>(q: Qubits<N>) -> Qubits<N> quantum {
     for i in 0..N {
         h(q[i])
-        for j in i+1..N {
-            // Apply controlled rotation R_{j-i+1} on q[j] controlled by q[i]
-            crz(q[i], q[j], pi() / pow(2, j - i + 1))
+        // Controlled phases π/2, π/4, … from each later qubit onto qubit `i`.
+        let mut angle = 1.5707963267948966
+        for j in i + 1..N {
+            cp(q[j], q[i], angle)
+            angle = angle / 2.0
         }
     }
-    return q;
+    for i in 0..N / 2 {
+        swap(q[i], q[N - 1 - i])
+    }
+    q
 }
 
-/// Inverse Quantum Fourier Transform
-fn iqft(q: Qubits<N>) -> Qubits<N> quantum {
-    // The adjoint is compiler-derived: adjoint(qft)
-    // But we also provide it directly for clarity
-    return reverse(qft)(q);
-}
-
-// ─── Grover's Search Algorithm ───
-
-/// Apply the Grover diffusion operator (inversion about the mean).
-fn grover_diffusion(q: Qubits<N>) -> Qubits<N> quantum {
-    for i in 0..N {
+/// Inverse quantum Fourier transform on `N` qubits: the exact inverse of `qft<N>`.
+fn iqft<const N: Int>(q: Qubits<N>) -> Qubits<N> quantum {
+    for i in 0..N / 2 {
+        swap(q[i], q[N - 1 - i])
+    }
+    // Undo the qubits from last to first. Each one's controlled phases commute with each other,
+    // so they may be applied in ascending order.
+    let mut i = N
+    while i > 0 {
+        i -= 1
+        let mut angle = -1.5707963267948966
+        for j in i + 1..N {
+            cp(q[j], q[i], angle)
+            angle = angle / 2.0
+        }
         h(q[i])
-        x(q[i])
     }
-    h(q[N-1])  // multi-controlled Z
-    x(q[N-1])
-    for i in 0..N {
-        h(q[i])
-        x(q[i])
-    }
-    return q;
+    q
 }
 
-/// Run Grover's search algorithm for k iterations.
-fn grover_search(q: Qubits<N>, oracle: fn(Qubits<N>) -> Qubits<N> quantum, k: Int) -> Qubits<N> quantum {
-    for _ in 0..k {
-        oracle(q)
-        grover_diffusion(q)
-    }
-    return q;
+/// Grover search over two items for the marked state |11⟩. One iteration finds it with
+/// certainty, so the measurement returns `[true, true]`.
+fn grover2() -> Measured<Vec<Bool>> prob {
+    let q = qubits<2>()
+    h(q[0])
+    h(q[1])
+    // Oracle: flip the phase of |11⟩.
+    cz(q[0], q[1])
+    // Diffusion: reflect about the uniform superposition.
+    h(q[0])
+    h(q[1])
+    x(q[0])
+    x(q[1])
+    cz(q[0], q[1])
+    x(q[0])
+    x(q[1])
+    h(q[0])
+    h(q[1])
+    measure(q)
 }
 
-// ─── Phase Estimation ───
-
-/// Estimate the phase φ of a unitary U applied to eigenstate |ψ⟩.
-/// Uses t ancilla qubits for the phase register.
-fn phase_estimation<M, N>(
-    U: fn(Qubits<N>) -> Qubits<N> quantum,
-    ψ: Qubits<N>,
-    t: Int
-) -> (Qubits<M>, Measured<Int>) prob {
-    // Placeholder: would apply H, controlled-U²ʲ, IQFT, then measure
-    let ancilla = qubits<M>()
-    return (ancilla, measure(ψ[0]));
+/// Toffoli (controlled-controlled-NOT): flips `c` when both `a` and `b` are 1.
+/// Standard decomposition into H, T, T-adjoint, and CNOT; exact up to a global phase.
+fn toffoli(a: Qubit, b: Qubit, c: Qubit) -> (Qubit, Qubit, Qubit) quantum {
+    h(c)
+    cx(b, c)
+    rz(c, -0.7853981633974483)
+    cx(a, c)
+    t(c)
+    cx(b, c)
+    rz(c, -0.7853981633974483)
+    cx(a, c)
+    t(b)
+    t(c)
+    h(c)
+    cx(a, b)
+    t(a)
+    rz(b, -0.7853981633974483)
+    cx(a, b)
+    (a, b, c)
 }
 
-// ─── Adder (Ripple-carry) ───
-
-/// Simple quantum adder using ancillae.
-/// Exercises auto-uncomputation.
-fn quantum_adder(a: Qubits<N>, b: Qubits<N>) -> (Qubits<N>, Qubits<N>) quantum {
-    // Placeholder: textbook ripple-carry adder
-    return (a, b);
+/// Full adder on one bit: `b` becomes the sum `a ⊕ b ⊕ cin`, and `cout` (which must start in |0⟩)
+/// becomes the carry `a·b ⊕ cin·(a ⊕ b)`. `a` and `cin` are unchanged.
+fn full_adder(a: Qubit, b: Qubit, cin: Qubit, cout: Qubit) -> (Qubit, Qubit, Qubit, Qubit) quantum {
+    let (a, b, cout) = toffoli(a, b, cout)
+    cx(a, b)
+    let (cin, b, cout) = toffoli(cin, b, cout)
+    cx(cin, b)
+    (a, b, cin, cout)
 }
 
-// Utility
-fn pow(base: Int, exp: Int) -> Int pure {
-    // Integer power function
+/// One first-order Trotter step of H = Z⊗Z + X⊗I for time `dt`:
+/// exp(−i·dt·ZZ) · exp(−i·dt·XI), with each term a basis-changed Z rotation.
+fn trotter_step2(q: Qubits<2>, dt: Float) -> Qubits<2> quantum {
+    cx(q[0], q[1])
+    rz(q[1], 2.0 * dt)
+    cx(q[0], q[1])
+    rx(q[0], 2.0 * dt)
+    q
+}
+
+/// Phase estimation with one counting qubit for the eigenphase φ = 1/2 of Z (eigenvalue −1 on
+/// |1⟩). The counting qubit reads 1 and the target stays in |1⟩, so the result is `[true, true]`.
+fn phase_estimate_z() -> Measured<Vec<Bool>> prob {
+    let q = qubits<2>()
+    x(q[1])
+    h(q[0])
+    cz(q[0], q[1])
+    h(q[0])
+    measure(q)
 }

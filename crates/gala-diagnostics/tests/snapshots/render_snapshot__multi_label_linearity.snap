@@ -1,0 +1,18 @@
+---
+source: crates/gala-diagnostics/tests/render_snapshot.rs
+expression: "render(&diag, &sources)"
+---
+[E0412] Error: qubit `q` used after it was consumed
+   ╭─[ classifier.gala:3:13 ]
+   │
+ 2 │     let a = q
+   │             ┬  
+   │             ╰── consumed here
+ 3 │     let b = q
+   │             ┬  
+   │             ╰── used here
+   │ 
+   │ Help: use the value returned by the operation
+   │ 
+   │ Note: a qubit is a linear resource
+───╯

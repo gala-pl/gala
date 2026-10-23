@@ -1,7 +1,7 @@
-// Use qubit in two places: should produce E0401 (USE_AFTER_CONSUME)
+// expect: E0412
+// a qubit used again after being moved into another name
 fn f(q: Qubit) -> Qubit {
-    let a = q;
-    let b = a;
-    let c = a;
-    return c;
+    let a = q
+    let b = q
+    b
 }

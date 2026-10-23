@@ -1,60 +1,27 @@
 ---
-title: Gala documentation
-description: The hybrid quantum-classical programming language and its Rust compiler.
+title: Welcome to Gala
+description: The hybrid quantum-classical programming language
 ---
 
-<div className="gala-hero -mx-4 -mt-8 px-4 pb-10 pt-12 sm:-mx-8 sm:px-8">
-  <p className="gala-kicker">Hybrid quantum-classical programming</p>
-  # Gala
+Gala is a **classical language whose compiler enforces the laws of quantum mechanics** —
+no-cloning, reversibility, and safe uncomputation — while making hybrid quantum-classical
+machine learning ergonomic end to end.
 
-  Gala is a standalone language for programs that mix classical control with quantum kernels.
-  Its design puts quantum constraints in the language: qubits are linear resources, measurement
-  crosses an explicit effect boundary, and reversible computations can be uncomputed safely.
+## Quick links
 
-  <div className="mt-6 flex flex-wrap gap-3">
-    <a className="gala-button gala-button-primary" href="/docs/getting-started/quickstart">Start with the quickstart</a>
-    <a className="gala-button gala-button-secondary" href="/docs/reference/status">See implementation status</a>
-  </div>
-</div>
+- [Getting Started](/docs/getting-started/installation) — install the toolchain and run your first program
+- [Vision & Goals](/docs/vision) — why Gala exists and what it aims to be
+- [Language Specification](/docs/language-spec) — the surface-language reference
+- [Architecture](/docs/architecture) — how the compiler is built
 
-> **Project status.** Gala is an early-stage compiler project. The lexer, parser, AST/HIR,
-> type and linearity checks, uncomputation analysis, GIR model, formatter, package manifest
-> support, and conformance fixtures exist in the repository. Execution backends and several
-> higher-level tools are currently scaffolds. Pages mark those boundaries explicitly.
+## Why Gala?
 
-<div className="not-prose mt-8 grid gap-4 sm:grid-cols-2">
-  <a className="gala-card" href="/docs/getting-started/quickstart">
-    <strong>Learn the language</strong>
-    <span className="mt-2 block text-fd-muted-foreground">Read a small program, understand ownership, and inspect the compiler’s current workflow.</span>
-  </a>
-  <a className="gala-card" href="/docs/language">
-    <strong>Language guide</strong>
-    <span className="mt-2 block text-fd-muted-foreground">Explore syntax, types, effects, control flow, and quantum operations.</span>
-  </a>
-  <a className="gala-card" href="/docs/architecture">
-    <strong>Understand the compiler</strong>
-    <span className="mt-2 block text-fd-muted-foreground">Follow source through lexing, parsing, HIR, checks, uncomputation, and GIR.</span>
-  </a>
-  <a className="gala-card" href="/docs/toolchain">
-    <strong>Use the toolchain</strong>
-    <span className="mt-2 block text-fd-muted-foreground">Find the commands, diagnostics, formatter, tests, and current limitations.</span>
-  </a>
-</div>
+Quantum programs are never purely quantum. They are classical programs that orchestrate quantum
+kernels, read measurements, and feed parameters back in a loop. Gala is designed from the ground
+up for this hybrid reality.
 
-## The central idea
-
-Quantum programs are still programs: they allocate resources, call functions, branch on data,
-and eventually produce classical results. Gala makes the boundary visible instead of hiding it
-inside a library call.
-
-- `pure` functions are classical and deterministic.
-- `quantum` functions describe measurement-free quantum evolution.
-- `prob` functions have crossed the measurement boundary and may produce stochastic results.
-- `Qubit` and `Qubits<N>` are intended to be linear values: moving them is allowed, silently
-  copying or dropping them is not.
-
-## Documentation map
-
-Read [Getting started](/docs/getting-started) first. Then use the [Language](/docs/language)
-section for the surface model, [Architecture](/docs/architecture) for implementation details,
-and [Reference](/docs/reference) for the status and boundaries of the current release.
+- **Correctness you can't opt out of** — physically meaningless programs are unrepresentable
+- **Explicit classical/quantum boundary** — measurement is visible in the types and never silent
+- **Differentiability as a language feature** — `grad` is a native operator
+- **Great DX from day one** — LSP, simulator, formatter, and test runner ship with the language
+- **Backend-polymorphic** — the same source runs on simulators or real hardware

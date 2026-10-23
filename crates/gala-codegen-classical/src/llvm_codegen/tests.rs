@@ -41,11 +41,11 @@ fn func(
         id: FuncId(0),
         name: Ident::new(name),
         params: params.iter().map(|p| ValueId(*p)).collect(),
-        param_tys: params.iter().map(|_| gala_gir::TypeId(0)).collect(),
         ret_ty: ret_ty.map(gala_gir::TypeId),
         effect,
         blocks,
         entry_block: BlockId(entry),
+        gradient_param_indices: Vec::new(),
         span: Span::dummy(),
     };
     let fid = func.id;
@@ -235,11 +235,11 @@ fn test_function_call() {
         id: FuncId(1),
         name: Ident::new("caller"),
         params: Vec::new(),
-        param_tys: Vec::new(),
         ret_ty: None,
         effect: Effect::Pure,
         blocks: caller_blocks,
         entry_block: BlockId(0),
+        gradient_param_indices: Vec::new(),
         span: Span::dummy(),
     };
     gir.funcs.insert(FuncId(1), caller);

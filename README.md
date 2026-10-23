@@ -1,4 +1,4 @@
-# Gala Programming Language (experimental)
+# Gala
 
 ![Frontal Banner](./banner.png)
 

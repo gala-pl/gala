@@ -1,0 +1,16 @@
+// expect-output: 6
+// expect-output: 3
+// if, for, and while
+fn main() -> Int {
+    let mut s = 0
+    for i in 0..4 {
+        s += i
+    }
+    let mut n = 0
+    while n < 3 {
+        n += 1
+    }
+    print(s)
+    print(n)
+    0
+}

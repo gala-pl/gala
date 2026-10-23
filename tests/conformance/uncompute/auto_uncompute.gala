@@ -1,4 +1,9 @@
-// Auto-uncomputation should succeed for qubits used within scope
-fn f(q: Qubit) -> Qubit {
-    return q;
+// expect: ok
+// an ancilla entangled only with a live qubit is released
+fn f(d: Qubit) -> Qubit quantum {
+    let a = qubit()
+    cx(d, a)
+    cx(d, a)
+    drop(a)
+    d
 }

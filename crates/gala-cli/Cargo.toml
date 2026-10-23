@@ -12,14 +12,16 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+serde_json.workspace = true
+gala-ast.workspace = true
+gala-diagnostics.workspace = true
+gala-diff.workspace = true
 gala-codegen-classical.workspace = true
 gala-driver.workspace = true
 gala-fmt.workspace = true
 gala-gir.workspace = true
-gala-lsp.workspace = true
+gala-hir.workspace = true
 gala-pkg.workspace = true
-gala-qir.workspace = true
-gala-runtime.workspace = true
+gala-sim.workspace = true
 gala-span.workspace = true
-gala-diagnostics.workspace = true
-gala-std.workspace = true
+gala-types.workspace = true

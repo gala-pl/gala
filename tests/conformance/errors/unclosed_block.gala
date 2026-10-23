@@ -1,5 +1,4 @@
-// Gala conformance test: unclosed block
-
-fn main() -> Int {
-    return 0;
-
+// expect: E0110
+// the block is never closed
+fn f() -> Int {
+    1

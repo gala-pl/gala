@@ -1,0 +1,16 @@
+---
+source: crates/gala-fmt/tests/snapshot_tests.rs
+expression: formatted
+---
+fn main() -> Int {
+    let mut s = 0
+    for i in 0..4 {
+        s += i
+    }
+    if s > 3 {
+        print(s)
+    } else {
+        print(0)
+    }
+    0
+}

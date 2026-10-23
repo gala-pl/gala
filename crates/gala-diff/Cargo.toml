@@ -1,18 +1,19 @@
 [package]
 name = "gala-diff"
-version = "0.1.0"
-edition = "2021"
-description = "Differentiation lowering: parameter-shift + autodiff for Gala"
-license = "Apache-2.0"
-repository = "https://github.com/gala-lang/gala"
+version.workspace = true
+edition.workspace = true
+description = "Differentiation for Gala: parameter-shift gradients of measured expectations"
+license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "gala_diff"
 path = "src/lib.rs"
 
 [dependencies]
-gala-ast.workspace = true
-gala-gir.workspace = true
-gala-types.workspace = true
-gala-span.workspace = true
 gala-diagnostics.workspace = true
+gala-gir.workspace = true
+gala-sim.workspace = true
+
+[dev-dependencies]
+gala-driver.workspace = true

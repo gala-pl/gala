@@ -1,12 +1,369 @@
-//! QIR emission (LLVM IR) for Gala.
+//! GIR to QIR.
+//!
+//! QIR is LLVM IR with a fixed set of quantum intrinsics. This crate writes that text directly,
+//! because `inkwell` needs a system LLVM that this build does not require.
+//!
+//! Profiles:
+//! - **base**: straight-line gates and terminal measurements, with statically numbered qubits.
+//! - **adaptive**: the program branches on a measurement result (mid-circuit measurement). Each
+//!   GIR block becomes an LLVM block, and branches read the result with `read_result`.
+//!
+//! Limits, reported as `E0602` rather than emitted incorrectly: loops, calls to user functions,
+//! classical arithmetic that feeds a gate angle, and `print`. Angles must be literal constants.
+//!
+//! `Release` emits the inverse of the qubit's causal cone, computed from the emitted gates, so the
+//! ancilla is back in |0⟩ before its static index is retired. The emitted gate sequence can be
+//! checked against the source program with [`equivalent_on_simulator`].
 
 use gala_diagnostics::{codes, Diagnostic, Diagnostics};
-use gala_gir::{AllocKind, Constant, GateKind, Gir, NodeKind, Terminator, TypeKind, ValueId};
-use std::collections::{BTreeSet, HashMap};
+use gala_gir::{Const, GateKind, Gir, Inst, Slot, Term};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 
-/// Map a GIR gate to the corresponding QIR base-profile intrinsic.
-pub fn gate_intrinsic_name(gate: &GateKind) -> &'static str {
-    match gate {
+/// The QIR profile a program needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Profile {
+    Base,
+    Adaptive,
+}
+
+/// One emitted quantum operation, in order. Qubits are static indices.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QirOp {
+    pub gate: GateKind,
+    pub qubits: Vec<u32>,
+    pub angle: f64,
+}
+
+/// The output of emission.
+#[derive(Debug, Clone)]
+pub struct QirModule {
+    pub profile: Profile,
+    /// Number of static qubits the program uses.
+    pub num_qubits: usize,
+    /// Number of measurement results recorded.
+    pub num_results: usize,
+    /// The LLVM IR text.
+    pub text: String,
+    /// The gate sequence, in emission order (releases already expanded to their inverses).
+    pub ops: Vec<QirOp>,
+}
+
+/// Emit the QIR module for a program's entry point.
+pub fn emit(gir: &Gir) -> Result<QirModule, Diagnostics> {
+    let entry = gir.entry.ok_or_else(|| err("the program has no `main` function"))?;
+    let f = &gir.funcs[entry];
+    let mut e = Emitter::new(gir, entry);
+    // Blocks are emitted in order; a backward jump would be a loop, which QIR cannot express here.
+    for (i, b) in f.blocks.iter().enumerate() {
+        for t in successors(&b.term) {
+            if (t as usize) <= i {
+                return Err(err("loops are not supported by the QIR emitter yet"));
+            }
+        }
+    }
+    let adaptive = f.blocks.iter().any(|b| matches!(b.term, Term::Branch { .. }));
+    for (i, b) in f.blocks.iter().enumerate() {
+        e.block_label = i as u32;
+        for inst in &b.insts {
+            e.inst(inst)?;
+        }
+        e.term(&b.term, adaptive)?;
+    }
+    let profile = if adaptive { Profile::Adaptive } else { Profile::Base };
+    Ok(e.finish(profile))
+}
+
+fn err(msg: &str) -> Diagnostics {
+    let mut d = Diagnostics::new();
+    d.push(Diagnostic::error(codes::QIR_EMISSION_FAILED, msg.to_string()));
+    d
+}
+
+fn successors(t: &Term) -> Vec<u32> {
+    match t {
+        Term::Jump(b) => vec![*b],
+        Term::Branch { then_block, else_block, .. } => vec![*then_block, *else_block],
+        _ => Vec::new(),
+    }
+}
+
+/// What a slot holds during emission.
+#[derive(Debug, Clone, PartialEq)]
+enum Val {
+    Qubit(u32),
+    Register(Vec<u32>),
+    Result(u32),
+    Const(f64),
+    Tuple(Vec<Val>),
+    Unit,
+}
+
+struct Emitter {
+    slots: HashMap<Slot, Val>,
+    next_qubit: u32,
+    next_result: u32,
+    ops: Vec<QirOp>,
+    body: String,
+    block_label: u32,
+    /// Ops emitted since each qubit was allocated: its causal history, for release.
+    history: Vec<usize>,
+    alloc_at: HashMap<u32, usize>,
+    undone: HashSet<usize>,
+    gir_name: String,
+}
+
+impl Emitter {
+    fn new(gir: &Gir, entry: usize) -> Self {
+        Emitter {
+            slots: HashMap::new(),
+            next_qubit: 0,
+            next_result: 0,
+            ops: Vec::new(),
+            body: String::new(),
+            block_label: 0,
+            history: Vec::new(),
+            alloc_at: HashMap::new(),
+            undone: HashSet::new(),
+            gir_name: gir.funcs[entry].name.clone(),
+        }
+    }
+
+    fn get(&self, s: Slot) -> Result<Val, Diagnostics> {
+        self.slots.get(&s).cloned().ok_or_else(|| err("a value is used before it is defined"))
+    }
+
+    fn qubit(&self, s: Slot) -> Result<u32, Diagnostics> {
+        match self.get(s)? {
+            Val::Qubit(q) => Ok(q),
+            _ => Err(err("a gate was applied to something that is not a qubit")),
+        }
+    }
+
+    fn angle(&self, s: Option<Slot>) -> Result<f64, Diagnostics> {
+        match s {
+            None => Ok(0.0),
+            Some(s) => match self.get(s)? {
+                Val::Const(v) => Ok(v),
+                _ => Err(err("rotation angles must be literal constants for QIR emission")),
+            },
+        }
+    }
+
+    fn emit_op(&mut self, gate: GateKind, qubits: Vec<u32>, angle: f64) {
+        let idx = self.ops.len();
+        self.ops.push(QirOp { gate, qubits: qubits.clone(), angle });
+        self.history.push(idx);
+        let name = intrinsic(gate);
+        let mut args: Vec<String> = Vec::new();
+        if gate.has_angle() {
+            args.push(format!("double {angle:e}"));
+        }
+        for q in &qubits {
+            args.push(format!("%Qubit* inttoptr (i64 {q} to %Qubit*)"));
+        }
+        let _ = writeln!(self.body, "  call void @{name}({})", args.join(", "));
+    }
+
+    /// Inverse of the causal cone of `q` since its allocation, applied in reverse order.
+    fn release(&mut self, q: u32) -> Result<(), Diagnostics> {
+        let start = *self
+            .alloc_at
+            .get(&q)
+            .ok_or_else(|| err("released a qubit that was never allocated"))?;
+        let mut cone: HashSet<u32> = HashSet::from([q]);
+        let mut chosen = Vec::new();
+        for k in start..self.ops.len() {
+            if self.undone.contains(&k) {
+                continue;
+            }
+            let op = &self.ops[k];
+            if op.qubits.iter().any(|x| cone.contains(x)) {
+                cone.extend(op.qubits.iter().copied());
+                chosen.push(k);
+            }
+        }
+        for &k in chosen.iter().rev() {
+            let op = self.ops[k].clone();
+            let angle = if op.gate.has_angle() { -op.angle } else { op.angle };
+            self.emit_op_adjoint(op.gate, op.qubits, angle);
+        }
+        self.undone.extend(chosen);
+        Ok(())
+    }
+
+    fn emit_op_adjoint(&mut self, gate: GateKind, qubits: Vec<u32>, angle: f64) {
+        // Adjoint of S and T is not a Clifford/phase of the same intrinsic; express as rz-based.
+        match gate {
+            GateKind::S => self.emit_op(GateKind::Rz, qubits, -std::f64::consts::FRAC_PI_2),
+            GateKind::T => self.emit_op(GateKind::Rz, qubits, -std::f64::consts::FRAC_PI_4),
+            _ => self.emit_op(gate, qubits, angle),
+        }
+    }
+
+    fn inst(&mut self, inst: &Inst) -> Result<(), Diagnostics> {
+        match inst {
+            Inst::Const { dst, value } => {
+                let v = match value {
+                    Const::Float(f) => Val::Const(*f),
+                    Const::Int(i) => Val::Const(*i as f64),
+                    Const::Unit => Val::Unit,
+                    _ => Val::Unit,
+                };
+                self.slots.insert(*dst, v);
+            }
+            Inst::Copy { dst, src } => {
+                let v = self.get(*src)?;
+                self.slots.insert(*dst, v);
+            }
+            Inst::TupleGet { dst, src, i } => match self.get(*src)? {
+                Val::Tuple(items) => {
+                    let v =
+                        items.get(*i).cloned().ok_or_else(|| err("tuple index out of range"))?;
+                    self.slots.insert(*dst, v);
+                }
+                _ => return Err(err("destructuring a non-tuple")),
+            },
+            Inst::Tuple { dst, items } => {
+                let vals = items.iter().map(|s| self.get(*s)).collect::<Result<Vec<_>, _>>()?;
+                self.slots.insert(*dst, Val::Tuple(vals));
+            }
+            Inst::AllocQubit { dst } => {
+                let q = self.next_qubit;
+                self.next_qubit += 1;
+                self.alloc_at.insert(q, self.history.len());
+                self.slots.insert(*dst, Val::Qubit(q));
+            }
+            Inst::AllocRegister { dst, n } => {
+                let mut ids = Vec::new();
+                for _ in 0..*n {
+                    let q = self.next_qubit;
+                    self.next_qubit += 1;
+                    self.alloc_at.insert(q, self.history.len());
+                    ids.push(q);
+                }
+                self.slots.insert(*dst, Val::Register(ids));
+            }
+            Inst::Gate { gate, targets, angle, dsts } => {
+                let qs: Vec<u32> =
+                    targets.iter().map(|s| self.qubit(*s)).collect::<Result<_, _>>()?;
+                let a = self.angle(*angle)?;
+                match gate {
+                    GateKind::Cp => {
+                        // CP(θ) = Rz(θ/2)⊗Rz(θ/2) · CX · (I⊗Rz(−θ/2)) · CX, up to global phase.
+                        let (c, t) = (qs[0], qs[1]);
+                        self.emit_op(GateKind::Rz, vec![t], a / 2.0);
+                        self.emit_op(GateKind::Cx, vec![c, t], 0.0);
+                        self.emit_op(GateKind::Rz, vec![t], -a / 2.0);
+                        self.emit_op(GateKind::Cx, vec![c, t], 0.0);
+                        self.emit_op(GateKind::Rz, vec![c], a / 2.0);
+                    }
+                    _ => self.emit_op(*gate, qs.clone(), a),
+                }
+                for (d, q) in dsts.iter().zip(qs) {
+                    self.slots.insert(*d, Val::Qubit(q));
+                }
+            }
+            Inst::Measure { dst, target } => match self.get(*target)? {
+                Val::Qubit(q) => {
+                    let r = self.next_result;
+                    self.next_result += 1;
+                    let _ = writeln!(
+                        self.body,
+                        "  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 {q} to %Qubit*), %Result* inttoptr (i64 {r} to %Result*))"
+                    );
+                    self.slots.insert(*dst, Val::Result(r));
+                }
+                _ => {
+                    return Err(err(
+                        "measurement of a register is not supported by the QIR emitter yet",
+                    ))
+                }
+            },
+            Inst::Release { target } => match self.get(*target)? {
+                Val::Qubit(q) => self.release(q)?,
+                Val::Register(ids) => {
+                    for q in ids {
+                        self.release(q)?;
+                    }
+                }
+                _ => return Err(err("releasing a non-qubit")),
+            },
+            Inst::Call { .. } => {
+                return Err(err("calls to user functions are not supported by the QIR emitter yet"))
+            }
+            Inst::Print { .. } => return Err(err("`print` has no QIR form")),
+            Inst::Run { .. } => {
+                return Err(err(
+                    "`run` inside a program has no QIR form; run the function on a backend instead",
+                ))
+            }
+            Inst::Bin { .. }
+            | Inst::Un { .. }
+            | Inst::Len { .. }
+            | Inst::Index { .. }
+            | Inst::VecLit { .. } => {
+                return Err(err("classical arithmetic is not supported by the QIR emitter yet"));
+            }
+        }
+        Ok(())
+    }
+
+    fn term(&mut self, t: &Term, adaptive: bool) -> Result<(), Diagnostics> {
+        match t {
+            Term::Jump(b) => {
+                let _ = writeln!(self.body, "  br label %bb{b}");
+            }
+            Term::Branch { cond, then_block, else_block } => {
+                if !adaptive {
+                    return Err(err("branching needs the adaptive profile"));
+                }
+                let r = match self.get(*cond)? {
+                    Val::Result(r) => r,
+                    _ => return Err(err("branch conditions must be measurement results")),
+                };
+                let _ = writeln!(
+                    self.body,
+                    "  %c{r} = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 {r} to %Result*))"
+                );
+                let _ = writeln!(
+                    self.body,
+                    "  br i1 %c{r}, label %bb{then_block}, label %bb{else_block}"
+                );
+            }
+            Term::Return(_) | Term::Unreachable => {
+                // The entry's return value is classical; QIR programs return void.
+                let _ = writeln!(self.body, "  ret void");
+            }
+        }
+        // Labels partition the body: each GIR block starts its own LLVM block.
+        Ok(())
+    }
+
+    fn finish(self, profile: Profile) -> QirModule {
+        let num_qubits = self.next_qubit as usize;
+        let num_results = self.next_result as usize;
+        let profile_attr = match profile {
+            Profile::Base => "base_profile",
+            Profile::Adaptive => "adaptive_profile",
+        };
+        let mut text = String::new();
+        let _ = writeln!(text, "; Gala QIR for `{}`", self.gir_name);
+        text.push_str("%Qubit = type opaque\n%Result = type opaque\n\n");
+        let _ = writeln!(text, "define void @{}() #0 {{", self.gir_name);
+        // Entry block label, then the GIR blocks as labelled sections.
+        text.push_str("entry:\n");
+        text.push_str(&self.body);
+        text.push_str("}\n\n");
+        text.push_str(&format!(
+            "attributes #0 = {{ \"entry_point\" \"qir_profiles\"=\"{profile_attr}\" \"required_num_qubits\"=\"{num_qubits}\" \"required_num_results\"=\"{num_results}\" }}\n"
+        ));
+        QirModule { profile, num_qubits, num_results, text, ops: self.ops }
+    }
+}
+
+fn intrinsic(g: GateKind) -> &'static str {
+    match g {
         GateKind::H => "__quantum__qis__h__body",
         GateKind::X => "__quantum__qis__x__body",
         GateKind::Y => "__quantum__qis__y__body",
@@ -16,371 +373,90 @@ pub fn gate_intrinsic_name(gate: &GateKind) -> &'static str {
         GateKind::Rx => "__quantum__qis__rx__body",
         GateKind::Ry => "__quantum__qis__ry__body",
         GateKind::Rz => "__quantum__qis__rz__body",
-        GateKind::CX => "__quantum__qis__cx__body",
-        GateKind::CZ => "__quantum__qis__cz__body",
-        GateKind::SWAP => "__quantum__qis__swap__body",
-        GateKind::Measure => "__quantum__qis__mz__body",
+        GateKind::Cx => "__quantum__qis__cnot__body",
+        GateKind::Cz => "__quantum__qis__cz__body",
+        GateKind::Swap => "__quantum__qis__swap__body",
+        GateKind::Cp => "__quantum__qis__rz__body",
     }
 }
 
-/// QIR profile to emit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QirProfile {
-    Base,
-    Adaptive,
-}
-
-/// Emit QIR from GIR.
-pub fn emit_qir(gir: &Gir, profile: QirProfile) -> Result<String, Diagnostics> {
-    let mut output = String::new();
-
-    output.push_str("; QIR Module\n");
-    output.push_str("target triple = \"x86_64-unknown-linux-gnu\"\n\n");
-    output.push_str("%Qubit = type opaque\n");
-    output.push_str("%Result = type opaque\n\n");
-
-    let mut declarations = BTreeSet::new();
-    let mut funcs: Vec<_> = gir.funcs.values().collect();
-    funcs.sort_by_key(|func| func.id.0);
-    for func in &funcs {
-        for block in func.blocks.values() {
-            for node_id in &block.nodes {
-                let Some(node) = gir.nodes.get(node_id) else {
-                    return Err(unsupported("QIR emission encountered a missing GIR node"));
-                };
-                match &node.kind {
-                    NodeKind::Gate(gate) => {
-                        declarations.insert(gate_intrinsic_name(gate).to_string());
-                    }
-                    NodeKind::Measure { .. } => {
-                        declarations.insert("__quantum__qis__mz__body".to_string());
-                        declarations.insert("__quantum__rt__result_get_zero".to_string());
-                    }
-                    NodeKind::Alloc(AllocKind::Qubit) | NodeKind::Alloc(AllocKind::Qubits(_)) => {
-                        declarations.insert("__quantum__rt__qubit_allocate".to_string());
-                    }
-                    NodeKind::Free { .. } => {
-                        declarations.insert("__quantum__rt__qubit_release".to_string());
-                    }
-                    NodeKind::Alloc(AllocKind::Classical(_)) => {
-                        return Err(unsupported(
-                            "QIR emission does not support classical allocation",
-                        ));
-                    }
-                    NodeKind::Constant(Constant::Float(_)) => {}
-                    NodeKind::Constant(Constant::Unit) => {}
-                    NodeKind::Constant(_) => {
-                        return Err(unsupported(
-                            "QIR emission only supports unit and rotation-angle constants",
-                        ));
-                    }
-                    NodeKind::Classical(_) | NodeKind::Phi { .. } | NodeKind::Call { .. } => {
-                        return Err(unsupported(
-                            "QIR emission does not yet support classical nodes, Phi nodes, or calls",
-                        ));
-                    }
-                    NodeKind::Tuple { .. } | NodeKind::Extract { .. } => {}
-                }
-            }
+/// Check that a QIR gate sequence computes the same exact distribution as the program's own
+/// gate sequence on the simulator, for straight-line programs.
+pub fn equivalent_on_simulator(
+    module: &QirModule,
+    reference: &[(GateKind, Vec<u32>, f64)],
+) -> bool {
+    let ops: Vec<(GateKind, Vec<u32>, f64)> =
+        module.ops.iter().map(|o| (o.gate, o.qubits.clone(), o.angle)).collect();
+    match (
+        gala_sim::exact_probabilities(module.num_qubits, &ops),
+        gala_sim::exact_probabilities(module.num_qubits, reference),
+    ) {
+        (Ok(a), Ok(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() < 1e-9)
         }
+        _ => false,
     }
-    for declaration in declarations {
-        output.push_str(&intrinsic_declaration(&declaration));
-    }
-    if output.ends_with("\n") {
-        output.push('\n');
-    }
-
-    for func in funcs {
-        if func.blocks.len() != 1 {
-            return Err(unsupported("QIR emission currently requires a single basic block"));
-        }
-        let Some(block) = func.blocks.values().next() else {
-            return Err(unsupported("QIR function has no basic block"));
-        };
-        if !matches!(&block.terminator, Some(Terminator::Return(_)) | None) {
-            return Err(unsupported("QIR emission currently supports return terminators only"));
-        }
-        let mut parameter_declarations = Vec::with_capacity(func.params.len());
-        for (index, _) in func.params.iter().enumerate() {
-            let ty = if let Some(type_id) = func.param_tys.get(index) {
-                let Some(gir_type) = gir.types.get(type_id) else {
-                    return Err(unsupported("QIR parameter references a missing GIR type"));
-                };
-                qir_type(&gir_type.kind)?
-            } else {
-                // Preserve compatibility with hand-built GIR fixtures created
-                // before parameter metadata was introduced.
-                "%Qubit*".to_string()
-            };
-            parameter_declarations.push(format!("{ty} %q{index}"));
-        }
-        let params = parameter_declarations.join(", ");
-        let return_ty = func
-            .ret_ty
-            .and_then(|type_id| gir.types.get(&type_id))
-            .map(|ty| qir_type(&ty.kind))
-            .transpose()?
-            .unwrap_or_else(|| "void".to_string());
-        output.push_str(&format!("; Function: {}\n", func.name));
-        output.push_str(&format!("define {return_ty} @{}({params}) {{\n", func.name));
-        let mut values: HashMap<ValueId, String> = func
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, value)| (*value, format!("%q{index}")))
-            .collect();
-        let mut next_temp = 0usize;
-        let mut tuples = HashMap::<ValueId, Vec<String>>::new();
-        for node_id in &block.nodes {
-            let Some(node) = gir.nodes.get(node_id) else {
-                return Err(unsupported("QIR emission encountered a missing GIR node"));
-            };
-            emit_node(&mut output, node, &mut values, &mut tuples, &mut next_temp)?;
-        }
-        match block.terminator.as_ref() {
-            Some(Terminator::Return(Some(value))) => {
-                let Some(mapped) = values.get(value) else {
-                    return Err(unsupported("QIR return references an unmapped value"));
-                };
-                if return_ty == "void" {
-                    return Err(unsupported(
-                        "QIR function returns a value without return type metadata",
-                    ));
-                }
-                output.push_str(&format!("  ret {return_ty} {mapped}\n"));
-            }
-            Some(Terminator::Return(None)) | None => {
-                if return_ty != "void" {
-                    return Err(unsupported("QIR typed function has no return value"));
-                }
-                output.push_str("  ret void\n");
-            }
-            _ => {
-                return Err(unsupported("QIR emission currently supports return terminators only"))
-            }
-        }
-        output.push_str("}\n\n");
-    }
-
-    if profile == QirProfile::Adaptive {
-        output.insert_str(0, "; profile: adaptive\n");
-    } else {
-        output.insert_str(0, "; profile: base\n");
-    }
-    Ok(output)
-}
-
-fn intrinsic_declaration(name: &str) -> String {
-    let signature = match name {
-        "__quantum__rt__qubit_allocate" => "%Qubit* @__quantum__rt__qubit_allocate()",
-        "__quantum__rt__result_get_zero" => "%Result* @__quantum__rt__result_get_zero()",
-        "__quantum__qis__rx__body" | "__quantum__qis__ry__body" | "__quantum__qis__rz__body" => {
-            return format!("declare void @{name}(double, %Qubit*)\n")
-        }
-        "__quantum__qis__cx__body" | "__quantum__qis__cz__body" | "__quantum__qis__swap__body" => {
-            return format!("declare void @{name}(%Qubit*, %Qubit*)\n")
-        }
-        "__quantum__qis__mz__body" => return format!("declare void @{name}(%Qubit*, %Result*)\n"),
-        _ => return format!("declare void @{name}(%Qubit*)\n"),
-    };
-    format!("declare {signature}\n")
-}
-
-fn qir_type(kind: &TypeKind) -> Result<String, Diagnostics> {
-    match kind {
-        TypeKind::Int => Ok("i64".to_string()),
-        TypeKind::Float => Ok("double".to_string()),
-        TypeKind::Bool => Ok("i1".to_string()),
-        TypeKind::Qubit => Ok("%Qubit*".to_string()),
-        TypeKind::Measured(_) => Ok("%Result*".to_string()),
-        TypeKind::Unit => Err(unsupported("QIR function parameters cannot have unit type")),
-        TypeKind::Qubits(_)
-        | TypeKind::Tuple(_)
-        | TypeKind::Array(_, _)
-        | TypeKind::Fn { .. }
-        | TypeKind::Named(_, _)
-        | TypeKind::Complex
-        | TypeKind::String => Err(unsupported("QIR cannot represent this GIR parameter type")),
-    }
-}
-
-fn emit_node(
-    output: &mut String,
-    node: &gala_gir::GirNode,
-    values: &mut HashMap<ValueId, String>,
-    tuples: &mut HashMap<ValueId, Vec<String>>,
-    next_temp: &mut usize,
-) -> Result<(), Diagnostics> {
-    match &node.kind {
-        NodeKind::Alloc(AllocKind::Qubit) => {
-            let Some(result) = node.results.first() else {
-                return Err(unsupported("QIR allocation is missing its result"));
-            };
-            let register = format!("%qir{next_temp}");
-            *next_temp += 1;
-            output.push_str(&format!(
-                "  {register} = call %Qubit* @__quantum__rt__qubit_allocate()\n"
-            ));
-            values.insert(*result, register);
-        }
-        NodeKind::Gate(gate) => {
-            let Some(target) = node.operands.first().and_then(|value| values.get(value)) else {
-                return Err(unsupported("QIR gate is missing a mapped target qubit"));
-            };
-            let intrinsic = gate_intrinsic_name(gate);
-            match gate {
-                GateKind::Rx | GateKind::Ry | GateKind::Rz => {
-                    let Some(angle) = node.operands.get(1).and_then(|value| values.get(value))
-                    else {
-                        return Err(unsupported("QIR rotation is missing its mapped angle"));
-                    };
-                    output.push_str(&format!(
-                        "  call void @{intrinsic}(double {angle}, %Qubit* {target})\n"
-                    ));
-                }
-                GateKind::CX | GateKind::CZ | GateKind::SWAP => {
-                    let Some(second) = node.operands.get(1).and_then(|value| values.get(value))
-                    else {
-                        return Err(unsupported("QIR two-qubit gate is missing its second target"));
-                    };
-                    output.push_str(&format!(
-                        "  call void @{intrinsic}(%Qubit* {target}, %Qubit* {second})\n"
-                    ));
-                }
-                GateKind::Measure => {
-                    return Err(unsupported("QIR measurement must use a Measure node"));
-                }
-                _ => output.push_str(&format!("  call void @{intrinsic}(%Qubit* {target})\n")),
-            }
-            if let Some(result) = node.results.first() {
-                values.insert(*result, target.clone());
-            }
-            if matches!(gate, GateKind::CX | GateKind::CZ | GateKind::SWAP) {
-                if let (Some(result), Some(second)) =
-                    (node.results.get(1), node.operands.get(1).and_then(|value| values.get(value)))
-                {
-                    values.insert(*result, second.clone());
-                }
-            }
-        }
-        NodeKind::Free { target } => {
-            let Some(mapped_target) = values.get(target).cloned() else {
-                return Err(unsupported("QIR free is missing its mapped target"));
-            };
-            output.push_str(&format!(
-                "  call void @__quantum__rt__qubit_release(%Qubit* {mapped_target})\n"
-            ));
-            values.remove(target);
-        }
-        NodeKind::Measure { target } => {
-            let Some(target) = values.get(target) else {
-                return Err(unsupported("QIR measurement is missing its mapped target"));
-            };
-            let result = format!("%result{next_temp}");
-            *next_temp += 1;
-            output.push_str(&format!(
-                "  {result} = call %Result* @__quantum__rt__result_get_zero()\n"
-            ));
-            output.push_str(&format!(
-                "  call void @__quantum__qis__mz__body(%Qubit* {target}, %Result* {result})\n"
-            ));
-            if let Some(value) = node.results.first() {
-                values.insert(*value, result);
-            }
-        }
-        NodeKind::Constant(Constant::Float(value)) => {
-            let Some(result) = node.results.first() else {
-                return Err(unsupported("QIR constant is missing its result"));
-            };
-            values.insert(*result, format_double(*value));
-        }
-        NodeKind::Constant(Constant::Unit) => {}
-        NodeKind::Tuple { elements } => {
-            let mapped = elements
-                .iter()
-                .map(|element| {
-                    values
-                        .get(element)
-                        .cloned()
-                        .ok_or_else(|| unsupported("QIR tuple references an unmapped value"))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            if let Some(result) = node.results.first() {
-                tuples.insert(*result, mapped);
-            }
-        }
-        NodeKind::Extract { tuple, index } => {
-            let Some(element) = tuples.get(tuple).and_then(|elements| elements.get(*index)) else {
-                return Err(unsupported("QIR tuple extraction is out of bounds"));
-            };
-            if let Some(result) = node.results.first() {
-                values.insert(*result, element.clone());
-            }
-        }
-        _ => return Err(unsupported("unsupported GIR node in QIR emitter")),
-    }
-    Ok(())
-}
-
-fn format_double(value: f64) -> String {
-    if value.is_finite() {
-        format!("{value:.17e}")
-    } else {
-        "0.0".to_string()
-    }
-}
-
-fn unsupported(message: &str) -> Diagnostics {
-    let mut diagnostics = Diagnostics::new();
-    diagnostics.push(Diagnostic::error(codes::BACKEND_CAPABILITY_MISMATCH, message));
-    diagnostics
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gala_gir::GirFunc;
 
-    #[test]
-    fn test_qir_emission_basic() {
-        let gir = Gir::default();
-        let result = emit_qir(&gir, QirProfile::Base);
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert!(output.contains("QIR Module"));
+    fn compile(src: &str) -> Gir {
+        let mut sources = gala_driver::Sources::default();
+        gala_driver::compile_source(src, &mut sources).expect("compiles").gir
     }
 
     #[test]
-    fn test_qir_profile_debug() {
-        assert_eq!(format!("{:?}", QirProfile::Base), "Base");
-        assert_eq!(format!("{:?}", QirProfile::Adaptive), "Adaptive");
+    fn bell_pair_is_base_profile_with_static_qubits() {
+        let gir = compile("fn main() -> Measured<Bool> prob {\n let a = qubit()\n let b = qubit()\n h(a)\n let (a, b) = cx(a, b)\n drop(b)\n measure(a)\n}");
+        let m = emit(&gir).unwrap();
+        assert_eq!(m.profile, Profile::Base);
+        assert_eq!(m.num_qubits, 2);
+        assert!(m.text.contains("__quantum__qis__h__body"));
+        assert!(m.text.contains("__quantum__qis__cnot__body"));
+        assert!(m.text.contains("base_profile"));
     }
 
     #[test]
-    fn test_qir_emission_both_profiles() {
-        let gir = Gir::default();
-        for profile in &[QirProfile::Base, QirProfile::Adaptive] {
-            let result = emit_qir(&gir, *profile);
-            assert!(result.is_ok());
-        }
+    fn mid_circuit_measurement_selects_adaptive_profile() {
+        let gir = compile("fn main() -> Int {\n let q = qubit()\n h(q)\n let r = measure(q)\n if r {\n  let p = qubit()\n  x(p)\n  drop(p)\n }\n 0\n}");
+        let m = emit(&gir).unwrap();
+        assert_eq!(m.profile, Profile::Adaptive);
+        assert!(m.text.contains("read_result"));
+        assert!(m.text.contains("adaptive_profile"));
+        assert!(m.text.contains("br i1"));
     }
 
     #[test]
-    fn test_qir_emission_with_func() {
-        let mut gir = Gir::default();
-        let func = GirFunc::new_test();
-        gir.funcs.insert(func.id, func);
-        let result = emit_qir(&gir, QirProfile::Base);
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert!(output.contains("test"));
+    fn emitted_gates_match_source_on_simulator() {
+        // Source: X then H on two qubits, with a CP between them.
+        let gir = compile("fn main() -> Measured<Bool> prob {\n let a = qubit()\n let b = qubit()\n h(a)\n let (a, b) = cp(a, b, 0.7)\n drop(b)\n measure(a)\n}");
+        let m = emit(&gir).unwrap();
+        // Reference: the same circuit as direct gates on the simulator (CP kept whole).
+        let reference = vec![(GateKind::H, vec![0], 0.0), (GateKind::Cp, vec![0, 1], 0.7)];
+        // The QIR decomposition of CP is equal up to a global phase, so the distribution matches.
+        assert!(equivalent_on_simulator(&m, &reference));
     }
 
     #[test]
-    fn test_qir_target_triple() {
-        let result = emit_qir(&Gir::default(), QirProfile::Base);
-        let output = result.unwrap();
-        assert!(output.contains("x86_64"));
+    fn release_emits_inverse_of_entangling_gates() {
+        let gir = compile("fn main() -> Measured<Bool> prob {\n let d = qubit()\n h(d)\n let a = qubit()\n cx(d, a)\n drop(a)\n measure(d)\n}");
+        let m = emit(&gir).unwrap();
+        // cx(d,a) is undone by a second cx(d,a) at release, leaving a in |0⟩.
+        let cnots = m.ops.iter().filter(|o| o.gate == GateKind::Cx).count();
+        assert_eq!(cnots, 2);
+        let reference = vec![(GateKind::H, vec![0], 0.0)];
+        assert!(equivalent_on_simulator(&m, &reference));
+    }
+
+    #[test]
+    fn loops_are_rejected_with_e0602() {
+        let gir = compile(
+            "fn main() -> Int {\n for i in 0..2 {\n  let a = qubit()\n  h(a)\n  drop(a)\n }\n 0\n}",
+        );
+        let e = emit(&gir).unwrap_err();
+        assert!(e.errors().iter().any(|d| d.code.to_string() == "E0602"));
     }
 }

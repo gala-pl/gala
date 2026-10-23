@@ -4,7 +4,6 @@ expression: gir
 ---
 {
   "num_funcs": 1,
-  "num_nodes": 1,
-  "num_types": 1,
+  "num_types": 0,
   "num_consts": 0
 }
