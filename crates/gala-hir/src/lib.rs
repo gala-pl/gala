@@ -55,6 +55,18 @@ pub enum Builtin {
     Clone,
     /// `grad(f, wrt: p)`: declared, not implemented yet.
     Grad,
+    /// `backend.simulator()`: the full state-vector simulator.
+    BackendSimulator,
+    /// `backend.base()`: a simulator that only accepts base-profile programs (no branching on
+    /// measurement results).
+    BackendBase,
+    /// `backend.noisy(p)`: the simulator with depolarizing error `p` after every gate.
+    BackendNoisy,
+    /// `backend.hardware("name")`: a hardware device. None is reachable from this build.
+    BackendHardware,
+    /// `run(f, on: backend, shots: n) -> Int`: run a probabilistic function `n` times on a backend
+    /// and return how many shots measured `true`.
+    Run,
 }
 
 impl Builtin {
@@ -81,6 +93,7 @@ impl Builtin {
             "print" => Builtin::Print,
             "clone" => Builtin::Clone,
             "grad" => Builtin::Grad,
+            "run" => Builtin::Run,
             _ => return None,
         })
     }
@@ -108,6 +121,11 @@ impl Builtin {
             Builtin::Print => "print",
             Builtin::Clone => "clone",
             Builtin::Grad => "grad",
+            Builtin::BackendSimulator => "backend.simulator",
+            Builtin::BackendBase => "backend.base",
+            Builtin::BackendNoisy => "backend.noisy",
+            Builtin::BackendHardware => "backend.hardware",
+            Builtin::Run => "run",
         }
     }
 
@@ -418,6 +436,60 @@ struct Lowerer<'a> {
     locals: Vec<HashMap<String, LocalId>>,
     next_expr: u32,
     current_module: String,
+    /// Constant values of the generic parameters being instantiated (`N` ↦ 4).
+    const_env: HashMap<String, i64>,
+    /// Generic functions (with const parameters), by DefId, with their module.
+    generic_fns: HashMap<DefId, (String, ast::FnDef)>,
+    /// Instances already created: (generic function, sizes) ↦ instantiated function.
+    instances: HashMap<(DefId, Vec<i64>), DefId>,
+}
+
+/// Substitute const parameters in a constant expression.
+fn subst_const(c: &ConstExpr, env: &HashMap<String, i64>) -> ConstExpr {
+    match c {
+        ConstExpr::Ident(n) => match env.get(n.as_str()) {
+            Some(v) => ConstExpr::Int(*v),
+            None => c.clone(),
+        },
+        ConstExpr::Binary { lhs, op, rhs } => ConstExpr::Binary {
+            lhs: Box::new(subst_const(lhs, env)),
+            op: *op,
+            rhs: Box::new(subst_const(rhs, env)),
+        },
+        ConstExpr::Int(_) => c.clone(),
+    }
+}
+
+fn subst_type_arg(a: &TypeArg, env: &HashMap<String, i64>) -> TypeArg {
+    match a {
+        TypeArg::Const(c) => TypeArg::Const(subst_const(c, env)),
+        TypeArg::Type(t) => TypeArg::Type(subst_type(t, env)),
+    }
+}
+
+/// Substitute const parameters throughout a type.
+fn subst_type(t: &ast::Type, env: &HashMap<String, i64>) -> ast::Type {
+    use ast::Type as T;
+    match t {
+        T::Qubit => T::Qubit,
+        T::Qubits(c) => T::Qubits(Box::new(subst_const(c, env))),
+        T::Measured(inner) => T::Measured(Box::new(subst_type(inner, env))),
+        T::Tuple(items) => T::Tuple(items.iter().map(|i| subst_type(i, env)).collect()),
+        T::Array(elem, len) => {
+            T::Array(Box::new(subst_type(elem, env)), Box::new(subst_const(len, env)))
+        }
+        T::Named(name, args) => {
+            T::Named(name.clone(), args.iter().map(|a| subst_type(a, env)).collect())
+        }
+        T::Path(path) => {
+            let mut path = path.clone();
+            for seg in &mut path.segments {
+                seg.type_args = seg.type_args.iter().map(|a| subst_type_arg(a, env)).collect();
+            }
+            T::Path(path)
+        }
+        T::Fn { .. } => t.clone(),
+    }
 }
 
 impl<'a> Lowerer<'a> {
@@ -430,6 +502,9 @@ impl<'a> Lowerer<'a> {
             locals: Vec::new(),
             next_expr: 0,
             current_module: String::new(),
+            const_env: HashMap::new(),
+            generic_fns: HashMap::new(),
+            instances: HashMap::new(),
         }
     }
 
@@ -441,6 +516,10 @@ impl<'a> Lowerer<'a> {
                 if let ast::Item::FnDef(f) = item {
                     let def = DefId(self.pkg.fns.len() as u32);
                     scope.fns.insert(f.ident.as_str().to_string(), def);
+                    // Generic bodies are lowered per instantiation; callers may come first.
+                    if f.generics.iter().any(|g| matches!(g, ast::GenericParam::Const { .. })) {
+                        self.generic_fns.insert(def, (module.path.clone(), f.clone()));
+                    }
                     // Placeholder, replaced in pass 2.
                     self.pkg.fns.push(HirFn {
                         def,
@@ -480,6 +559,10 @@ impl<'a> Lowerer<'a> {
                 if let ast::Item::FnDef(f) = item {
                     let def = DefId(fn_index as u32);
                     fn_index += 1;
+                    // A generic function is lowered per instantiation, not as written.
+                    if self.generic_fns.contains_key(&def) {
+                        continue;
+                    }
                     let lowered = self.lower_fn(def, f);
                     self.pkg.fns[def.0 as usize] = lowered;
                 }
@@ -613,6 +696,83 @@ impl<'a> Lowerer<'a> {
         }
     }
 
+    /// The function a plain name refers to in the current module (directly or by import).
+    fn module_fn(&self, name: &str) -> Option<DefId> {
+        let scope = self.scopes.get(&self.current_module)?;
+        if let Some(def) = scope.fns.get(name) {
+            return Some(*def);
+        }
+        match scope.imports.get(name) {
+            Some(Binding::Def(def)) => Some(*def),
+            _ => None,
+        }
+    }
+
+    /// The instance of generic function `def` for the given sizes, created on first use.
+    fn instantiate(&mut self, def: DefId, values: Vec<i64>, span: Span) -> Option<DefId> {
+        if let Some(inst) = self.instances.get(&(def, values.clone())) {
+            return Some(*inst);
+        }
+        let (module, f) = self.generic_fns.get(&def)?.clone();
+        let consts: Vec<&str> = f
+            .generics
+            .iter()
+            .filter_map(|g| match g {
+                ast::GenericParam::Const { ident, .. } => Some(ident.as_str()),
+                _ => None,
+            })
+            .collect();
+        if consts.len() != values.len() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::CONST_GENERIC_MISMATCH,
+                    format!(
+                        "`{}` takes {} const arguments, found {}",
+                        f.ident,
+                        consts.len(),
+                        values.len()
+                    ),
+                )
+                .with_primary_label(span, "wrong number of const arguments"),
+            );
+            return None;
+        }
+        let env: HashMap<String, i64> =
+            consts.iter().map(|n| n.to_string()).zip(values.iter().copied()).collect();
+        let inst = DefId(self.pkg.fns.len() as u32);
+        self.pkg.fns.push(HirFn {
+            def: inst,
+            module: module.clone(),
+            name: f.ident.clone(),
+            attributes: f.attributes.clone(),
+            params: Vec::new(),
+            ret_ty: None,
+            declared_effect: f.effect,
+            body: None,
+            intrinsic: None,
+            generics: Vec::new(),
+            span: f.span,
+        });
+        self.instances.insert((def, values), inst);
+
+        // Lower the body with the sizes substituted: the state of the caller is saved and restored.
+        let mut concrete = f.clone();
+        concrete.generics = Vec::new();
+        for p in &mut concrete.params {
+            p.ty = subst_type(&p.ty, &env);
+        }
+        concrete.ret_ty = concrete.ret_ty.as_ref().map(|t| subst_type(t, &env));
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_env = std::mem::replace(&mut self.const_env, env);
+        let saved_module = std::mem::replace(&mut self.current_module, module);
+        let lowered = self.lower_fn(inst, &concrete);
+        self.locals = saved_locals;
+        self.const_env = saved_env;
+        self.current_module = saved_module;
+        self.pkg.fns[inst.0 as usize] = lowered;
+        Some(inst)
+    }
+
     fn lower_fn(&mut self, def: DefId, f: &ast::FnDef) -> HirFn {
         self.locals.clear();
         self.locals.push(HashMap::new());
@@ -695,7 +855,8 @@ impl<'a> Lowerer<'a> {
                         }
                     };
                     let pat = self.lower_pattern(&l.pattern, l.mutable, l.span);
-                    stmts.push(HirStmt::Let { pat, ty: l.ty.clone(), init, span: l.span });
+                    let ty = l.ty.as_ref().map(|t| subst_type(t, &self.const_env));
+                    stmts.push(HirStmt::Let { pat, ty, init, span: l.span });
                 }
                 ast::Stmt::Expr(e) => stmts.push(HirStmt::Expr(self.lower_expr(e))),
                 ast::Stmt::Return(v) => {
@@ -749,6 +910,10 @@ impl<'a> Lowerer<'a> {
                 return HirExprKind::Local(*local, name.to_string());
             }
         }
+        // A const parameter of the function being instantiated is its value.
+        if let Some(v) = self.const_env.get(name) {
+            return HirExprKind::Lit(Literal::Int(*v));
+        }
         let module = self.current_module.clone();
         if let Some(scope) = self.scopes.get(&module) {
             if let Some(def) = scope.fns.get(name) {
@@ -792,24 +957,112 @@ impl<'a> Lowerer<'a> {
                 HirExprKind::Unary { op: u.op, expr: Box::new(self.lower_expr(&u.expr)) }
             }
             ast::ExprKind::Call(c) => {
+                // `f<4>(…)` on a generic function: instantiate it for these sizes.
+                if let (false, ast::ExprKind::Ident(name)) = (c.generics.is_empty(), &c.callee.kind)
+                {
+                    if let Some(def) =
+                        self.module_fn(name.as_str()).filter(|d| self.generic_fns.contains_key(d))
+                    {
+                        let values: Option<Vec<i64>> = c
+                            .generics
+                            .iter()
+                            .map(|g| match g {
+                                TypeArg::Const(ce) => {
+                                    gala_hir_const_value(&subst_const(ce, &self.const_env))
+                                }
+                                TypeArg::Type(_) => None,
+                            })
+                            .collect();
+                        let inst = match values {
+                            Some(v) => self.instantiate(def, v, span),
+                            None => {
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::CONST_GENERIC_MISMATCH,
+                                        "const arguments must be integers",
+                                    )
+                                    .with_primary_label(span, "not an integer"),
+                                );
+                                None
+                            }
+                        };
+                        let args = c.args.iter().map(|a| self.lower_expr(a)).collect();
+                        let callee = HirExpr {
+                            id: self.fresh_expr(),
+                            kind: match inst {
+                                Some(d) => HirExprKind::Fn(d),
+                                None => HirExprKind::Error,
+                            },
+                            span,
+                        };
+                        return HirExpr {
+                            id: self.fresh_expr(),
+                            kind: HirExprKind::Call {
+                                callee: Box::new(callee),
+                                generics: Vec::new(),
+                                args,
+                                names: c.names.clone(),
+                            },
+                            span,
+                        };
+                    }
+                }
                 let callee = self.lower_expr(&c.callee);
                 let args = c.args.iter().map(|a| self.lower_expr(a)).collect();
                 HirExprKind::Call {
                     callee: Box::new(callee),
-                    generics: c.generics.clone(),
+                    generics: c
+                        .generics
+                        .iter()
+                        .map(|g| subst_type_arg(g, &self.const_env))
+                        .collect(),
                     args,
                     names: c.names.clone(),
                 }
             }
             ast::ExprKind::MethodCall(m) => {
-                self.diags.push(
-                    Diagnostic::error(
-                        codes::UNRESOLVED_NAME,
-                        format!("method `{}` is not supported yet", m.method),
-                    )
-                    .with_primary_label(span, "here"),
-                );
-                HirExprKind::Error
+                // `backend.simulator()` and friends construct a backend value (unless a local
+                // named `backend` exists, in which case it is an ordinary method call).
+                let backend_builtin = match (&m.receiver.kind, m.method.as_str()) {
+                    (ast::ExprKind::Ident(r), "simulator") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendSimulator)
+                    }
+                    (ast::ExprKind::Ident(r), "base") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendBase)
+                    }
+                    (ast::ExprKind::Ident(r), "noisy") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendNoisy)
+                    }
+                    (ast::ExprKind::Ident(r), "hardware") if r.as_str() == "backend" => {
+                        Some(Builtin::BackendHardware)
+                    }
+                    _ => None,
+                };
+                match backend_builtin {
+                    Some(b) => {
+                        let args = m.args.iter().map(|a| self.lower_expr(a)).collect();
+                        HirExprKind::Call {
+                            callee: Box::new(HirExpr {
+                                id: self.fresh_expr(),
+                                kind: HirExprKind::Builtin(b),
+                                span,
+                            }),
+                            generics: Vec::new(),
+                            args,
+                            names: vec![None; m.args.len()],
+                        }
+                    }
+                    None => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::UNRESOLVED_NAME,
+                                format!("method `{}` is not supported yet", m.method),
+                            )
+                            .with_primary_label(span, "here"),
+                        );
+                        HirExprKind::Error
+                    }
+                }
             }
             ast::ExprKind::If(i) => HirExprKind::If {
                 cond: Box::new(self.lower_expr(&i.cond)),
@@ -988,4 +1241,9 @@ mod tests {
         let (pkg, _) = lower("fn f() -> Int { 1 + 2 * 3 }");
         assert!(pkg.expr_count >= 5);
     }
+}
+
+/// The integer value of a constant expression, if it has one.
+fn gala_hir_const_value(c: &ConstExpr) -> Option<i64> {
+    const_int(c)
 }

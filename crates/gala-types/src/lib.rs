@@ -43,6 +43,8 @@ pub enum Ty {
     Params,
     /// The type of `a..b`.
     Range,
+    /// A quantum backend (see `backend.simulator()`).
+    Backend,
     /// A type that could not be determined; suppresses cascading errors.
     Error,
 }
@@ -83,6 +85,7 @@ impl fmt::Display for Ty {
             }
             Ty::Params => write!(f, "Params"),
             Ty::Range => write!(f, "Range<Int>"),
+            Ty::Backend => write!(f, "Backend"),
             Ty::Error => write!(f, "{{error}}"),
         }
     }
@@ -163,6 +166,12 @@ pub fn check_package(pkg: &HirPackage) -> (TypeInfo, Diagnostics) {
     let mut sigs = Vec::with_capacity(pkg.fns.len());
     let mut diags = Diagnostics::new();
     for f in &pkg.fns {
+        // A const-generic declaration has no value for its size parameter until it is
+        // instantiated; each instance gets its own signature in the HIR.
+        if f.generics.iter().any(|g| matches!(g, ast::GenericParam::Const { .. })) {
+            sigs.push(FnSig { params: Vec::new(), ret: Ty::Unit });
+            continue;
+        }
         let params: Vec<Ty> = f.params.iter().map(|p| ast_ty(&p.ty, &mut diags, p.span)).collect();
         let ret = match &f.ret_ty {
             Some(t) => ast_ty(t, &mut diags, f.span),
@@ -224,6 +233,7 @@ pub fn check_package(pkg: &HirPackage) -> (TypeInfo, Diagnostics) {
     }
 
     // Phase C: report errors using the settled effects.
+    let mut runs = Vec::new();
     for f in &pkg.fns {
         if let Some(body) = &f.body {
             let sig = info.sigs[f.def.0 as usize].clone();
@@ -235,6 +245,24 @@ pub fn check_package(pkg: &HirPackage) -> (TypeInfo, Diagnostics) {
             }
             ck.check_fn_body(f.def, body);
             diags.extend(std::mem::take(&mut ck.diags));
+            runs.extend(std::mem::take(&mut ck.runs));
+        }
+    }
+
+    // A base backend cannot run a program that branches on a measurement result (E0601).
+    for (target, kind, span) in runs {
+        if kind == Some(BackendKind::Base) && branches_on_measurement(pkg, &info, target) {
+            diags.push(
+                Diagnostic::error(
+                    codes::BACKEND_CAPABILITY_MISMATCH,
+                    format!(
+                        "`{}` branches on a measurement, which the base-profile backend does not support",
+                        pkg.fns[target].name
+                    ),
+                )
+                .with_primary_label(span, "run on this backend")
+                .with_help("use backend.simulator(), which supports mid-circuit measurement"),
+            );
         }
     }
 
@@ -328,6 +356,26 @@ fn named_ty(name: &str, args: &[ast::Type], diags: &mut Diagnostics, span: Span)
     }
 }
 
+/// The kind of backend a program targets, as written by the constructor call.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackendKind {
+    Simulator,
+    /// Simulator restricted to base-profile programs.
+    Base,
+    Noisy,
+    Hardware,
+}
+
+fn backend_kind_of(b: Builtin) -> Option<BackendKind> {
+    match b {
+        Builtin::BackendSimulator => Some(BackendKind::Simulator),
+        Builtin::BackendBase => Some(BackendKind::Base),
+        Builtin::BackendNoisy => Some(BackendKind::Noisy),
+        Builtin::BackendHardware => Some(BackendKind::Hardware),
+        _ => None,
+    }
+}
+
 /// Per-function checking state.
 struct Checker<'p, 'i> {
     pkg: &'p HirPackage,
@@ -343,6 +391,10 @@ struct Checker<'p, 'i> {
     current_ret: Ty,
     /// Mutability of each local, for assignment checks.
     mutable: HashMap<LocalId, bool>,
+    /// Backend kind bound to each local initialized by a backend constructor.
+    backend_kind: HashMap<LocalId, BackendKind>,
+    /// `run` calls to check once every function's types are known: (target, backend, span).
+    runs: Vec<(usize, Option<BackendKind>, Span)>,
 }
 
 impl<'p, 'i> Checker<'p, 'i> {
@@ -356,6 +408,8 @@ impl<'p, 'i> Checker<'p, 'i> {
             declared: None,
             current_ret: Ty::Unit,
             mutable: HashMap::new(),
+            backend_kind: HashMap::new(),
+            runs: Vec::new(),
         }
     }
 
@@ -440,6 +494,15 @@ impl<'p, 'i> Checker<'p, 'i> {
         match s {
             HirStmt::Let { pat, ty, init, span } => {
                 let init_ty = self.infer(init);
+                if let (HirPat::Bind { local, .. }, HirExprKind::Call { callee, .. }) =
+                    (pat, &init.kind)
+                {
+                    if let HirExprKind::Builtin(b) = callee.kind {
+                        if let Some(kind) = backend_kind_of(b) {
+                            self.backend_kind.insert(*local, kind);
+                        }
+                    }
+                }
                 let bound = match ty {
                     Some(t) => {
                         let declared = ast_ty(t, &mut self.diags, *span);
@@ -784,6 +847,7 @@ impl<'p, 'i> Checker<'p, 'i> {
         span: Span,
     ) -> Ty {
         match &callee.kind {
+            HirExprKind::Builtin(Builtin::Run) => self.run_call(args, names, span),
             HirExprKind::Builtin(b) => self.builtin_call(*b, generics, args, span),
             HirExprKind::Fn(def) => {
                 let def = *def;
@@ -1024,8 +1088,139 @@ impl<'p, 'i> Checker<'p, 'i> {
                 );
                 Ty::Error
             }
+            Builtin::BackendSimulator | Builtin::BackendBase => {
+                expect_args(self, 0);
+                Ty::Backend
+            }
+            Builtin::BackendNoisy => {
+                if expect_args(self, 1) {
+                    self.expect(&arg_tys[0].clone(), &Ty::Float, args[0].span, "error probability");
+                }
+                Ty::Backend
+            }
+            Builtin::BackendHardware => {
+                if expect_args(self, 1) {
+                    self.expect(&arg_tys[0].clone(), &Ty::Str, args[0].span, "device name");
+                }
+                Ty::Backend
+            }
+            // Dispatched in `call`, which needs the argument names.
+            Builtin::Run => Ty::Int,
         }
     }
+
+    /// `run(f, on: backend, shots: n)`: `f` is a function name, not a value, and must be a
+    /// probabilistic function with no parameters that returns `Measured<Bool>`.
+    fn run_call(&mut self, args: &[HirExpr], names: &[Option<ast::Ident>], span: Span) -> Ty {
+        let named =
+            |n: &str| names.iter().position(|x| x.as_ref().is_some_and(|i| i.as_str() == n));
+        let (Some(first), Some(on), Some(shots)) = (args.first(), named("on"), named("shots"))
+        else {
+            self.error(
+                codes::ARITY_MISMATCH,
+                "`run` takes a function, `on:` a backend, and `shots:` a count",
+                span,
+                "missing argument",
+            );
+            return Ty::Int;
+        };
+        let HirExprKind::Fn(def) = first.kind else {
+            self.error(
+                codes::TYPE_MISMATCH,
+                "the first argument of `run` must be a function name",
+                first.span,
+                "not a function",
+            );
+            return Ty::Int;
+        };
+        let f = &self.pkg.fns[def.0 as usize];
+        let name = f.name.as_str().to_string();
+        let sig = self.info.sigs[def.0 as usize].clone();
+        if !sig.params.is_empty() {
+            self.error(
+                codes::ARITY_MISMATCH,
+                format!(
+                    "`run` takes a function with no parameters, but `{name}` has {}",
+                    sig.params.len()
+                ),
+                first.span,
+                "has parameters",
+            );
+        }
+        let measured_bool = Ty::Measured(Box::new(Ty::Bool));
+        if sig.ret != measured_bool {
+            self.error(
+                codes::TYPE_MISMATCH,
+                format!(
+                    "`run` needs a function returning `Measured<Bool>`, but `{name}` returns `{}`",
+                    sig.ret
+                ),
+                first.span,
+                "wrong return type",
+            );
+        }
+        if self.info.effects[def.0 as usize] != Effect::Prob {
+            self.error(
+                codes::EFFECT_MISMATCH,
+                format!("`run` needs a `prob` function, but `{name}` is not"),
+                first.span,
+                "not probabilistic",
+            );
+        }
+        let on_arg = &args[on];
+        let on_ty = self.infer(on_arg);
+        if on_ty != Ty::Backend && on_ty != Ty::Error {
+            self.error(
+                codes::TYPE_MISMATCH,
+                format!("`on:` needs a backend, found `{on_ty}`"),
+                on_arg.span,
+                "not a backend",
+            );
+        }
+        let shots_ty = self.infer(&args[shots]);
+        self.expect(&shots_ty, &Ty::Int, args[shots].span, "shot count");
+        let kind = match &on_arg.kind {
+            HirExprKind::Local(l, _) => self.backend_kind.get(l).cloned(),
+            HirExprKind::Call { callee, .. } => match callee.kind {
+                HirExprKind::Builtin(b) => backend_kind_of(b),
+                _ => None,
+            },
+            _ => None,
+        };
+        self.runs.push((def.0 as usize, kind, span));
+        self.account_call(Effect::Prob, None, &name, span);
+        Ty::Int
+    }
+}
+
+/// True when a function's body branches on a measurement result (mid-circuit measurement).
+fn branches_on_measurement(pkg: &HirPackage, info: &TypeInfo, def: usize) -> bool {
+    fn block(b: &HirBlock, info: &TypeInfo) -> bool {
+        b.stmts.iter().any(|s| match s {
+            HirStmt::Let { init, .. } => expr(init, info),
+            HirStmt::Expr(e) => expr(e, info),
+            HirStmt::Return { value, .. } => value.as_ref().is_some_and(|v| expr(v, info)),
+        }) || b.tail.as_ref().is_some_and(|t| expr(t, info))
+    }
+    fn expr(e: &HirExpr, info: &TypeInfo) -> bool {
+        let measured_cond = |c: &HirExpr| *info.ty(c.id) == Ty::Measured(Box::new(Ty::Bool));
+        match &e.kind {
+            HirExprKind::If { cond, then_block, else_expr } => {
+                measured_cond(cond)
+                    || expr(cond, info)
+                    || block(then_block, info)
+                    || else_expr.as_ref().is_some_and(|x| expr(x, info))
+            }
+            HirExprKind::While { cond, body } => {
+                measured_cond(cond) || expr(cond, info) || block(body, info)
+            }
+            HirExprKind::For { iterable, body, .. } => expr(iterable, info) || block(body, info),
+            HirExprKind::Block(b) => block(b, info),
+            HirExprKind::Call { args, .. } => args.iter().any(|a| expr(a, info)),
+            _ => false,
+        }
+    }
+    pkg.fns[def].body.as_ref().is_some_and(|b| block(b, info))
 }
 
 /// Integer value of a literal expression, if it is one.

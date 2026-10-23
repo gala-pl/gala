@@ -21,6 +21,44 @@ fn iqft2(q: Qubits<2>) -> Qubits<2> quantum {
     q
 }
 
+/// Quantum Fourier transform on `N` qubits, with the output swap applied. Instantiated per
+/// register size: `qft<4>(q)` takes a `Qubits<4>`.
+fn qft<const N: Int>(q: Qubits<N>) -> Qubits<N> quantum {
+    for i in 0..N {
+        h(q[i])
+        // Controlled phases π/2, π/4, … from each later qubit onto qubit `i`.
+        let mut angle = 1.5707963267948966
+        for j in i + 1..N {
+            cp(q[j], q[i], angle)
+            angle = angle / 2.0
+        }
+    }
+    for i in 0..N / 2 {
+        swap(q[i], q[N - 1 - i])
+    }
+    q
+}
+
+/// Inverse quantum Fourier transform on `N` qubits: the exact inverse of `qft<N>`.
+fn iqft<const N: Int>(q: Qubits<N>) -> Qubits<N> quantum {
+    for i in 0..N / 2 {
+        swap(q[i], q[N - 1 - i])
+    }
+    // Undo the qubits from last to first. Each one's controlled phases commute with each other,
+    // so they may be applied in ascending order.
+    let mut i = N
+    while i > 0 {
+        i -= 1
+        let mut angle = -1.5707963267948966
+        for j in i + 1..N {
+            cp(q[j], q[i], angle)
+            angle = angle / 2.0
+        }
+        h(q[i])
+    }
+    q
+}
+
 /// Grover search over two items for the marked state |11⟩. One iteration finds it with
 /// certainty, so the measurement returns `[true, true]`.
 fn grover2() -> Measured<Vec<Bool>> prob {

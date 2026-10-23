@@ -129,6 +129,12 @@ pub enum Const {
     Bool(bool),
     Str(String),
     Complex(f64, f64),
+    /// A quantum backend: `kind` is `simulator`, `base`, `noisy`, or `hardware:<name>`; `noise` is
+    /// the depolarizing probability (zero unless noisy).
+    Backend {
+        kind: String,
+        noise: f64,
+    },
 }
 
 /// One instruction.
@@ -168,6 +174,9 @@ pub enum Inst {
     Release { target: Slot },
     /// Write the text form of each value to standard output.
     Print { args: Vec<Slot> },
+    /// `dst = run(func, on: backend, shots: n)`: execute function `func` `shots` times on the
+    /// backend in `backend` and store how many shots measured `true`.
+    Run { dst: Slot, func: usize, shots: Slot, backend: Slot },
 }
 
 impl Gir {
@@ -225,6 +234,9 @@ fn dump_inst(i: &Inst) -> String {
         Inst::Measure { dst, target } => format!("%{dst} = measure %{target}"),
         Inst::Release { target } => format!("release %{target}"),
         Inst::Print { args } => format!("print {}", slots(args)),
+        Inst::Run { dst, func, shots, backend } => {
+            format!("%{dst} = run #{func} shots=%{shots} on=%{backend}")
+        }
     }
 }
 
@@ -426,8 +438,8 @@ impl<'a> FnBuilder<'a> {
                 self.expr(&value)
             }
             HirExprKind::Fn(_) | HirExprKind::Builtin(_) => None,
-            HirExprKind::Call { callee, args, generics, .. } => {
-                self.call(callee, args, generics, e.span)
+            HirExprKind::Call { callee, args, generics, names } => {
+                self.call(callee, args, generics, names, e.span)
             }
             HirExprKind::Unary { op, expr } => {
                 let src = self.expr(expr)?;
@@ -616,9 +628,11 @@ impl<'a> FnBuilder<'a> {
         callee: &HirExpr,
         args: &[HirExpr],
         generics: &[gala_ast::TypeArg],
+        names: &[Option<gala_ast::Ident>],
         span: gala_span::Span,
     ) -> Option<Slot> {
         match &callee.kind {
+            HirExprKind::Builtin(Builtin::Run) => self.run(args, names, span),
             HirExprKind::Builtin(b) => self.builtin(*b, args, generics, span),
             HirExprKind::Fn(def) => {
                 let slots: Vec<Slot> = args.iter().filter_map(|a| self.expr(a)).collect();
@@ -633,6 +647,67 @@ impl<'a> FnBuilder<'a> {
         }
     }
 
+    /// `run(f, on:, shots:)`: `f` is a function name; `on:` and `shots:` are found by name.
+    fn run(
+        &mut self,
+        args: &[HirExpr],
+        names: &[Option<gala_ast::Ident>],
+        span: gala_span::Span,
+    ) -> Option<Slot> {
+        let named =
+            |n: &str| names.iter().position(|x| x.as_ref().is_some_and(|i| i.as_str() == n));
+        let (Some(first), Some(on), Some(shots)) = (args.first(), named("on"), named("shots"))
+        else {
+            self.unsupported("this `run` call", span);
+            return None;
+        };
+        let HirExprKind::Fn(def) = first.kind else {
+            self.unsupported("`run` without a function name", span);
+            return None;
+        };
+        let shots_slot = self.expr(&args[shots])?;
+        let backend = self.expr(&args[on])?;
+        let dst = self.new_slot();
+        self.emit(Inst::Run { dst, func: def.0 as usize, shots: shots_slot, backend });
+        Some(dst)
+    }
+
+    /// A backend constructor: its parameters must be literals, so the backend is a constant.
+    fn backend_constant(
+        &mut self,
+        b: Builtin,
+        args: &[HirExpr],
+        span: gala_span::Span,
+    ) -> Option<Slot> {
+        let literal = |e: Option<&HirExpr>| match e.map(|e| &e.kind) {
+            Some(HirExprKind::Lit(Literal::Float(v))) => Some(Literal::Float(*v)),
+            Some(HirExprKind::Lit(Literal::Int(v))) => Some(Literal::Float(*v as f64)),
+            Some(HirExprKind::Lit(Literal::String(s))) => Some(Literal::String(s.clone())),
+            _ => None,
+        };
+        let value = match b {
+            Builtin::BackendSimulator => Const::Backend { kind: "simulator".into(), noise: 0.0 },
+            Builtin::BackendBase => Const::Backend { kind: "base".into(), noise: 0.0 },
+            Builtin::BackendNoisy => match literal(args.first()) {
+                Some(Literal::Float(p)) => Const::Backend { kind: "noisy".into(), noise: p },
+                _ => {
+                    self.unsupported("`backend.noisy` with a non-literal error rate", span);
+                    return None;
+                }
+            },
+            _ => match literal(args.first()) {
+                Some(Literal::String(name)) => {
+                    Const::Backend { kind: format!("hardware:{name}"), noise: 0.0 }
+                }
+                _ => {
+                    self.unsupported("`backend.hardware` with a non-literal device name", span);
+                    return None;
+                }
+            },
+        };
+        Some(self.constant(value))
+    }
+
     fn builtin(
         &mut self,
         b: Builtin,
@@ -640,6 +715,15 @@ impl<'a> FnBuilder<'a> {
         generics: &[gala_ast::TypeArg],
         span: gala_span::Span,
     ) -> Option<Slot> {
+        if matches!(
+            b,
+            Builtin::BackendSimulator
+                | Builtin::BackendBase
+                | Builtin::BackendNoisy
+                | Builtin::BackendHardware
+        ) {
+            return self.backend_constant(b, args, span);
+        }
         if b.is_gate() {
             let mut targets = Vec::new();
             let mut angle = None;
@@ -695,6 +779,7 @@ impl<'a> FnBuilder<'a> {
                 self.emit(Inst::Print { args: slots });
                 Some(self.constant(Const::Unit))
             }
+            Builtin::Run => None,
             Builtin::Clone | Builtin::Grad => {
                 self.unsupported("this builtin", span);
                 None
@@ -824,7 +909,8 @@ pub fn verify(gir: &Gir) -> Vec<String> {
                     | Inst::TupleGet { dst, .. }
                     | Inst::AllocQubit { dst }
                     | Inst::AllocRegister { dst, .. }
-                    | Inst::Measure { dst, .. } => vec![*dst],
+                    | Inst::Measure { dst, .. }
+                    | Inst::Run { dst, .. } => vec![*dst],
                     Inst::Call { dsts, .. } | Inst::Gate { dsts, .. } => dsts.clone(),
                     Inst::Release { .. } | Inst::Print { .. } => Vec::new(),
                 };

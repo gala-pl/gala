@@ -483,8 +483,9 @@ impl<'a> Parser<'a> {
                 if self.eat(&Token::Semicolon) {
                     return Ok((Stmt::Expr(expr), true));
                 }
+                // Not ended by `;`: a block-like expression before `}` is the block's tail value.
                 if block_like || self.check(&Token::RBrace) || self.at_eof() {
-                    return Ok((Stmt::Expr(expr), block_like));
+                    return Ok((Stmt::Expr(expr), false));
                 }
                 if self.newline_before() {
                     return Ok((Stmt::Expr(expr), false));
