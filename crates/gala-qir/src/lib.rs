@@ -293,6 +293,11 @@ impl Emitter {
                 return Err(err("calls to user functions are not supported by the QIR emitter yet"))
             }
             Inst::Print { .. } => return Err(err("`print` has no QIR form")),
+            Inst::Run { .. } => {
+                return Err(err(
+                    "`run` inside a program has no QIR form; run the function on a backend instead",
+                ))
+            }
             Inst::Bin { .. }
             | Inst::Un { .. }
             | Inst::Len { .. }
