@@ -1,0 +1,47 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "gala_lsp",
+    crate_name = "gala_lsp",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    edition = "2021",
+    deps = [
+        "@crates//:serde_json",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-driver:gala_driver",
+        "//crates/gala-gir:gala_gir",
+        "//crates/gala-hir:gala_hir",
+        "//crates/gala-parser:gala_parser",
+        "//crates/gala-span:gala_span",
+        "//crates/gala-types:gala_types",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+rust_binary(
+    name = "gala-lsp",
+    crate_name = "gala_lsp",
+    srcs = glob(["src/main.rs"]),
+    edition = "2021",
+    deps = [":gala_lsp"],
+)
+
+rust_test(
+    name = "test",
+    crate_name = "gala_lsp_test",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    edition = "2021",
+    deps = [
+        ":gala_lsp",
+        "@crates//:serde_json",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-driver:gala_driver",
+        "//crates/gala-gir:gala_gir",
+        "//crates/gala-hir:gala_hir",
+        "//crates/gala-parser:gala_parser",
+        "//crates/gala-span:gala_span",
+        "//crates/gala-types:gala_types",
+    ],
+)

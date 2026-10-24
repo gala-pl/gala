@@ -1,0 +1,24 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+rust_binary(
+    name = "gala",
+    crate_name = "gala",
+    srcs = ["src/main.rs"],
+    edition = "2021",
+    deps = [
+        "@crates//:clap",
+        "@crates//:serde_json",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-codegen-classical:gala_codegen_classical",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-diff:gala_diff",
+        "//crates/gala-driver:gala_driver",
+        "//crates/gala-fmt:gala_fmt",
+        "//crates/gala-gir:gala_gir",
+        "//crates/gala-hir:gala_hir",
+        "//crates/gala-pkg:gala_pkg",
+        "//crates/gala-sim:gala_sim",
+        "//crates/gala-span:gala_span",
+        "//crates/gala-types:gala_types",
+    ],
+)

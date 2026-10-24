@@ -1,0 +1,18 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "gala_span",
+    crate_name = "gala_span",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = ["@crates//:lasso"],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "test",
+    crate_name = "gala_span_test",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [":gala_span", "@crates//:lasso"],
+)

@@ -1,0 +1,9 @@
+build --color=yes
+build --incompatible_strict_action_env=true
+
+# inkwell / llvm-sys needs LLVM 10 headers + libs at build time.
+build --action_env=LLVM_SYS_100_PREFIX=/usr
+build --action_env=LLVM_VERSION=10
+build --action_env=LLVM_PREFIX=/usr
+
+test --cache_test_results=no
