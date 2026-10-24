@@ -1,0 +1,46 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "gala_driver",
+    crate_name = "gala_driver",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crates//:salsa",
+        "@crates//:serde_json",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-gir:gala_gir",
+        "//crates/gala-hir:gala_hir",
+        "//crates/gala-opt:gala_opt",
+        "//crates/gala-parser:gala_parser",
+        "//crates/gala-span:gala_span",
+        "//crates/gala-types:gala_types",
+        "//crates/gala-uncompute:gala_uncompute",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "test",
+    crate_name = "gala_driver_test",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        ":gala_driver",
+        "@crates//:insta",
+        "@crates//:proptest",
+        "@crates//:salsa",
+        "@crates//:serde_json",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-gir:gala_gir",
+        "//crates/gala-hir:gala_hir",
+        "//crates/gala-opt:gala_opt",
+        "//crates/gala-parser:gala_parser",
+        "//crates/gala-sim:gala_sim",
+        "//crates/gala-span:gala_span",
+        "//crates/gala-types:gala_types",
+        "//crates/gala-uncompute:gala_uncompute",
+    ],
+)

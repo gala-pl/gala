@@ -2,8 +2,7 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    tags: ["v*.*.*"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,6 +11,7 @@ jobs:
   build:
     name: Build release binaries
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        run: rustup show
+        uses: dtolnay/rust-toolchain@stable-2026-04-14
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
@@ -27,74 +27,71 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace
 
+      - name: Stage release binaries
+        run: |
+          mkdir -p dist
+          for b in gala gala-fmt gala-lsp gala-cli gala-lint gala-pkg; do
+            install -m 0755 "target/release/$b" "dist/$b-${{ matrix.os }}"
+          done
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gala-${{ matrix.os }}
-          path: target/release/gala
-          retention-days: 7
+          name: gala-dist-${{ matrix.os }}
+          path: dist/
+          retention-days: 90
 
-  publish:
-    name: Publish crates to crates.io
+  docker:
+    name: Build and publish Docker image
     runs-on: ubuntu-latest
     needs: [build]
+    if: github.repository_owner != ''
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        run: rustup show
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Publish gala-core
-        run: cargo publish -p gala-core
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish gala-span
-        run: cargo publish -p gala-span
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}${GITHUB_REF#refs/tags/}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}-buildcache:latest
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}-buildcache:latest,mode=max
 
-      - name: Publish gala-diagnostics
-        run: cargo publish -p gala-diagnostics
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Publish gala-lexer
-        run: cargo publish -p gala-lexer
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Publish gala-ast
-        run: cargo publish -p gala-ast
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Publish gala-parser
-        run: cargo publish -p gala-parser
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Publish gala-std
-        run: cargo publish -p gala-std
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Publish gala-fmt
-        run: cargo publish -p gala-fmt
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Publish gala-lsp
-        run: cargo publish -p gala-lsp
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+  nix-flake:
+    name: Nix flake bump (manual)
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Note
+        run: |
+          echo "Update the Nix flake inputs/lock (cargoHash) for the new release,"
+          echo "then open a PR: cargoHash must be recomputed for the tagged Cargo.lock."
 
   github-release:
     name: Create GitHub release
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build, docker]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Generate release notes from CHANGELOG
         run: |
@@ -110,4 +107,6 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: true
           files: |
-            target/release/gala
+            dist/*
+            Dockerfile
+          draft: false

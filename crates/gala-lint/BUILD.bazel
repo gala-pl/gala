@@ -1,0 +1,39 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "gala_lint",
+    crate_name = "gala_lint",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    edition = "2021",
+    deps = [
+        "@crates//:clap",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-parser:gala_parser",
+        "//crates/gala-span:gala_span",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+rust_binary(
+    name = "gala-lint",
+    crate_name = "gala_lint",
+    srcs = glob(["src/main.rs"]),
+    edition = "2021",
+    deps = [":gala_lint", "@crates//:clap"],
+)
+
+rust_test(
+    name = "test",
+    crate_name = "gala_lint_test",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    edition = "2021",
+    deps = [
+        ":gala_lint",
+        "@crates//:clap",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-parser:gala_parser",
+        "//crates/gala-span:gala_span",
+    ],
+)

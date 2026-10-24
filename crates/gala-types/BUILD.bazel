@@ -1,0 +1,34 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "gala_types",
+    crate_name = "gala_types",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crates//:ena",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-hir:gala_hir",
+        "//crates/gala-span:gala_span",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "test",
+    crate_name = "gala_types_test",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        ":gala_types",
+        "@crates//:ena",
+        "@crates//:insta",
+        "@crates//:proptest",
+        "//crates/gala-ast:gala_ast",
+        "//crates/gala-diagnostics:gala_diagnostics",
+        "//crates/gala-hir:gala_hir",
+        "//crates/gala-parser:gala_parser",
+        "//crates/gala-span:gala_span",
+    ],
+)

@@ -1,0 +1,28 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "gala_diagnostics",
+    crate_name = "gala_diagnostics",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crates//:ariadne",
+        "@crates//:serde_json",
+        "//crates/gala-span:gala_span",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "test",
+    crate_name = "gala_diagnostics_test",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        ":gala_diagnostics",
+        "@crates//:ariadne",
+        "@crates//:insta",
+        "@crates//:serde_json",
+        "//crates/gala-span:gala_span",
+    ],
+)

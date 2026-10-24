@@ -1,0 +1,63 @@
+services:
+  # --- Dev service: interactive development environment ---
+  gala-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    image: gala-dev:latest
+    tty: true
+    stdin_open: true
+    working_dir: /app
+    volumes:
+      - .:/app:cached
+      - gala-cargo-registry:/usr/local/cargo/registry
+      - gala-target:/app/target
+    environment:
+      - CARGO_NET_OFFLINE=false
+      - RUSTFLAGS=-D warnings
+
+  # --- CI service: runs the same checks as CI (fmt, clippy, build, test) ---
+  gala-ci:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    image: gala-ci:latest
+    working_dir: /app
+    volumes:
+      - gala-cargo-registry:/usr/local/cargo/registry
+      - gala-target:/app/target
+    environment:
+      - CARGO_NET_OFFLINE=false
+      - RUSTFLAGS=-D warnings
+    command: >
+      sh -c "cargo fmt --check &&
+             cargo clippy --workspace --all-targets -- -D warnings &&
+             cargo build --workspace --all-targets &&
+             cargo test --workspace"
+
+  # --- Release service: builds release binaries and docker image ---
+  gala-release:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    image: gala-release:latest
+    working_dir: /app
+    volumes:
+      - gala-cargo-registry:/usr/local/cargo/registry
+      - gala-target:/app/target
+      - ./dist:/dist:cached
+    environment:
+      - CARGO_NET_OFFLINE=false
+    command: >
+      sh -c "cargo build --release --workspace &&
+             mkdir -p /dist &&
+             for b in gala gala-fmt gala-lsp gala-cli gala-lint gala-pkg; do
+               install -m 0755 /app/target/release/$b /dist/;
+             done"
+
+volumes:
+  gala-cargo-registry:
+  gala-target:

@@ -1,0 +1,20 @@
+module(name = "gala", version = "0.1.0")
+
+bazel_dep(name = "rules_rust", version = "0.74.0")
+
+# Rust toolchain (edition 2021) registered via rules_rust extension.
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(edition = "2021")
+use_repo(rust, "rust_toolchains")
+register_toolchains("@rust_toolchains//:all")
+
+# Third-party crates resolved from the committed Cargo.lock via crate_universe.
+# `@crates` is a single repository containing every crate as a target
+# (e.g. `@crates//:clap`, `@crates//:inkwell`). Regenerate after Cargo.lock
+# changes: REPIN=1 bazel sync --only=crates
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")

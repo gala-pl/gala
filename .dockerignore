@@ -1,0 +1,29 @@
+# Git
+/.git
+# Build artifacts
+/target/
+**/target/
+# Rust
+*.rs.bk
+*.bak
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+# Node
+node_modules/
+.next/
+*.tsbuildinfo
+.pnp/
+.pnp.js
+# Fuzz
+fuzz/artifacts/
+fuzz/coverage/
+# Docs
+.source/
+# Misc
+.DS_Store
+Thumbs.db
+.env
+*.swp
+*.swo

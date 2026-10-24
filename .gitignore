@@ -17,6 +17,13 @@ Session.vim
 **/coverage/
 **/__pycache__/
 
+## Bazel
+/bazel-bin/
+/bazel-out/
+/bazel-testlogs/
+/bazel-gala/
+/bazel-*
+
 ## Node
 node_modules/
 .next/
