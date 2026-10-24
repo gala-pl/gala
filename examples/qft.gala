@@ -1,0 +1,17 @@
+/// 2-qubit Quantum Fourier Transform, with output swap applied.
+fn qft2(q: Qubits<2>) -> Qubits<2> quantum {
+    h(q[1])
+    cp(q[0], q[1], 1.5707963267948966)
+    h(q[0])
+    swap(q[0], q[1])
+    q
+}
+
+fn main() -> Int prob {
+    let q = qubits<2>()
+    x(q[0])
+    let q = qft2(q)
+    let m = measure(q)
+    print(m)
+    return 0
+}

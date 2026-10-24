@@ -1,0 +1,56 @@
+import gala_std.io.{ print };
+
+/// Absolute value of an integer.
+fn abs(x: Int) -> Int pure {
+    if x < 0 {
+        return -x
+    }
+    return x
+}
+
+/// Maximum of two integers.
+fn max(a: Int, b: Int) -> Int pure {
+    if a >= b {
+        return a
+    }
+    return b
+}
+
+/// Clamp `x` between `low` and `high`.
+fn clamp(x: Int, low: Int, high: Int) -> Int pure {
+    if x < low {
+        return low
+    }
+    if x > high {
+        return high
+    }
+    return x
+}
+
+/// Factorial using recursion.
+fn factorial(n: Int) -> Int pure {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+/// Sum of integers from 1 to `n` using iteration.
+fn sum_to(n: Int) -> Int pure {
+    let mut total = 0
+    let mut i = 1
+    while i <= n {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
+
+fn main() -> Int pure {
+    print(abs(-7))
+    print(max(3, 9))
+    print(clamp(15, 0, 10))
+    print(factorial(5))
+    print(sum_to(10))
+    return 0
+}

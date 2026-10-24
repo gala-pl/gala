@@ -1,0 +1,16 @@
+/// Bell pair: allocate two qubits, entangle them with a CNOT, measure one.
+fn bell() -> (Qubit, Qubit) quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+
+fn main() -> Int prob {
+    let (a, b) = bell()
+    let m = measure(a)
+    print(m)
+    drop(b)
+    return 0
+}

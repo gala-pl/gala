@@ -1,0 +1,23 @@
+/// A pure classical function — no quantum effects, deterministic.
+fn add(a: Int, b: Int) -> Int pure {
+    return a + b
+}
+
+/// A quantum function — allocates and transforms qubits, unitary only.
+fn prep(q: Qubit) -> Qubit quantum {
+    h(q)
+    return q
+}
+
+/// A probabilistic function — measures, so it carries randomness.
+fn coin() -> Measured<Bool> prob {
+    let q = qubit()
+    let q = prep(q)
+    return measure(q)
+}
+
+/// main is prob because it calls coin.
+fn main() -> Int prob {
+    print(coin())
+    return 0
+}

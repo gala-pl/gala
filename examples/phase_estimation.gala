@@ -1,0 +1,17 @@
+/// Phase estimation with one counting qubit for the eigenphase φ = 1/2 of Z.
+/// The counting qubit reads 1 and the target stays in |1⟩.
+fn phase_estimate_z() -> Qubits<2> quantum {
+    let q = qubits<2>()
+    x(q[1])
+    h(q[0])
+    cz(q[0], q[1])
+    h(q[0])
+    q
+}
+
+fn main() -> Int prob {
+    let q = phase_estimate_z()
+    let m = measure(q)
+    print(m)
+    return 0
+}

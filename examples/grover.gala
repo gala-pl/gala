@@ -1,0 +1,27 @@
+/// Grover's search over two items for the marked state |11⟩.
+/// One iteration finds it with certainty, so the measurement returns [true, true].
+fn grover2() -> Qubits<2> quantum {
+    let q = qubits<2>()
+    h(q[0])
+    h(q[1])
+    // Oracle: flip the phase of |11⟩.
+    cz(q[0], q[1])
+    // Diffusion: reflect about the uniform superposition.
+    h(q[0])
+    h(q[1])
+    x(q[0])
+    x(q[1])
+    cz(q[0], q[1])
+    x(q[0])
+    x(q[1])
+    h(q[0])
+    h(q[1])
+    q
+}
+
+fn main() -> Int prob {
+    let q = grover2()
+    let m = measure(q)
+    print(m)
+    return 0
+}

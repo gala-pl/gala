@@ -1,0 +1,16 @@
+/// One first-order Trotter step of H = Z⊗Z + X⊗I for time `dt`.
+fn trotter_step2(q: Qubits<2>, dt: Float) -> Qubits<2> quantum {
+    cx(q[0], q[1])
+    rz(q[1], 2.0 * dt)
+    cx(q[0], q[1])
+    rx(q[0], 2.0 * dt)
+    q
+}
+
+fn main() -> Int prob {
+    let q = qubits<2>()
+    let q = trotter_step2(q, 0.5)
+    let m = measure(q)
+    print(m)
+    return 0
+}

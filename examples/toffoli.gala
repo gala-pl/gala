@@ -1,0 +1,36 @@
+/// Toffoli (controlled-controlled-NOT): flips `c` when both `a` and `b` are 1.
+/// Standard decomposition into H, T, T-adjoint, and CNOT.
+fn toffoli(a: Qubit, b: Qubit, c: Qubit) -> (Qubit, Qubit, Qubit) quantum {
+    h(c)
+    let (b, c) = cx(b, c)
+    rz(c, -0.7853981633974483)
+    let (a, c) = cx(a, c)
+    t(c)
+    let (b, c) = cx(b, c)
+    rz(c, -0.7853981633974483)
+    let (a, c) = cx(a, c)
+    t(b)
+    t(c)
+    h(c)
+    let (a, b) = cx(a, b)
+    t(a)
+    rz(b, -0.7853981633974483)
+    let (a, b) = cx(a, b)
+    (a, b, c)
+}
+
+fn main() -> Int prob {
+    let a = qubit()
+    let b = qubit()
+    let c = qubit()
+    x(a)
+    x(b)
+    let (a, b, c) = toffoli(a, b, c)
+    let m1 = measure(a)
+    let m2 = measure(b)
+    let m3 = measure(c)
+    print(m1)
+    print(m2)
+    print(m3)
+    return 0
+}

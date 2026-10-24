@@ -1,0 +1,60 @@
+import gala_std.io.{ print };
+
+/// Sign of an integer using match.
+fn sign(n: Int) -> Int pure {
+    match n {
+        0 => 0,
+        _ if n > 0 => 1,
+        _ => -1,
+    }
+}
+
+/// Parity of an integer using match.
+fn parity(n: Int) -> Int pure {
+    match n % 2 {
+        0 => 0,
+        _ => 1,
+    }
+}
+
+/// Absolute value using if-else expression.
+fn abs_value(x: Int) -> Int pure {
+    let result = if x < 0 {
+        -x
+    } else {
+        x
+    }
+    return result
+}
+
+/// Sum 0..n using a for loop.
+fn sum_range(n: Int) -> Int pure {
+    let mut total = 0
+    for i in 0..n {
+        total = total + i
+    }
+    return total
+}
+
+/// Sum 0..n using a while loop.
+fn sum_while(n: Int) -> Int pure {
+    let mut total = 0
+    let mut i = 0
+    while i < n {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
+
+fn main() -> Int pure {
+    print(sign(-5))
+    print(sign(0))
+    print(sign(42))
+    print(parity(7))
+    print(parity(8))
+    print(abs_value(-10))
+    print(sum_range(5))
+    print(sum_while(5))
+    return 0
+}

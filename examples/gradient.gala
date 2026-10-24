@@ -1,0 +1,15 @@
+/// A parameterized one-qubit classifier circuit.
+/// The `theta` parameter is the trainable weight learned by `gala-diff`
+/// (parameter-shift rule) from Rust training code.
+fn classify(x: Float, theta: Float) -> Measured<Bool> prob {
+    let q = qubit()
+    ry(q, x)
+    ry(q, theta)
+    measure(q)
+}
+
+fn main() -> Int prob {
+    print(classify(0.0, 0.0))
+    print(classify(3.141592653589793, 0.0))
+    return 0
+}

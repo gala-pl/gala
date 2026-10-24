@@ -1,0 +1,10 @@
+import gala.vqa.{ classify };
+
+/// Variational quantum classifier: encode a feature as a rotation, apply a
+/// trainable rotation, and measure. With x = π and theta = 0, output is true;
+/// with x = 0, output is false.
+fn main() -> Int prob {
+    print(classify(3.141592653589793, 0.0))
+    print(classify(0.0, 0.0))
+    return 0
+}
