@@ -105,7 +105,7 @@ jobs:
           chmod +x /usr/local/bin/bazel
 
       - name: Cache Bazel
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/bazel
