@@ -1,4 +1,4 @@
-# Gala
+# Gala (experimental)
 
 ![Frontal Banner](./banner.png)
 
