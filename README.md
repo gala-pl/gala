@@ -1,6 +1,6 @@
 # Gala (experimental)
 
-![Frontal Banner](./banner.png)
+![Gala Banner](./banner.png)
 
 A hybrid quantum-classical programming language whose compiler enforces the laws of quantum mechanics.
 
