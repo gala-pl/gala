@@ -1,0 +1,1864 @@
+---
+source: crates/gala-driver/tests/snapshot_tests.rs
+assertion_line: 50
+expression: dump_json(src)
+---
+{
+  "effects": {
+    "full_adder": "quantum",
+    "grover2": "prob",
+    "iqft": "quantum",
+    "iqft2": "quantum",
+    "main": "prob",
+    "phase_estimate_z": "prob",
+    "qft": "quantum",
+    "qft2": "quantum",
+    "toffoli": "quantum",
+    "trotter_step2": "quantum"
+  },
+  "functions": [
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 0,
+                "op": "alloc_register",
+                "size": 2
+              },
+              {
+                "dst": 1,
+                "op": "copy",
+                "src": 0
+              },
+              {
+                "dst": 2,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 3,
+                "index": 2,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  4
+                ],
+                "gate": "x",
+                "op": "gate",
+                "targets": [
+                  3
+                ]
+              },
+              {
+                "args": [
+                  1
+                ],
+                "dsts": [
+                  5
+                ],
+                "func": 1,
+                "op": "call"
+              },
+              {
+                "dst": 6,
+                "op": "copy",
+                "src": 5
+              },
+              {
+                "dst": 7,
+                "op": "measure",
+                "target": 6
+              },
+              {
+                "dst": 8,
+                "op": "copy",
+                "src": 7
+              },
+              {
+                "args": [
+                  8
+                ],
+                "op": "print"
+              },
+              {
+                "dst": 9,
+                "op": "const",
+                "value": {
+                  "kind": "unit"
+                }
+              },
+              {
+                "dst": 10,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 10
+            }
+          }
+        ],
+        "slot_count": 11
+      },
+      "effect": "prob",
+      "id": "fn0",
+      "name": "main",
+      "params": [],
+      "return_type": "Int",
+      "spans": {
+        "end": 156,
+        "file_id": 0,
+        "start": 33
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 1,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 2,
+                "index": 1,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  3
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  2
+                ]
+              },
+              {
+                "dst": 4,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 5,
+                "index": 4,
+                "op": "index"
+              },
+              {
+                "dst": 6,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 7,
+                "index": 6,
+                "op": "index"
+              },
+              {
+                "dst": 8,
+                "op": "const",
+                "value": {
+                  "kind": "float",
+                  "value": 1.5707963267948966
+                }
+              },
+              {
+                "angle": 8,
+                "dsts": [
+                  9,
+                  10
+                ],
+                "gate": "cp",
+                "op": "gate",
+                "targets": [
+                  5,
+                  7
+                ]
+              },
+              {
+                "dst": 11,
+                "items": [
+                  9,
+                  10
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 12,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 13,
+                "index": 12,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  14
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  13
+                ]
+              },
+              {
+                "dst": 15,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 16,
+                "index": 15,
+                "op": "index"
+              },
+              {
+                "dst": 17,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 18,
+                "index": 17,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  19,
+                  20
+                ],
+                "gate": "swap",
+                "op": "gate",
+                "targets": [
+                  16,
+                  18
+                ]
+              },
+              {
+                "dst": 21,
+                "items": [
+                  19,
+                  20
+                ],
+                "op": "tuple"
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 0
+            }
+          }
+        ],
+        "slot_count": 22
+      },
+      "effect": "quantum",
+      "id": "fn1",
+      "name": "qft2",
+      "params": [
+        {
+          "linearity": "linear",
+          "name": "q",
+          "type": "Qubits<2>"
+        }
+      ],
+      "return_type": "Qubits<2>",
+      "spans": {
+        "end": 424,
+        "file_id": 1,
+        "start": 288
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 1,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 2,
+                "index": 1,
+                "op": "index"
+              },
+              {
+                "dst": 3,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 4,
+                "index": 3,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  5,
+                  6
+                ],
+                "gate": "swap",
+                "op": "gate",
+                "targets": [
+                  2,
+                  4
+                ]
+              },
+              {
+                "dst": 7,
+                "items": [
+                  5,
+                  6
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 8,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 9,
+                "index": 8,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  10
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  9
+                ]
+              },
+              {
+                "dst": 11,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 12,
+                "index": 11,
+                "op": "index"
+              },
+              {
+                "dst": 13,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 14,
+                "index": 13,
+                "op": "index"
+              },
+              {
+                "dst": 15,
+                "op": "const",
+                "value": {
+                  "kind": "float",
+                  "value": 1.5707963267948966
+                }
+              },
+              {
+                "dst": 16,
+                "op": "un",
+                "operator": "Neg",
+                "src": 15
+              },
+              {
+                "angle": 16,
+                "dsts": [
+                  17,
+                  18
+                ],
+                "gate": "cp",
+                "op": "gate",
+                "targets": [
+                  12,
+                  14
+                ]
+              },
+              {
+                "dst": 19,
+                "items": [
+                  17,
+                  18
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 20,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 21,
+                "index": 20,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  22
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  21
+                ]
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 0
+            }
+          }
+        ],
+        "slot_count": 23
+      },
+      "effect": "quantum",
+      "id": "fn2",
+      "name": "iqft2",
+      "params": [
+        {
+          "linearity": "linear",
+          "name": "q",
+          "type": "Qubits<2>"
+        }
+      ],
+      "return_type": "Qubits<2>",
+      "spans": {
+        "end": 646,
+        "file_id": 1,
+        "start": 508
+      }
+    },
+    {
+      "body": {
+        "blocks": [],
+        "slot_count": 0
+      },
+      "effect": "quantum",
+      "id": "fn3",
+      "name": "qft",
+      "params": [],
+      "return_type": "Unit",
+      "spans": {
+        "end": 1192,
+        "file_id": 1,
+        "start": 792
+      }
+    },
+    {
+      "body": {
+        "blocks": [],
+        "slot_count": 0
+      },
+      "effect": "quantum",
+      "id": "fn4",
+      "name": "iqft",
+      "params": [],
+      "return_type": "Unit",
+      "spans": {
+        "end": 1775,
+        "file_id": 1,
+        "start": 1278
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 0,
+                "op": "alloc_register",
+                "size": 2
+              },
+              {
+                "dst": 1,
+                "op": "copy",
+                "src": 0
+              },
+              {
+                "dst": 2,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 3,
+                "index": 2,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  4
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  3
+                ]
+              },
+              {
+                "dst": 5,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 6,
+                "index": 5,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  7
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  6
+                ]
+              },
+              {
+                "dst": 8,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 9,
+                "index": 8,
+                "op": "index"
+              },
+              {
+                "dst": 10,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 11,
+                "index": 10,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  12,
+                  13
+                ],
+                "gate": "cz",
+                "op": "gate",
+                "targets": [
+                  9,
+                  11
+                ]
+              },
+              {
+                "dst": 14,
+                "items": [
+                  12,
+                  13
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 15,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 16,
+                "index": 15,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  17
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  16
+                ]
+              },
+              {
+                "dst": 18,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 19,
+                "index": 18,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  20
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  19
+                ]
+              },
+              {
+                "dst": 21,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 22,
+                "index": 21,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  23
+                ],
+                "gate": "x",
+                "op": "gate",
+                "targets": [
+                  22
+                ]
+              },
+              {
+                "dst": 24,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 25,
+                "index": 24,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  26
+                ],
+                "gate": "x",
+                "op": "gate",
+                "targets": [
+                  25
+                ]
+              },
+              {
+                "dst": 27,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 28,
+                "index": 27,
+                "op": "index"
+              },
+              {
+                "dst": 29,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 30,
+                "index": 29,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  31,
+                  32
+                ],
+                "gate": "cz",
+                "op": "gate",
+                "targets": [
+                  28,
+                  30
+                ]
+              },
+              {
+                "dst": 33,
+                "items": [
+                  31,
+                  32
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 34,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 35,
+                "index": 34,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  36
+                ],
+                "gate": "x",
+                "op": "gate",
+                "targets": [
+                  35
+                ]
+              },
+              {
+                "dst": 37,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 38,
+                "index": 37,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  39
+                ],
+                "gate": "x",
+                "op": "gate",
+                "targets": [
+                  38
+                ]
+              },
+              {
+                "dst": 40,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 41,
+                "index": 40,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  42
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  41
+                ]
+              },
+              {
+                "dst": 43,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 44,
+                "index": 43,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  45
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  44
+                ]
+              },
+              {
+                "dst": 46,
+                "op": "measure",
+                "target": 1
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 46
+            }
+          }
+        ],
+        "slot_count": 47
+      },
+      "effect": "prob",
+      "id": "fn5",
+      "name": "grover2",
+      "params": [],
+      "return_type": "Measured<Vec<Bool>>",
+      "spans": {
+        "end": 2266,
+        "file_id": 1,
+        "start": 1925
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "angle": null,
+                "dsts": [
+                  3
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  2
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  4,
+                  5
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "dst": 6,
+                "items": [
+                  4,
+                  5
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 7,
+                "op": "const",
+                "value": {
+                  "kind": "float",
+                  "value": 0.7853981633974483
+                }
+              },
+              {
+                "dst": 8,
+                "op": "un",
+                "operator": "Neg",
+                "src": 7
+              },
+              {
+                "angle": 8,
+                "dsts": [
+                  9
+                ],
+                "gate": "rz",
+                "op": "gate",
+                "targets": [
+                  2
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  10,
+                  11
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  0,
+                  2
+                ]
+              },
+              {
+                "dst": 12,
+                "items": [
+                  10,
+                  11
+                ],
+                "op": "tuple"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  13
+                ],
+                "gate": "t",
+                "op": "gate",
+                "targets": [
+                  2
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  14,
+                  15
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "dst": 16,
+                "items": [
+                  14,
+                  15
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 17,
+                "op": "const",
+                "value": {
+                  "kind": "float",
+                  "value": 0.7853981633974483
+                }
+              },
+              {
+                "dst": 18,
+                "op": "un",
+                "operator": "Neg",
+                "src": 17
+              },
+              {
+                "angle": 18,
+                "dsts": [
+                  19
+                ],
+                "gate": "rz",
+                "op": "gate",
+                "targets": [
+                  2
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  20,
+                  21
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  0,
+                  2
+                ]
+              },
+              {
+                "dst": 22,
+                "items": [
+                  20,
+                  21
+                ],
+                "op": "tuple"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  23
+                ],
+                "gate": "t",
+                "op": "gate",
+                "targets": [
+                  1
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  24
+                ],
+                "gate": "t",
+                "op": "gate",
+                "targets": [
+                  2
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  25
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  2
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  26,
+                  27
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  0,
+                  1
+                ]
+              },
+              {
+                "dst": 28,
+                "items": [
+                  26,
+                  27
+                ],
+                "op": "tuple"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  29
+                ],
+                "gate": "t",
+                "op": "gate",
+                "targets": [
+                  0
+                ]
+              },
+              {
+                "dst": 30,
+                "op": "const",
+                "value": {
+                  "kind": "float",
+                  "value": 0.7853981633974483
+                }
+              },
+              {
+                "dst": 31,
+                "op": "un",
+                "operator": "Neg",
+                "src": 30
+              },
+              {
+                "angle": 31,
+                "dsts": [
+                  32
+                ],
+                "gate": "rz",
+                "op": "gate",
+                "targets": [
+                  1
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  33,
+                  34
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  0,
+                  1
+                ]
+              },
+              {
+                "dst": 35,
+                "items": [
+                  33,
+                  34
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 36,
+                "items": [
+                  0,
+                  1,
+                  2
+                ],
+                "op": "tuple"
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 36
+            }
+          }
+        ],
+        "slot_count": 37
+      },
+      "effect": "quantum",
+      "id": "fn6",
+      "name": "toffoli",
+      "params": [
+        {
+          "linearity": "linear",
+          "name": "a",
+          "type": "Qubit"
+        },
+        {
+          "linearity": "linear",
+          "name": "b",
+          "type": "Qubit"
+        },
+        {
+          "linearity": "linear",
+          "name": "c",
+          "type": "Qubit"
+        }
+      ],
+      "return_type": "(Qubit, Qubit, Qubit)",
+      "spans": {
+        "end": 2751,
+        "file_id": 1,
+        "start": 2435
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "args": [
+                  0,
+                  1,
+                  3
+                ],
+                "dsts": [
+                  4
+                ],
+                "func": 6,
+                "op": "call"
+              },
+              {
+                "dst": 5,
+                "index": 0,
+                "op": "tuple_get",
+                "src": 4
+              },
+              {
+                "dst": 6,
+                "op": "copy",
+                "src": 5
+              },
+              {
+                "dst": 7,
+                "index": 1,
+                "op": "tuple_get",
+                "src": 4
+              },
+              {
+                "dst": 8,
+                "op": "copy",
+                "src": 7
+              },
+              {
+                "dst": 9,
+                "index": 2,
+                "op": "tuple_get",
+                "src": 4
+              },
+              {
+                "dst": 10,
+                "op": "copy",
+                "src": 9
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  11,
+                  12
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  6,
+                  8
+                ]
+              },
+              {
+                "dst": 13,
+                "items": [
+                  11,
+                  12
+                ],
+                "op": "tuple"
+              },
+              {
+                "args": [
+                  2,
+                  8,
+                  10
+                ],
+                "dsts": [
+                  14
+                ],
+                "func": 6,
+                "op": "call"
+              },
+              {
+                "dst": 15,
+                "index": 0,
+                "op": "tuple_get",
+                "src": 14
+              },
+              {
+                "dst": 16,
+                "op": "copy",
+                "src": 15
+              },
+              {
+                "dst": 17,
+                "index": 1,
+                "op": "tuple_get",
+                "src": 14
+              },
+              {
+                "dst": 18,
+                "op": "copy",
+                "src": 17
+              },
+              {
+                "dst": 19,
+                "index": 2,
+                "op": "tuple_get",
+                "src": 14
+              },
+              {
+                "dst": 20,
+                "op": "copy",
+                "src": 19
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  21,
+                  22
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  16,
+                  18
+                ]
+              },
+              {
+                "dst": 23,
+                "items": [
+                  21,
+                  22
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 24,
+                "items": [
+                  6,
+                  18,
+                  16,
+                  20
+                ],
+                "op": "tuple"
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 24
+            }
+          }
+        ],
+        "slot_count": 25
+      },
+      "effect": "quantum",
+      "id": "fn7",
+      "name": "full_adder",
+      "params": [
+        {
+          "linearity": "linear",
+          "name": "a",
+          "type": "Qubit"
+        },
+        {
+          "linearity": "linear",
+          "name": "b",
+          "type": "Qubit"
+        },
+        {
+          "linearity": "linear",
+          "name": "cin",
+          "type": "Qubit"
+        },
+        {
+          "linearity": "linear",
+          "name": "cout",
+          "type": "Qubit"
+        }
+      ],
+      "return_type": "(Qubit, Qubit, Qubit, Qubit)",
+      "spans": {
+        "end": 3178,
+        "file_id": 1,
+        "start": 2936
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 2,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 3,
+                "index": 2,
+                "op": "index"
+              },
+              {
+                "dst": 4,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 5,
+                "index": 4,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  6,
+                  7
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  3,
+                  5
+                ]
+              },
+              {
+                "dst": 8,
+                "items": [
+                  6,
+                  7
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 9,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 10,
+                "index": 9,
+                "op": "index"
+              },
+              {
+                "dst": 11,
+                "op": "const",
+                "value": {
+                  "kind": "float",
+                  "value": 2.0
+                }
+              },
+              {
+                "a": 11,
+                "b": 1,
+                "dst": 12,
+                "op": "bin",
+                "operator": "Mul"
+              },
+              {
+                "angle": 12,
+                "dsts": [
+                  13
+                ],
+                "gate": "rz",
+                "op": "gate",
+                "targets": [
+                  10
+                ]
+              },
+              {
+                "dst": 14,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 15,
+                "index": 14,
+                "op": "index"
+              },
+              {
+                "dst": 16,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 0,
+                "dst": 17,
+                "index": 16,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  18,
+                  19
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  15,
+                  17
+                ]
+              },
+              {
+                "dst": 20,
+                "items": [
+                  18,
+                  19
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 21,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 0,
+                "dst": 22,
+                "index": 21,
+                "op": "index"
+              },
+              {
+                "dst": 23,
+                "op": "const",
+                "value": {
+                  "kind": "float",
+                  "value": 2.0
+                }
+              },
+              {
+                "a": 23,
+                "b": 1,
+                "dst": 24,
+                "op": "bin",
+                "operator": "Mul"
+              },
+              {
+                "angle": 24,
+                "dsts": [
+                  25
+                ],
+                "gate": "rx",
+                "op": "gate",
+                "targets": [
+                  22
+                ]
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 0
+            }
+          }
+        ],
+        "slot_count": 26
+      },
+      "effect": "quantum",
+      "id": "fn8",
+      "name": "trotter_step2",
+      "params": [
+        {
+          "linearity": "linear",
+          "name": "q",
+          "type": "Qubits<2>"
+        },
+        {
+          "linearity": "unrestricted",
+          "name": "dt",
+          "type": "Float"
+        }
+      ],
+      "return_type": "Qubits<2>",
+      "spans": {
+        "end": 3492,
+        "file_id": 1,
+        "start": 3336
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 0,
+                "op": "alloc_register",
+                "size": 2
+              },
+              {
+                "dst": 1,
+                "op": "copy",
+                "src": 0
+              },
+              {
+                "dst": 2,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 3,
+                "index": 2,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  4
+                ],
+                "gate": "x",
+                "op": "gate",
+                "targets": [
+                  3
+                ]
+              },
+              {
+                "dst": 5,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 6,
+                "index": 5,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  7
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  6
+                ]
+              },
+              {
+                "dst": 8,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 9,
+                "index": 8,
+                "op": "index"
+              },
+              {
+                "dst": 10,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "base": 1,
+                "dst": 11,
+                "index": 10,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  12,
+                  13
+                ],
+                "gate": "cz",
+                "op": "gate",
+                "targets": [
+                  9,
+                  11
+                ]
+              },
+              {
+                "dst": 14,
+                "items": [
+                  12,
+                  13
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 15,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 0
+                }
+              },
+              {
+                "base": 1,
+                "dst": 16,
+                "index": 15,
+                "op": "index"
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  17
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  16
+                ]
+              },
+              {
+                "dst": 18,
+                "op": "measure",
+                "target": 1
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 18
+            }
+          }
+        ],
+        "slot_count": 19
+      },
+      "effect": "prob",
+      "id": "fn9",
+      "name": "phase_estimate_z",
+      "params": [],
+      "return_type": "Measured<Vec<Bool>>",
+      "spans": {
+        "end": 3842,
+        "file_id": 1,
+        "start": 3695
+      }
+    }
+  ],
+  "metadata": {
+    "compiler_version": "0.1.0"
+  },
+  "types": {
+    "(Qubit, Qubit, Qubit)": {
+      "kind": "tuple",
+      "linearity": "linear",
+      "name": "(Qubit, Qubit, Qubit)"
+    },
+    "(Qubit, Qubit, Qubit, Qubit)": {
+      "kind": "tuple",
+      "linearity": "linear",
+      "name": "(Qubit, Qubit, Qubit, Qubit)"
+    },
+    "Float": {
+      "kind": "primitive",
+      "linearity": "unrestricted",
+      "name": "Float"
+    },
+    "Int": {
+      "kind": "primitive",
+      "linearity": "unrestricted",
+      "name": "Int"
+    },
+    "Measured<Vec<Bool>>": {
+      "kind": "measured",
+      "linearity": "unrestricted",
+      "name": "Measured<Vec<Bool>>"
+    },
+    "Qubit": {
+      "kind": "qubit",
+      "linearity": "linear",
+      "name": "Qubit"
+    },
+    "Qubits<2>": {
+      "kind": "qubits",
+      "linearity": "linear",
+      "name": "Qubits<2>"
+    },
+    "Unit": {
+      "kind": "primitive",
+      "linearity": "unrestricted",
+      "name": "Unit"
+    }
+  },
+  "version": 1
+}

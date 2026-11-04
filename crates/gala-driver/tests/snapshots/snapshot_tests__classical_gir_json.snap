@@ -1,0 +1,121 @@
+---
+source: crates/gala-driver/tests/snapshot_tests.rs
+assertion_line: 44
+expression: dump_json(src)
+---
+{
+  "effects": {
+    "add": "pure",
+    "main": "pure"
+  },
+  "functions": [
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "a": 0,
+                "b": 1,
+                "dst": 2,
+                "op": "bin",
+                "operator": "Add"
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 2
+            }
+          }
+        ],
+        "slot_count": 3
+      },
+      "effect": "pure",
+      "id": "fn0",
+      "name": "add",
+      "params": [
+        {
+          "linearity": "unrestricted",
+          "name": "a",
+          "type": "Int"
+        },
+        {
+          "linearity": "unrestricted",
+          "name": "b",
+          "type": "Int"
+        }
+      ],
+      "return_type": "Int",
+      "spans": {
+        "end": 48,
+        "file_id": 0,
+        "start": 0
+      }
+    },
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 0,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 1
+                }
+              },
+              {
+                "dst": 1,
+                "op": "const",
+                "value": {
+                  "kind": "int",
+                  "value": 2
+                }
+              },
+              {
+                "args": [
+                  0,
+                  1
+                ],
+                "dsts": [
+                  2
+                ],
+                "func": 0,
+                "op": "call"
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 2
+            }
+          }
+        ],
+        "slot_count": 3
+      },
+      "effect": "pure",
+      "id": "fn1",
+      "name": "main",
+      "params": [],
+      "return_type": "Int",
+      "spans": {
+        "end": 84,
+        "file_id": 0,
+        "start": 50
+      }
+    }
+  ],
+  "metadata": {
+    "compiler_version": "0.1.0"
+  },
+  "types": {
+    "Int": {
+      "kind": "primitive",
+      "linearity": "unrestricted",
+      "name": "Int"
+    }
+  },
+  "version": 1
+}

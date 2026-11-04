@@ -1,0 +1,136 @@
+---
+source: crates/gala-driver/tests/snapshot_tests.rs
+assertion_line: 38
+expression: dump_json(src)
+---
+{
+  "effects": {
+    "main": "prob"
+  },
+  "functions": [
+    {
+      "body": {
+        "blocks": [
+          {
+            "id": 0,
+            "insts": [
+              {
+                "dst": 0,
+                "op": "alloc_qubit"
+              },
+              {
+                "dst": 1,
+                "op": "copy",
+                "src": 0
+              },
+              {
+                "dst": 2,
+                "op": "alloc_qubit"
+              },
+              {
+                "dst": 3,
+                "op": "copy",
+                "src": 2
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  4
+                ],
+                "gate": "h",
+                "op": "gate",
+                "targets": [
+                  1
+                ]
+              },
+              {
+                "angle": null,
+                "dsts": [
+                  5,
+                  6
+                ],
+                "gate": "cx",
+                "op": "gate",
+                "targets": [
+                  1,
+                  3
+                ]
+              },
+              {
+                "dst": 7,
+                "items": [
+                  5,
+                  6
+                ],
+                "op": "tuple"
+              },
+              {
+                "dst": 8,
+                "index": 0,
+                "op": "tuple_get",
+                "src": 7
+              },
+              {
+                "dst": 9,
+                "op": "copy",
+                "src": 8
+              },
+              {
+                "dst": 10,
+                "index": 1,
+                "op": "tuple_get",
+                "src": 7
+              },
+              {
+                "dst": 11,
+                "op": "copy",
+                "src": 10
+              },
+              {
+                "dst": 12,
+                "op": "measure",
+                "target": 9
+              },
+              {
+                "dst": 13,
+                "op": "copy",
+                "src": 12
+              },
+              {
+                "dst": 14,
+                "op": "measure",
+                "target": 11
+              }
+            ],
+            "term": {
+              "op": "return",
+              "value": 14
+            }
+          }
+        ],
+        "slot_count": 15
+      },
+      "effect": "prob",
+      "id": "fn0",
+      "name": "main",
+      "params": [],
+      "return_type": "Measured<Bool>",
+      "spans": {
+        "end": 149,
+        "file_id": 0,
+        "start": 0
+      }
+    }
+  ],
+  "metadata": {
+    "compiler_version": "0.1.0"
+  },
+  "types": {
+    "Measured<Bool>": {
+      "kind": "measured",
+      "linearity": "unrestricted",
+      "name": "Measured<Bool>"
+    }
+  },
+  "version": 1
+}
