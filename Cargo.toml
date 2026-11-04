@@ -91,3 +91,4 @@ gala-lsp = { path = "crates/gala-lsp" }
 gala-lint = { path = "crates/gala-lint" }
 gala-std = { path = "crates/gala-std" }
 gala-fuzz = { path = "crates/gala-fuzz" }
+gala-doc = { path = "crates/gala-doc" }

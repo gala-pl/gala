@@ -2,6 +2,7 @@
 
 use clap::{Parser, Subcommand};
 use gala_diagnostics::{explain, to_json, DiagnosticCode, Diagnostics, Emitter};
+use gala_doc::document_file;
 use gala_driver::{compile_file, Sources};
 use gala_pkg::manifest::DependencySpec;
 use gala_sim::{run_entry, SimConfig};
@@ -118,6 +119,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Generate Markdown documentation from /// comments
+    Doc {
+        file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Create a new project
     New {
         name: String,
@@ -205,6 +212,7 @@ fn main() {
         }
         Commands::Fmt { file, check, diff, stdin } => fmt(file.as_deref(), check, diff, stdin),
         Commands::Explain { code, markdown, json } => explain_cmd(&code, markdown, json),
+        Commands::Doc { file, json } => doc_cmd(&file, json),
         Commands::New { name, lib } => new_project(&name, lib),
         Commands::Add { name, version, path } => add(&name, version, path),
         Commands::Repl { json } => repl(json),
@@ -515,6 +523,27 @@ fn explain_cmd(code: &str, markdown: bool, as_json: bool) -> i32 {
             1
         }
     }
+}
+
+fn doc_cmd(file: &Path, as_json: bool) -> i32 {
+    let md = match document_file(file) {
+        Ok(md) => md,
+        Err(e) => {
+            eprintln!("error: could not read `{}`: {e}", file.display());
+            return 1;
+        }
+    };
+    if as_json {
+        let v = serde_json::json!({
+            "schema": "gala.doc.v1",
+            "file": file.display().to_string(),
+            "markdown": md
+        });
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+    } else {
+        print!("{md}");
+    }
+    0
 }
 
 fn new_project(name: &str, lib: bool) -> i32 {
