@@ -1,0 +1,224 @@
+---
+source: crates/gala-driver/tests/snapshot_tests.rs
+assertion_line: 25
+expression: dump(src)
+---
+fn main #0 effect=prob params=[] slots=11 {
+  bb0:
+    %0 = alloc_register 2
+    %1 = copy %0
+    %2 = const Int(0)
+    %3 = index %1[%2]
+    %4 = x(%3)
+    %5 = call #1(%1)
+    %6 = copy %5
+    %7 = measure %6
+    %8 = copy %7
+    print %8
+    %9 = const Unit
+    %10 = const Int(0)
+    return %10
+}
+fn qft2 #1 effect=quantum params=[%0] slots=22 {
+  bb0:
+    %1 = const Int(1)
+    %2 = index %0[%1]
+    %3 = h(%2)
+    %4 = const Int(0)
+    %5 = index %0[%4]
+    %6 = const Int(1)
+    %7 = index %0[%6]
+    %8 = const Float(1.5707963267948966)
+    %9, %10 = cp(%5, %7, %8)
+    %11 = tuple %9, %10
+    %12 = const Int(0)
+    %13 = index %0[%12]
+    %14 = h(%13)
+    %15 = const Int(0)
+    %16 = index %0[%15]
+    %17 = const Int(1)
+    %18 = index %0[%17]
+    %19, %20 = swap(%16, %18)
+    %21 = tuple %19, %20
+    return %0
+}
+fn iqft2 #2 effect=quantum params=[%0] slots=23 {
+  bb0:
+    %1 = const Int(0)
+    %2 = index %0[%1]
+    %3 = const Int(1)
+    %4 = index %0[%3]
+    %5, %6 = swap(%2, %4)
+    %7 = tuple %5, %6
+    %8 = const Int(0)
+    %9 = index %0[%8]
+    %10 = h(%9)
+    %11 = const Int(0)
+    %12 = index %0[%11]
+    %13 = const Int(1)
+    %14 = index %0[%13]
+    %15 = const Float(1.5707963267948966)
+    %16 = Neg %15
+    %17, %18 = cp(%12, %14, %16)
+    %19 = tuple %17, %18
+    %20 = const Int(1)
+    %21 = index %0[%20]
+    %22 = h(%21)
+    return %0
+}
+fn qft #3 effect=quantum params=[] slots=0 {
+}
+fn iqft #4 effect=quantum params=[] slots=0 {
+}
+fn grover2 #5 effect=prob params=[] slots=47 {
+  bb0:
+    %0 = alloc_register 2
+    %1 = copy %0
+    %2 = const Int(0)
+    %3 = index %1[%2]
+    %4 = h(%3)
+    %5 = const Int(1)
+    %6 = index %1[%5]
+    %7 = h(%6)
+    %8 = const Int(0)
+    %9 = index %1[%8]
+    %10 = const Int(1)
+    %11 = index %1[%10]
+    %12, %13 = cz(%9, %11)
+    %14 = tuple %12, %13
+    %15 = const Int(0)
+    %16 = index %1[%15]
+    %17 = h(%16)
+    %18 = const Int(1)
+    %19 = index %1[%18]
+    %20 = h(%19)
+    %21 = const Int(0)
+    %22 = index %1[%21]
+    %23 = x(%22)
+    %24 = const Int(1)
+    %25 = index %1[%24]
+    %26 = x(%25)
+    %27 = const Int(0)
+    %28 = index %1[%27]
+    %29 = const Int(1)
+    %30 = index %1[%29]
+    %31, %32 = cz(%28, %30)
+    %33 = tuple %31, %32
+    %34 = const Int(0)
+    %35 = index %1[%34]
+    %36 = x(%35)
+    %37 = const Int(1)
+    %38 = index %1[%37]
+    %39 = x(%38)
+    %40 = const Int(0)
+    %41 = index %1[%40]
+    %42 = h(%41)
+    %43 = const Int(1)
+    %44 = index %1[%43]
+    %45 = h(%44)
+    %46 = measure %1
+    return %46
+}
+fn toffoli #6 effect=quantum params=[%0, %1, %2] slots=37 {
+  bb0:
+    %3 = h(%2)
+    %4, %5 = cx(%1, %2)
+    %6 = tuple %4, %5
+    %7 = const Float(0.7853981633974483)
+    %8 = Neg %7
+    %9 = rz(%2, %8)
+    %10, %11 = cx(%0, %2)
+    %12 = tuple %10, %11
+    %13 = t(%2)
+    %14, %15 = cx(%1, %2)
+    %16 = tuple %14, %15
+    %17 = const Float(0.7853981633974483)
+    %18 = Neg %17
+    %19 = rz(%2, %18)
+    %20, %21 = cx(%0, %2)
+    %22 = tuple %20, %21
+    %23 = t(%1)
+    %24 = t(%2)
+    %25 = h(%2)
+    %26, %27 = cx(%0, %1)
+    %28 = tuple %26, %27
+    %29 = t(%0)
+    %30 = const Float(0.7853981633974483)
+    %31 = Neg %30
+    %32 = rz(%1, %31)
+    %33, %34 = cx(%0, %1)
+    %35 = tuple %33, %34
+    %36 = tuple %0, %1, %2
+    return %36
+}
+fn full_adder #7 effect=quantum params=[%0, %1, %2, %3] slots=25 {
+  bb0:
+    %4 = call #6(%0, %1, %3)
+    %5 = %4.0
+    %6 = copy %5
+    %7 = %4.1
+    %8 = copy %7
+    %9 = %4.2
+    %10 = copy %9
+    %11, %12 = cx(%6, %8)
+    %13 = tuple %11, %12
+    %14 = call #6(%2, %8, %10)
+    %15 = %14.0
+    %16 = copy %15
+    %17 = %14.1
+    %18 = copy %17
+    %19 = %14.2
+    %20 = copy %19
+    %21, %22 = cx(%16, %18)
+    %23 = tuple %21, %22
+    %24 = tuple %6, %18, %16, %20
+    return %24
+}
+fn trotter_step2 #8 effect=quantum params=[%0, %1] slots=26 {
+  bb0:
+    %2 = const Int(0)
+    %3 = index %0[%2]
+    %4 = const Int(1)
+    %5 = index %0[%4]
+    %6, %7 = cx(%3, %5)
+    %8 = tuple %6, %7
+    %9 = const Int(1)
+    %10 = index %0[%9]
+    %11 = const Float(2.0)
+    %12 = Mul %11, %1
+    %13 = rz(%10, %12)
+    %14 = const Int(0)
+    %15 = index %0[%14]
+    %16 = const Int(1)
+    %17 = index %0[%16]
+    %18, %19 = cx(%15, %17)
+    %20 = tuple %18, %19
+    %21 = const Int(0)
+    %22 = index %0[%21]
+    %23 = const Float(2.0)
+    %24 = Mul %23, %1
+    %25 = rx(%22, %24)
+    return %0
+}
+fn phase_estimate_z #9 effect=prob params=[] slots=19 {
+  bb0:
+    %0 = alloc_register 2
+    %1 = copy %0
+    %2 = const Int(1)
+    %3 = index %1[%2]
+    %4 = x(%3)
+    %5 = const Int(0)
+    %6 = index %1[%5]
+    %7 = h(%6)
+    %8 = const Int(0)
+    %9 = index %1[%8]
+    %10 = const Int(1)
+    %11 = index %1[%10]
+    %12, %13 = cz(%9, %11)
+    %14 = tuple %12, %13
+    %15 = const Int(0)
+    %16 = index %1[%15]
+    %17 = h(%16)
+    %18 = measure %1
+    return %18
+}

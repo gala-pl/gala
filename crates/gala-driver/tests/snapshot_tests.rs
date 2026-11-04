@@ -18,3 +18,9 @@ fn classical_gir() {
     let src = "fn add(a: Int, b: Int) -> Int pure {\n    a + b\n}\n\nfn main() -> Int {\n    add(1, 2)\n}\n";
     insta::assert_snapshot!("classical_gir", dump(src));
 }
+
+#[test]
+fn qft_gir() {
+    let src = "import gala.algorithms.{ qft2 }\n\nfn main() -> Int prob {\n    let q = qubits<2>()\n    x(q[0])\n    let q = qft2(q)\n    let r = measure(q)\n    print(r)\n    0\n}\n";
+    insta::assert_snapshot!("qft_gir", dump(src));
+}
