@@ -1,0 +1,19 @@
+/// Bell pair from fixtures
+// This is a simple quantum circuit
+/* nested /* block */ comments work */
+fn bell() -> (Qubit, Qubit) quantum {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    (a, b)
+}
+
+fn main() -> Int prob {
+    let (a, b) = bell()
+    print(measure(a))
+    print(measure(b))
+    0
+}
+// expect-output: false
+// expect-output: false
