@@ -18,7 +18,7 @@
         };
       in pkgs // {
         inherit (pkgs) llvmPackages_10 as llvm10;
-        rust = pkgs.rust-bin.from-overlay?abort "rust-bin.from-overlay missing" or pkgs.rust-bin.stable;
+        rust = if builtins.hasAttr "from-overlay" pkgs.rust-bin then pkgs.rust-bin.from-overlay else pkgs.rust-bin.stable;
       };
     in flake-utils.lib.eachDefaultSystem (system:
       let
