@@ -33,11 +33,14 @@ pub struct SimConfig {
     /// Depolarizing error probability applied to every target qubit after each gate. Zero is the
     /// noiseless simulator. The error is X, Y, or Z with probability `p/3` each.
     pub depolarizing: f64,
+    /// Readout error probability: probability of flipping the measurement outcome (0↔1).
+    /// Applied independently to each qubit measured.
+    pub readout_error: f64,
 }
 
 impl Default for SimConfig {
     fn default() -> Self {
-        SimConfig { shots: 1024, seed: 0, depolarizing: 0.0 }
+        SimConfig { shots: 1024, seed: 0, depolarizing: 0.0, readout_error: 0.0 }
     }
 }
 
@@ -157,7 +160,8 @@ pub fn run_function(
     let mut report = RunReport::default();
     let mut rng = StdRng::seed_from_u64(config.seed);
     for shot in 0..shots {
-        let mut machine = Machine::new(gir, &mut rng, shifts, config.depolarizing);
+        let mut machine =
+            Machine::new(gir, &mut rng, shifts, config.depolarizing, config.readout_error);
         let value = machine.call(func, args.clone())?;
         if shot == 0 {
             report.output = machine.output.clone();
@@ -448,6 +452,8 @@ struct Machine<'g, 'r, 's> {
     shifts: &'s ShiftPlan,
     /// Depolarizing probability after each gate, per target qubit.
     depolarizing: f64,
+    /// Readout error probability: probability of flipping the measurement outcome.
+    readout_error: f64,
     quantum: Quantum,
     output: Vec<String>,
     steps: u64,
@@ -455,12 +461,19 @@ struct Machine<'g, 'r, 's> {
 }
 
 impl<'g, 'r, 's> Machine<'g, 'r, 's> {
-    fn new(gir: &'g Gir, rng: &'r mut StdRng, shifts: &'s ShiftPlan, depolarizing: f64) -> Self {
+    fn new(
+        gir: &'g Gir,
+        rng: &'r mut StdRng,
+        shifts: &'s ShiftPlan,
+        depolarizing: f64,
+        readout_error: f64,
+    ) -> Self {
         Machine {
             gir,
             rng,
             shifts,
             depolarizing,
+            readout_error,
             quantum: Quantum::default(),
             output: Vec::new(),
             steps: 0,
@@ -621,11 +634,24 @@ impl<'g, 'r, 's> Machine<'g, 'r, 's> {
             }
             Inst::Measure { dst, target } => {
                 let v = match &slots[*target as usize] {
-                    Value::Qubit(id) => Value::Bool(self.quantum.measure(*id, self.rng)?),
+                    Value::Qubit(id) => {
+                        let mut outcome = self.quantum.measure(*id, self.rng)?;
+                        // Apply readout error: flip outcome with probability readout_error
+                        if self.readout_error > 0.0 && self.rng.gen::<f64>() < self.readout_error {
+                            outcome = !outcome;
+                        }
+                        Value::Bool(outcome)
+                    }
                     Value::Register(ids) => {
                         let mut bits = Vec::with_capacity(ids.len());
                         for id in ids.clone() {
-                            bits.push(Value::Bool(self.quantum.measure(id, self.rng)?));
+                            let mut outcome = self.quantum.measure(id, self.rng)?;
+                            if self.readout_error > 0.0
+                                && self.rng.gen::<f64>() < self.readout_error
+                            {
+                                outcome = !outcome;
+                            }
+                            bits.push(Value::Bool(outcome));
                         }
                         Value::Vec(bits)
                     }
@@ -659,7 +685,7 @@ impl<'g, 'r, 's> Machine<'g, 'r, 's> {
                     ));
                 }
                 let n = as_index(&slots[*shots as usize])? as u64;
-                let cfg = SimConfig { shots: n, seed: 0, depolarizing: noise };
+                let cfg = SimConfig { shots: n, seed: 0, depolarizing: noise, readout_error: 0.0 };
                 let report = run_function(self.gir, *func, Vec::new(), &cfg, &ShiftPlan::new())?;
                 let ones = report.histogram.get("true").copied().unwrap_or(0);
                 slots[*dst as usize] = Value::Int(ones as i64);
@@ -901,11 +927,18 @@ mod tests {
         let src = "fn main() -> Measured<Bool> prob { let q = qubit()\n x(q)\n measure(q) }";
         let gir = gir_of(src);
         let p = 0.3;
-        let report =
-            run_entry(&gir, &SimConfig { shots: 20_000, seed: 9, depolarizing: p }).unwrap();
+        let report = run_entry(
+            &gir,
+            &SimConfig { shots: 20_000, seed: 9, depolarizing: p, readout_error: 0.0 },
+        )
+        .unwrap();
         let false_rate = report.histogram.get("false").copied().unwrap_or(0) as f64 / 20_000.0;
         assert!((false_rate - 2.0 * p / 3.0).abs() < 0.02, "rate {false_rate}");
-        let clean = run_entry(&gir, &SimConfig { shots: 500, seed: 9, depolarizing: 0.0 }).unwrap();
+        let clean = run_entry(
+            &gir,
+            &SimConfig { shots: 500, seed: 9, depolarizing: 0.0, readout_error: 0.0 },
+        )
+        .unwrap();
         assert_eq!(clean.histogram.get("true"), Some(&500));
     }
 
@@ -954,7 +987,7 @@ pub fn basis_action(
 ) -> Result<Vec<(f64, f64)>, SimError> {
     let shifts = ShiftPlan::new();
     let mut rng = StdRng::seed_from_u64(0);
-    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0);
+    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0, 0.0);
     let mut ids = Vec::with_capacity(n);
     for _ in 0..n {
         ids.push(m.quantum.alloc()?);
@@ -1014,7 +1047,7 @@ pub fn reversible_roundtrip(
 ) -> Result<f64, SimError> {
     let shifts = ShiftPlan::new();
     let mut rng = StdRng::seed_from_u64(0);
-    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0);
+    let mut m = Machine::new(gir, &mut rng, &shifts, 0.0, 0.0);
     let mut ids = Vec::with_capacity(n);
     for _ in 0..n {
         ids.push(m.quantum.alloc()?);
