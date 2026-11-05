@@ -64,6 +64,12 @@ pub enum Builtin {
     BackendNoisy,
     /// `backend.hardware("name")`: a hardware device. None is reachable from this build.
     BackendHardware,
+    /// `noise.depolarizing(p)`: simulator with depolarizing noise.
+    NoiseDepolarizing,
+    /// `noise.readout_error(p)`: simulator with readout error.
+    NoiseReadoutError,
+    /// `noise.combined(p_dep, p_readout)`: simulator with both noise models.
+    NoiseCombined,
     /// `run(f, on: backend, shots: n) -> Int`: run a probabilistic function `n` times on a backend
     /// and return how many shots measured `true`.
     Run,
@@ -94,6 +100,9 @@ impl Builtin {
             "clone" => Builtin::Clone,
             "grad" => Builtin::Grad,
             "run" => Builtin::Run,
+            "depolarizing" => Builtin::NoiseDepolarizing,
+            "readout_error" => Builtin::NoiseReadoutError,
+            "combined_noise" => Builtin::NoiseCombined,
             _ => return None,
         })
     }
@@ -125,6 +134,9 @@ impl Builtin {
             Builtin::BackendBase => "backend.base",
             Builtin::BackendNoisy => "backend.noisy",
             Builtin::BackendHardware => "backend.hardware",
+            Builtin::NoiseDepolarizing => "noise.depolarizing",
+            Builtin::NoiseReadoutError => "noise.readout_error",
+            Builtin::NoiseCombined => "noise.combined",
             Builtin::Run => "run",
         }
     }

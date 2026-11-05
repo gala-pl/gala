@@ -1,64 +1,16 @@
-// Gala noise library.
+// Gala noise models as typed values.
+// This library provides noise model builders that create backend configurations.
 //
-// Noise models as first-class typed values for error-aware
-// development and testing before hardware deployment.
+// These are compiler builtins (declarations without bodies) that bind to runtime
+// noise model constructors. The `Backend` type is not directly user-visible;
+// instead, these functions return backend values that can be passed to `run(f, on: backend)`.
+/// Create a simulator backend with depolarizing noise.
+/// `p` is the probability of a Pauli error (X, Y, or Z each with p/3) after each gate.
+fn depolarizing(p: Float) -> Backend quantum;
 
-/// A noise channel acting on quantum operations.
-type NoiseChannel = struct {
-    kind: NoiseKind,
-    params: Vec<Float>,
-}
+/// Create a simulator backend with readout error.
+/// `p` is the probability of flipping the measurement outcome (0↔1).
+fn readout_error(p: Float) -> Backend quantum;
 
-/// Types of noise channels.
-type NoiseKind = enum {
-    Depolarizing,       // Depolarizing noise
-    AmplitudeDamping,  // Energy relaxation (T1)
-    PhaseDamping,     // Dephasing (T2)
-    ReadoutError,     // Measurement error
-    BitFlip,          // Bit-flip channel
-    PhaseFlip,        // Phase-flip channel
-    Custom,           // User-defined Kraus operator
-}
-
-/// Create a depolarizing noise model with given probability.
-fn depolarizing(p: Float) -> NoiseChannel pure {
-    return NoiseChannel {
-        kind: Depolarizing,
-        params: [p],
-    };
-}
-
-/// Create an amplitude damping noise model (T1 relaxation).
-fn amplitude_damping(t1: Float) -> NoiseChannel pure {
-    return NoiseChannel {
-        kind: AmplitudeDamping,
-        params: [t1],
-    };
-}
-
-/// Create a dephasing noise model (T2 dephasing).
-fn phase_damping(t2: Float) -> NoiseChannel pure {
-    return NoiseChannel {
-        kind: PhaseDamping,
-        params: [t2],
-    };
-}
-
-/// Create a readout (measurement) error model.
-fn readout_error(p0: Float, p1: Float) -> NoiseChannel pure {
-    return NoiseChannel {
-        kind: ReadoutError,
-        params: [p0, p1],
-    };
-}
-
-/// Combine multiple noise channels into a composite noise model.
-type NoiseModel = Vec<NoiseChannel>
-
-/// A simple noise model: depolarizing + readout error.
-fn default_noise() -> NoiseModel pure {
-    return [
-        depolarizing(0.001),
-        readout_error(0.01, 0.01),
-    ];
-}
+/// Create a simulator backend with combined depolarizing and readout error.
+fn combined_noise(depolarizing_p: Float, readout_p: Float) -> Backend quantum;

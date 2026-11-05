@@ -335,6 +335,7 @@ fn named_ty(name: &str, args: &[ast::Type], diags: &mut Diagnostics, span: Span)
         "Unit" => Ty::Unit,
         "Params" => Ty::Params,
         "Qubit" => Ty::Qubit,
+        "Backend" => Ty::Backend,
         "Vec" => match args.first() {
             Some(t) => Ty::Vec(Box::new(ast_ty(t, diags, span))),
             None => {
@@ -349,7 +350,7 @@ fn named_ty(name: &str, args: &[ast::Type], diags: &mut Diagnostics, span: Span)
             diags.push(
                 Diagnostic::error(codes::UNRESOLVED_NAME, format!("unknown type `{other}`"))
                     .with_primary_label(span, "not a type")
-                    .with_help("the built-in types are Int, Float, Bool, Complex, String, Unit, Qubit, Qubits<N>, Measured<T>, Vec<T>"),
+                    .with_help("the built-in types are Int, Float, Bool, Complex, String, Unit, Qubit, Qubits<N>, Measured<T>, Vec<T>, Backend"),
             );
             Ty::Error
         }
@@ -1101,6 +1102,45 @@ impl<'p, 'i> Checker<'p, 'i> {
             Builtin::BackendHardware => {
                 if expect_args(self, 1) {
                     self.expect(&arg_tys[0].clone(), &Ty::Str, args[0].span, "device name");
+                }
+                Ty::Backend
+            }
+            Builtin::NoiseDepolarizing => {
+                if expect_args(self, 1) {
+                    self.expect(
+                        &arg_tys[0].clone(),
+                        &Ty::Float,
+                        args[0].span,
+                        "depolarizing probability",
+                    );
+                }
+                Ty::Backend
+            }
+            Builtin::NoiseReadoutError => {
+                if expect_args(self, 1) {
+                    self.expect(
+                        &arg_tys[0].clone(),
+                        &Ty::Float,
+                        args[0].span,
+                        "readout error probability",
+                    );
+                }
+                Ty::Backend
+            }
+            Builtin::NoiseCombined => {
+                if expect_args(self, 2) {
+                    self.expect(
+                        &arg_tys[0].clone(),
+                        &Ty::Float,
+                        args[0].span,
+                        "depolarizing probability",
+                    );
+                    self.expect(
+                        &arg_tys[1].clone(),
+                        &Ty::Float,
+                        args[1].span,
+                        "readout error probability",
+                    );
                 }
                 Ty::Backend
             }

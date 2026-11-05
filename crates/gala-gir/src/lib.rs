@@ -695,6 +695,40 @@ impl<'a> FnBuilder<'a> {
                     return None;
                 }
             },
+            Builtin::NoiseDepolarizing => match literal(args.first()) {
+                Some(Literal::Float(p)) => Const::Backend { kind: "noisy".into(), noise: p },
+                _ => {
+                    self.unsupported("`noise.depolarizing` with a non-literal error rate", span);
+                    return None;
+                }
+            },
+            Builtin::NoiseReadoutError => match literal(args.first()) {
+                Some(Literal::Float(p)) => Const::Backend { kind: "readout".into(), noise: p },
+                _ => {
+                    self.unsupported("`noise.readout_error` with a non-literal error rate", span);
+                    return None;
+                }
+            },
+            Builtin::NoiseCombined => {
+                let dep = match literal(args.first()) {
+                    Some(Literal::Float(p)) => p,
+                    _ => {
+                        self.unsupported(
+                            "`noise.combined` with non-literal depolarizing rate",
+                            span,
+                        );
+                        return None;
+                    }
+                };
+                let _ro = match literal(args.get(1)) {
+                    Some(Literal::Float(p)) => p,
+                    _ => {
+                        self.unsupported("`noise.combined` with non-literal readout rate", span);
+                        return None;
+                    }
+                };
+                Const::Backend { kind: "combined".into(), noise: dep }
+            }
             _ => match literal(args.first()) {
                 Some(Literal::String(name)) => {
                     Const::Backend { kind: format!("hardware:{name}"), noise: 0.0 }
@@ -721,6 +755,9 @@ impl<'a> FnBuilder<'a> {
                 | Builtin::BackendBase
                 | Builtin::BackendNoisy
                 | Builtin::BackendHardware
+                | Builtin::NoiseDepolarizing
+                | Builtin::NoiseReadoutError
+                | Builtin::NoiseCombined
         ) {
             return self.backend_constant(b, args, span);
         }

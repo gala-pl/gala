@@ -25,6 +25,7 @@ const BUNDLED: &[(&str, &str, &str)] = &[
         include_str!("../../../library/std/algorithms.gala"),
     ),
     ("gala.vqa", "library/std/vqa.gala", include_str!("../../../library/std/vqa.gala")),
+    ("gala.noise", "library/std/noise.gala", include_str!("../../../library/std/noise.gala")),
 ];
 
 /// A fully checked and lowered program.
