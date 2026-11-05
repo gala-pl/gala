@@ -1,0 +1,52 @@
+import gala.gates.*
+import gala.algorithms.{ qft2, iqft2 }
+
+// QFT2 is unitary
+#[property(unitary)]
+fn test_qft2_unitary(q: Qubits<2>) -> Qubits<2> quantum {
+    qft2(q)
+}
+
+// IQFT2 is unitary
+#[property(unitary)]
+fn test_iqft2_unitary(q: Qubits<2>) -> Qubits<2> quantum {
+    iqft2(q)
+}
+
+// QFT2 roundtrips (reversible)
+#[property(reversible)]
+fn test_qft2_reversible(q: Qubits<2>) -> Qubits<2> quantum {
+    qft2(q)
+}
+
+// IQFT2 roundtrips (reversible)
+#[property(reversible)]
+fn test_iqft2_reversible(q: Qubits<2>) -> Qubits<2> quantum {
+    iqft2(q)
+}
+
+// A function that allocates and releases ancillae - should uncomputes
+#[property(uncomputes)]
+fn test_clean_ancilla() -> Measured<Bool> prob {
+    let a = qubit()
+    let b = qubit()
+    h(a)
+    let (a, b) = cx(a, b)
+    drop(a)
+    drop(b)
+    let q = qubit()
+    measure(q)
+}
+
+// Effect honesty: quantum function with no measure
+#[property(effect_honesty)]
+fn test_quantum_no_measure(q: Qubit) -> Qubit quantum {
+    h(q)
+}
+
+fn main() -> Int { 0 }
+// expect: ok
+// property-expect: unitary
+// property-expect: reversible
+// property-expect: uncomputes
+// property-expect: effect_honesty
