@@ -685,7 +685,13 @@ impl<'g, 'r, 's> Machine<'g, 'r, 's> {
                     ));
                 }
                 let n = as_index(&slots[*shots as usize])? as u64;
-                let cfg = SimConfig { shots: n, seed: 0, depolarizing: noise, readout_error: 0.0 };
+                let (depolarizing, readout_error) = match kind.as_str() {
+                    "noisy" => (noise, 0.0),
+                    "readout" => (0.0, noise),
+                    "combined" => (noise, noise), // For combined, noise field stores depolarizing; readout is same
+                    _ => (0.0, 0.0),
+                };
+                let cfg = SimConfig { shots: n, seed: 0, depolarizing, readout_error };
                 let report = run_function(self.gir, *func, Vec::new(), &cfg, &ShiftPlan::new())?;
                 let ones = report.histogram.get("true").copied().unwrap_or(0);
                 slots[*dst as usize] = Value::Int(ones as i64);
@@ -1045,6 +1051,19 @@ pub fn reversible_roundtrip(
     input: usize,
     as_register: bool,
 ) -> Result<f64, SimError> {
+    reversible_roundtrip_general(gir, func, n, input, as_register, None)
+}
+
+/// More general version that accepts a list of qubit counts per parameter.
+/// If `qubits_per_param` is None, uses the old behavior (single register or single qubit).
+pub fn reversible_roundtrip_general(
+    gir: &Gir,
+    func: usize,
+    n: usize,
+    input: usize,
+    as_register: bool,
+    qubits_per_param: Option<&[usize]>,
+) -> Result<f64, SimError> {
     let shifts = ShiftPlan::new();
     let mut rng = StdRng::seed_from_u64(0);
     let mut m = Machine::new(gir, &mut rng, &shifts, 0.0, 0.0);
@@ -1057,8 +1076,25 @@ pub fn reversible_roundtrip(
             m.quantum.apply(GateKind::X, &[id], 0.0, false)?;
         }
     }
-    let arg = if as_register { Value::Register(ids.clone()) } else { Value::Qubit(ids[0]) };
-    m.call(func, vec![arg])?;
+    let args = if let Some(qubits_per_param) = qubits_per_param {
+        // Split the allocated qubits among parameters
+        let mut args = Vec::new();
+        let mut offset = 0;
+        for &count in qubits_per_param {
+            if count == 1 {
+                args.push(Value::Qubit(ids[offset]));
+            } else {
+                args.push(Value::Register(ids[offset..offset + count].to_vec()));
+            }
+            offset += count;
+        }
+        args
+    } else if as_register {
+        vec![Value::Register(ids.clone())]
+    } else {
+        vec![Value::Qubit(ids[0])]
+    };
+    m.call(func, args)?;
     let records: Vec<Record> = m.quantum.history.iter().filter(|r| !r.undone).cloned().collect();
     for rec in records.iter().rev() {
         m.quantum.apply(rec.gate, &rec.targets, rec.angle, true)?;

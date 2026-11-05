@@ -2,7 +2,7 @@
 //! all quantum functions in gala.algorithms.
 
 use gala_driver::{compile_source, Sources};
-use gala_sim::reversible_roundtrip;
+use gala_sim::{reversible_roundtrip, reversible_roundtrip_general};
 
 /// Compile a program and return the GIR.
 fn compile_gir(src: &str) -> gala_gir::Gir {
@@ -136,9 +136,7 @@ fn main() -> Int { 0 }
 }
 
 #[test]
-#[ignore = "reversible_roundtrip doesn't support multi-qubit args yet"]
 fn toffoli_is_unitary() {
-    // toffoli takes 3 individual qubits - test infrastructure doesn't support this yet
     let src = r#"
 import gala.gates.*
 import gala.core.*
@@ -148,16 +146,16 @@ fn main() -> Int { 0 }
 "#;
     let gir = compile_gir(src);
     let func = find_func(&gir, "toffoli").expect("toffoli found");
+    // toffoli takes 3 individual qubits
     for input in 0..8 {
-        let fidelity = reversible_roundtrip(&gir, func, 3, input, false).unwrap();
+        let fidelity =
+            reversible_roundtrip_general(&gir, func, 3, input, false, Some(&[1, 1, 1])).unwrap();
         assert!((fidelity - 1.0).abs() < 1e-10, "toffoli input {input:03b}: fidelity {fidelity}");
     }
 }
 
 #[test]
-#[ignore = "reversible_roundtrip doesn't support multi-qubit args yet"]
 fn full_adder_is_unitary() {
-    // full_adder takes 4 individual qubits - test infrastructure doesn't support this yet
     let src = r#"
 import gala.gates.*
 import gala.core.*
@@ -167,8 +165,10 @@ fn main() -> Int { 0 }
 "#;
     let gir = compile_gir(src);
     let func = find_func(&gir, "full_adder").expect("full_adder found");
+    // full_adder takes 4 individual qubits: a, b, cin, cout
     for input in 0..16 {
-        let fidelity = reversible_roundtrip(&gir, func, 4, input, false).unwrap();
+        let fidelity =
+            reversible_roundtrip_general(&gir, func, 4, input, false, Some(&[1, 1, 1, 1])).unwrap();
         assert!(
             (fidelity - 1.0).abs() < 1e-10,
             "full_adder input {input:04b}: fidelity {fidelity}"
